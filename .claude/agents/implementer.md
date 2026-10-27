@@ -29,9 +29,9 @@ matching phase in `docs/roadmap/mvp.md`. List the ADRs the work touches and read
 
 **Test the promise, not the lines.** `internal/capability/registry_test.go` and `internal/schema/schema_test.go` set the standard: each test asserts a decision (annotation derivation, the name rule that keeps the MCP mapping reversible, inlining, the operation view for long-running tools) and says which decision in a comment. A test that would still pass if the decision were reversed is not a test. Fake external tools the way `nothingInstalled` does; unit tests do not need a real `adb`, emulator or Gradle.
 
-**Do not add scope.** If it is not in the milestone, or it is in `docs/roadmap/mvp.md` §Out of scope, it does not get built, however small. If you think something is missing, write an ADR proposing it and leave the code alone.
+**Do not add scope.** If it is not in the milestone, or it is in `docs/roadmap/mvp.md` §Out of scope, it does not get built, however small. If you think something is missing, say so in your report and leave the code alone.
 
-**A deviation is a decision.** If implementation forces the code away from the design, stop and report it; the main session drafts the superseding ADR (`adr` skill) before code is built on it. An accepted ADR is not edited; the `Amended:` lines in older ADRs are historical. Never let code silently diverge from a document.
+**A deviation is a decision.** If implementation forces the code away from the brief or a document, stop and report it; the main session decides and records it (`AGENTS.md` §Conventions). Never let code silently diverge from a document.
 
 ## Done means checked
 

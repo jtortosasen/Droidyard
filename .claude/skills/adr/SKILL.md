@@ -9,8 +9,11 @@ The format is in `docs/adr/README.md` §Format. Read two ADRs before you write o
 
 ## When
 
-- **Write an ADR** for a decision that could reasonably have gone another way and that code or other documents will depend on: a new capability or error-code prefix, a new third-party dependency that shapes a contract, a file format or path, a default a consumer observes. A private implementation detail that is cheap to change is not an ADR.
-- **Supersede** when a decision changes, in whole or in part, including a change of details, scope or evidence. Write a new short ADR with `Supersedes: ADR-NNNN` (whole) or `Supersedes: ADR-NNNN §Section` (in part). The old file keeps its text and gains one header line (see Superseding one).
+An ADR costs a number, a file, an index row and a review; spend it only where reversing the decision later would be expensive (owner, 2026-10-27: too many ADRs slowed every change).
+
+- **Write an ADR** for: a new subsystem, long-lived process or third-party dependency; the security fence, authorization or the untrusted-text model; an on-disk format or path other tools or versions read; a principle the whole capability contract follows (naming, the error shape, versioning); or when the owner asks for one.
+- **Not an ADR**: a new capability, parameter, field, error code or default; a UI layout; a bound or a working value; a change to a detail an older ADR set. The descriptor, `schema/capabilities.json`, the area document and the commit message are its record. A commit that departs from an ADR says `Changes ADR-NNNN §X: <why>` in its message; no file changes.
+- **Supersede** only when the new decision itself meets the first bullet. Write a new short ADR with `Supersedes: ADR-NNNN` (whole) or `Supersedes: ADR-NNNN §Section` (in part). The old file keeps its text and gains one header line (see Superseding one).
 - **Never edit an accepted ADR.** No new `Amended:` line and no rewritten body; the existing `Amended:` lines are history. The current rule lives in the code and the area document, which the new ADR's Consequences name.
 
 An agent writes `Status: Proposed`; only the owner accepts. A proposed ADR binds nothing, so no code is built on it until it is accepted.
@@ -31,4 +34,4 @@ An agent writes `Status: Proposed`; only the owner accepts. A proposed ADR binds
 
 ## From a plan
 
-The planner cannot write ADR files. It puts the draft (question, what the documents say, the proposed decision) under the plan's Design questions. The session that owns the workflow turns it into a `Proposed` ADR for the owner.
+The planner cannot write ADR files. It puts the draft (question, what the documents say, the proposed decision) under the plan's Design questions, and the answer stays there as its record. Only an answer that meets §When becomes an ADR, which the session that owns the workflow writes.

@@ -21,9 +21,11 @@ buried in prose.
 ## Alternatives considered
 ```
 
-An accepted ADR is not edited again (`AGENTS.md` §Conventions). A changed decision is a
-new ADR that supersedes the old one in whole or in part, and the old file gains only its
-one header line. The `Amended:` lines that older ADRs carry are historical: they record
+Only decisions costly to reverse get an ADR (`AGENTS.md` §Conventions, owner,
+2026-10-27); a change to a detail an ADR set is recorded in its commit message as
+`Changes ADR-NNNN §X`, and the code is then current. An accepted ADR is not edited
+again. A changed decision that itself meets that bar is a new ADR that supersedes the
+old one in whole or in part, and the old file gains only its one header line. The `Amended:` lines that older ADRs carry are historical: they record
 edits made before this rule and are not added to.
 
 ## Index

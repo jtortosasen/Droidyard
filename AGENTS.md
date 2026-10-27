@@ -24,9 +24,18 @@ question reaches back to the original design. Where the project may go after the
 ## Starting a session
 
 The owner runs several sessions at once, one per piece of work, each in its own
-worktree. A fresh session starts with the `work-board` skill: it says what the other
+worktree. A fresh session starts with the `work-board` skill (briefly, when the owner
+opens with a concrete change): it says what the other
 sessions are doing, what can start without colliding with them, and how to claim a
 lane, close in turn and publish the board page.
+
+## Picking the track
+
+Most of what the owner asks is **direct**: the session makes the change, checks it and
+commits, with no plan, no ADR and no reviewer agent. A light plan is for work that needs
+several sittings; the full cycle (plan review, Opus verifier) is for the risky few:
+security, concurrency, process lifetime, a new subsystem (owner, 2026-10-27: iterate
+faster). `milestone-workflow` §Tracks decides which.
 
 ## Starting a milestone
 
@@ -71,13 +80,17 @@ skill says who does what.
 ## Conventions
 
 - **Documents and commit messages are in English.**
-- **Decisions go to ADRs.** One file per decision, numbered, with Context / Decision /
-  Consequences / Alternatives considered. Never bury a decision in prose. An accepted
-  ADR is not edited again, and gets no new `Amended:` line (the existing ones are
-  history). A changed decision is a new short ADR with `Supersedes: ADR-NNNN` (whole)
-  or `Supersedes: ADR-NNNN §Section` (in part); the old file keeps its text and gains
-  one header line, `Superseded by ADR-XXXX` in Status or `- Superseded in part by:
-  ADR-XXXX (§Section)`. The current rule is then in the code and the area document.
+- **ADRs are for the few decisions that are costly to reverse** (`adr` skill §When):
+  a new subsystem, process or third-party dependency, the security fence or the
+  untrusted-text model, an on-disk format other tools read, a principle of the
+  capability contract. Not for a new capability, parameter, error code, default or UI
+  layout, nor for changing a detail an older ADR set: those live in the code, the
+  descriptors and the area document, and the commit message says why. A commit that
+  departs from an ADR says `Changes ADR-NNNN §X: <why>`, so `git log --grep ADR-NNNN`
+  finds it (owner, 2026-10-27). An ADR is the reason at the time; where the code has
+  moved on, the code is current. An accepted ADR is not edited; a superseding ADR
+  (`Supersedes:` line, the old file gaining one header line) is written only when the
+  new decision itself meets §When.
 - **Records are frozen.** A plan with Status `Done`, every file in `docs/research/` and
   `docs/reviews/`, and every ADR cite documents as they were. They are not edited or
   reconciled at a close, and a dead `§` reference or `#fragment` in them is not a
@@ -158,7 +171,7 @@ The MVP is done (2h closed its Definition of done); each milestone since is chos
 the owner, and its plan's Scope table is its boundary. `docs/roadmap/mvp.md` §Out of
 scope still says what was deferred and why: code intelligence, the live screen stream,
 OCR, SDK provisioning, multi-device concurrency, Windows. Do not add what the milestone
-does not need; if you think something should be added, write an ADR proposing it.
+does not need; if you think something should be added, say so to the owner.
 
 ## Before touching the Gradle sidecar
 

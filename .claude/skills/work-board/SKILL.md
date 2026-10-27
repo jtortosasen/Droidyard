@@ -12,7 +12,7 @@ The owner runs several Claude Code sessions at once, one per piece of work, each
 
 ## 1. Survey (a fresh session's first act)
 
-Run `board.go status` and tell the owner, briefly and in Spanish:
+When the owner opens with a concrete change, skip the survey: run `board.go status` only to see whether a lane is open, then follow `milestone-workflow` §Tracks. Otherwise, run `board.go status` and tell the owner, briefly and in Spanish:
 
 - what is in flight (each lane: what, state, commits ahead, plan status) and anything marked PROBLEM or UNTRACKED;
 - what could start now: the plans index's open plans, then the `Work` groups by size, each with whether it collides with a lane (§Touches);
@@ -49,7 +49,7 @@ The register is touched by almost every close; its rows are ordered by Area, so 
 
 1. `board.go closing <id>`: refused while another lane is closing; wait for it.
 2. In the worktree: `git merge main`, resolve, rerun `go test ./...` (and `pnpm -C web run verify` if `web/` changed), regenerate the schema when `contract` met another lane.
-3. The close commit, as `milestone-workflow` step 6 says.
+3. The close commit, as `milestone-workflow` step 6 says (a Direct change's slug lane has none: its own commit is enough).
 4. Merge from the main tree: `git -C <main tree> merge --no-ff <branch>`, push `main`, watch `main`'s CI.
 5. `ExitWorktree` with `action: "keep"`, then `board.go release <id>`: it removes the worktree, the branch and the lane, and refuses an unmerged branch.
 6. Republish the board (§5).
@@ -59,4 +59,4 @@ Abandoning work is the owner's call: then remove the worktree and the branch by 
 
 ## 5. The board page
 
-`board.go page <scratchpad>/board.html` writes the page; publish it with the Artifact tool to its fixed URL, https://claude.ai/artifact/D77M8VWETF3fwMkWzF8ZkF (pass it as `url`; a publish refused for an unread artifact is answered by reading it and publishing the regenerated file, which replaces it whole). Republish at every claim and every close, and when the owner asks. The page's labels are in Spanish, for the owner; its template is `board.html` in this directory.
+`board.go page <scratchpad>/board.html` writes the page; publish it with the Artifact tool to its fixed URL, https://claude.ai/artifact/D77M8VWETF3fwMkWzF8ZkF (pass it as `url`; a publish refused for an unread artifact is answered by reading it and publishing the regenerated file, which replaces it whole). Republish at a milestone's claim and close, and when the owner asks; a Direct change's slug lane does not republish it. The page's labels are in Spanish, for the owner; its template is `board.html` in this directory.
