@@ -6,6 +6,7 @@
 - Superseded in part by: ADR-0051 (§4)
 - Superseded in part by: ADR-0106 (§6)
 - Superseded in part by: ADR-0122 (§7)
+- Superseded in part by: ADR-0135 (§2)
 - Relates to: ADR-0010, ADR-0015 §1, §2, ADR-0016, ADR-0020, ADR-0021 §Pid records;
   `capability-api.md` §Events and subscriptions; plan m2a Q2
 - Decided by the owner, 2026-10-09: Logcat streams to the UI, lines shown as they arrive.

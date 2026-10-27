@@ -72,7 +72,7 @@ var CoreTools = []string{
 	"emulator_list", "emulator_start", "emulator_stop",
 	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
 	"device_inputText", "device_logs", "device_screenshot",
-	"operation_wait", "operation_cancel", "artifact_read",
+	"operation_wait", "operation_cancel", "artifact_read", "artifact_search",
 }
 
 // CoreNote is appended to the instructions of a core session, so the agent knows the

@@ -141,12 +141,26 @@ func (a *ADB) logsFrom(ctx context.Context, f hostArtifacts, rt *remoteTarget, s
 	for i := range r.Lines {
 		l := &r.Lines[i]
 		l.Tag, l.Message = truncateUTF8(l.Tag, logsLineCap), truncateUTF8(l.Message, logsLineCap)
+		l.Repeats = max(l.Repeats, 0)
+	}
+	// topTags is device text and a count: at most the 50 the request allows, each tag cut
+	// as the local report cuts it, no count below zero (ADR-0135 §6).
+	if len(r.TopTags) > logsTopTagsMax {
+		r.TopTags = r.TopTags[:logsTopTagsMax]
+	}
+	for i := range r.TopTags {
+		t := &r.TopTags[i]
+		t.Tag = truncateUTF8(t.Tag, logsTagBytesMax)
+		t.Scanned, t.Matched = max(t.Scanned, 0), max(t.Matched, 0)
 	}
 	for i := range r.Crashes {
 		c := &r.Crashes[i]
 		c.Exception, c.Message = truncateUTF8(c.Exception, logsLineCap), truncateUTF8(c.Message, logsLineCap)
 		c.Causes, c.Frames = boundedText(c.Causes, logsCrashesMax), boundedText(c.Frames, logsCrashesMax)
 	}
+	// filter.processes is the host's report of the names this daemon sent, bounded as the
+	// request bounds them (ADR-0135 §6): at most 10 names of 128 bytes, 64 pids each.
+	r.Filter.Processes = boundedProcesses(r.Filter.Processes)
 	switch r.EmptyReason {
 	case "", "noLines", "noKnownProcess", "filtered":
 	default:
@@ -177,6 +191,26 @@ func (a *ADB) logsFrom(ctx context.Context, f hostArtifacts, rt *remoteTarget, s
 	}
 	r.Capture = &ref
 	return r, nil
+}
+
+// boundedProcesses is a host's report of the process names this daemon sent, bounded as
+// the request bounds them (ADR-0135 §6): at most 10 names of 128 bytes, 64 pids each. A
+// nil list stays nil, so an older host's answer (no processes) decodes as before.
+func boundedProcesses(in []LogProcess) []LogProcess {
+	if len(in) > logsProcessesMax {
+		in = in[:logsProcessesMax]
+	}
+	for i := range in {
+		p := &in[i]
+		p.Name = truncateUTF8(p.Name, logsProcessNameMax)
+		if len(p.PIDs) > logsProcessPIDsMax {
+			p.PIDs = p.PIDs[:logsProcessPIDsMax]
+		}
+		if p.PIDs == nil {
+			p.PIDs = []int{} // the published array is required: a relayed null is empty
+		}
+	}
+	return in
 }
 
 // boundedText is at most n entries of a list of device text, each cut as a log line is.

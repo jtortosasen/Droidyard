@@ -227,7 +227,7 @@ func (s *relayedUI) start(ctx context.Context, params json.RawMessage) error {
 	s.stop = stop
 	s.mu.Unlock()
 	if resp.Error != nil {
-		return s.adb.hostError(resp.Error, watchUIEventsErrors, rt)
+		return s.adb.hostError(resp.Error, watchUIEventsErrors, rt, params)
 	}
 	if resp.Operation == nil || resp.Operation.State != capability.StateCompleted || resp.Result == nil {
 		return incompatible(rt, "it answered neither a result nor an error")

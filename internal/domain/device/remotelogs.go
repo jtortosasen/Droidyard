@@ -158,7 +158,7 @@ func (s *relayedLogs) start(ctx context.Context, params json.RawMessage) (WatchL
 	s.stop = stop
 	s.mu.Unlock()
 	if resp.Error != nil {
-		return WatchLogsResult{}, s.adb.hostError(resp.Error, watchLogsErrors, rt)
+		return WatchLogsResult{}, s.adb.hostError(resp.Error, watchLogsErrors, rt, params)
 	}
 	if resp.Operation == nil || resp.Operation.State != capability.StateCompleted || resp.Result == nil {
 		return WatchLogsResult{}, incompatible(rt, "it answered neither a result nor an error")
@@ -176,7 +176,7 @@ func (s *relayedLogs) start(ctx context.Context, params json.RawMessage) (WatchL
 	if r.SubscriptionID == "" || len(r.SubscriptionID) > maxRelayedID {
 		return WatchLogsResult{}, incompatible(rt, "it named a subscription this version cannot use")
 	}
-	out := WatchLogsResult{}
+	out := WatchLogsResult{Processes: boundedProcesses(r.Processes)}
 	if r.UID != nil && *r.UID >= 0 {
 		out.UID = r.UID
 	}

@@ -6,6 +6,7 @@ A session started with `--tools core` lists only the tools marked core.
 | Tool | Core | Effect | What it does |
 |---|---|---|---|
 | `artifact_read` | core | read-only | Reads an artifact by the reference another tool returned (a screenshot, a build console, shell output): an image can be resized or cropped, text is ... |
+| `artifact_search` | core | read-only | Searches a text artifact (a build console, a logs capture, shell output) with RE2 patterns, as grep -n -C does: matching lines with their numbers, ... |
 | `build_assemble` | core | changes state | Assembles one module's variant with Gradle and returns the build record, as build_run does. |
 | `build_errors` | core | read-only | Returns a finished build's merged errors (severity, file, line, message, problem id), and its warnings on request; buildId absent means the newest ... |
 | `build_lastResult` | core | read-only | Returns the newest finished build of the workspace in build_run's shape, without running anything. |
@@ -16,7 +17,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_install` | core | changes state | Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. |
 | `device_launch` | core | changes state | Starts an application's launcher activity, or with url opens that link in the app, and returns launchedAt and the process id observed afterwards ... |
 | `device_list` | core | read-only | Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model ... |
-| `device_logs` | core | read-only | Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a ... |
+| `device_logs` | core | read-only | Reads the device's log once, or follows it for followMs: structured lines, crash blocks, how lines were selected, and a capture of the matches. |
 | `device_pressKey` |  | changes state | Presses and releases a system key on the device, such as back, home, power or a volume key. |
 | `device_recordUi` |  | changes state | Records the device's UI from now until device_stopUiRecording: the full dump (device_uiDump's document) each time the screen changes, with the events ... |
 | `device_rotate` |  | changes state | Pins the screen to an angle with auto-rotate off, or turns auto-rotate back on, and returns the previous setting. |

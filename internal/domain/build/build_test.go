@@ -1150,3 +1150,80 @@ func TestCancelPhaseIsLogged(t *testing.T) {
 		})
 	}
 }
+
+// errorsFiltered persists a finished build of three files' records: two errors in a/,
+// one in b/, and a warning in each.
+func errorsFiltered(t *testing.T, f *buildFixture) string {
+	t.Helper()
+	const id = "op-00000000000000a1"
+	rec := record{
+		BuildID: id, Outcome: "failed", FinishedAt: time.Now(),
+		Errors: []extract.Record{
+			{File: "app/src/main/java/a/One.kt", Message: "Unresolved reference: foo"},
+			{File: "app/src/main/java/a/Two.kt", Message: "Type mismatch: inferred type is String"},
+			{File: "lib/src/main/java/b/Three.kt", Message: "Unresolved reference: bar"},
+		},
+		Warnings: []extract.Record{
+			{File: "app/src/main/java/a/One.kt", Message: "Deprecated: baz"},
+			{File: "lib/src/main/java/b/Three.kt", Message: "Deprecated: qux"},
+		},
+	}
+	if err := f.history.persist(testWS, rec); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// Decision (ADR-0136 §3): build.errors filters by a prefix of the record's file (never a
+// substring) and by RE2 patterns over the message, on errors and, with includeWarnings,
+// warnings; filtered counts what the filters dropped.
+func TestErrorsFilteredByFileAndPattern(t *testing.T) {
+	f := newFixture(t, gradletest.Config{})
+	id := errorsFiltered(t, f)
+	get := func(params string) ErrorsResult {
+		t.Helper()
+		out := f.call(t, "build.errors", params)
+		if out.Error != nil {
+			t.Fatalf("%s: %v", params, out.Error)
+		}
+		return out.Result.(ErrorsResult)
+	}
+	b := `"buildId":"` + id + `"`
+
+	r := get(`{` + b + `,"file":"app/src/main/java/a/"}`)
+	if len(r.Errors) != 2 || r.Filtered != 1 {
+		t.Errorf("file prefix: errors %+v filtered %d, want its two and 1", r.Errors, r.Filtered)
+	}
+	// A substring of the file is not a prefix.
+	if r := get(`{` + b + `,"file":"java/a/"}`); len(r.Errors) != 0 || r.Filtered != 3 {
+		t.Errorf("substring: errors %+v filtered %d, want none and 3", r.Errors, r.Filtered)
+	}
+	r = get(`{` + b + `,"match":["^Unresolved"]}`)
+	if len(r.Errors) != 2 || r.Filtered != 1 {
+		t.Errorf("match: errors %+v filtered %d, want two and 1", r.Errors, r.Filtered)
+	}
+	r = get(`{` + b + `,"exclude":["bar"]}`)
+	if len(r.Errors) != 2 || r.Filtered != 1 {
+		t.Errorf("exclude: errors %+v filtered %d, want two and 1", r.Errors, r.Filtered)
+	}
+	r = get(`{` + b + `,"includeWarnings":true,"file":"app/","match":["(?i)deprecated|unresolved"]}`)
+	if len(r.Errors) != 1 || len(r.Warnings) != 1 || r.Filtered != 3 {
+		t.Errorf("combined: errors %+v warnings %+v filtered %d, want 1, 1 and 3", r.Errors, r.Warnings, r.Filtered)
+	}
+	if r := get(`{` + b + `}`); len(r.Errors) != 3 || r.Filtered != 0 {
+		t.Errorf("no filter: errors %+v filtered %d, want all three and 0", r.Errors, r.Filtered)
+	}
+}
+
+// Decision (ADR-0136 §3): the patterns are validated before the build is looked up, so a
+// bad pattern is REQUEST_INVALID_PARAMS naming match[i] even for a build that does not exist.
+func TestErrorsBadPatternBeforeLookup(t *testing.T) {
+	f := newFixture(t, gradletest.Config{})
+	out := f.call(t, "build.errors", `{"buildId":"op-00000000000000ff","match":["ok","("]}`)
+	if code := codeOf(t, out.Error); code != capability.ErrInvalidParams {
+		t.Fatalf("code is %s, want REQUEST_INVALID_PARAMS (not BUILD_NOT_FOUND)", code)
+	}
+	if !strings.Contains(out.Error.Message, "match[1]") {
+		t.Errorf("message %q does not name match[1]", out.Error.Message)
+	}
+}

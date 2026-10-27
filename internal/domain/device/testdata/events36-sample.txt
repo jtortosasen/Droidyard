@@ -1,0 +1,20 @@
+         1793101229.144457  1000   661  1831 I am_uid_active: 10105
+         1793101229.145905  1000   661   708 I am_uid_running: 10133
+         1793101229.170640  1000   661   709 I am_proc_start: [0,3778,10133,com.google.android.projection.gearhead:car,broadcast,{com.google.android.projection.gearhead/com.google.android.apps.auto.carservice.gmscorecompatstub.StubComponentInitReceiver}]
+         1793101229.220250  1000   661  1829 I am_proc_bound: [0,3778,com.google.android.projection.gearhead:car]
+         1793101229.318545  1000   661   771 I commit_sys_config_file: [settings-0-0,424]
+         1793101229.361026  1000   661   771 I commit_sys_config_file: [settings-2-0,5]
+         1793101229.372622  1000   661   708 I ssm_user_completed_event: [0,2]
+         1793101229.513666  1000   661  2345 I am_uid_active: 10133
+         1793101229.530197  1000   661   708 I am_uid_running: 10146
+         1793101229.555142  1000   661   709 I am_proc_start: [0,3803,10146,com.google.android.settings.intelligence,broadcast,{com.google.android.settings.intelligence/com.google.android.settings.intelligence.modules.routines.impl.WifiBroadcastReceiver}]
+         1793101229.590613  1000   661   772 I am_freeze: [2648,com.android.carrierdefaultapp]
+         1793101229.596716  1000   661  1831 I am_proc_bound: [0,3803,com.google.android.settings.intelligence]
+         1793101229.598362  1000   661  1831 I am_uid_active: 10146
+         1793101229.607219  1000   661   772 I am_compact: [2648,com.android.carrierdefaultapp,ANON,78432,52224,25568,29440,-512,0,-512,512,9,SOME,0,975,19,102348,0]
+         1793101229.827715  1000   661  2343 I am_mem_factor: [0,2]
+         1793101229.902028  1000   661   771 I commit_sys_config_file: [settings-0-0,338]
+         1793101230.152521  1000   661  2343 I am_wtf  : [0,1305,com.android.settings,952876613,DSRotLockSettingsMngr,No matching device state for posture: 0]
+         1793101230.152973  1000   661  2343 I am_wtf  : [0,1305,com.android.settings,952876613,DSRotLockSettingsMngr,No matching device state for posture: 2]
+         1793101230.153857  1000   661   661 I notification_cancel_all: [1000,661,com.google.android.gms,0,0,0,20,NULL]
+         1793101230.153936  1000   661   661 I notification_cancel_all: [1000,661,com.google.android.gms,0,0,0,20,NULL]

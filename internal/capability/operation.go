@@ -1182,19 +1182,9 @@ func jsonShape(t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.Struct:
 		var names []string
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			if f.PkgPath != "" {
-				continue // unexported, so not in the schema
-			}
-			name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
-			if name == "-" {
-				continue
-			}
-			if name == "" {
-				name = f.Name
-			}
-			if strings.Contains(opts, "omitempty") {
+		for _, f := range jsonFields(t) {
+			name := f.name
+			if f.optional {
 				name += "?"
 			}
 			names = append(names, name)
@@ -1263,21 +1253,49 @@ func paramNames(proto any) []string {
 		return nil
 	}
 	var names []string
+	for _, f := range jsonFields(t) {
+		names = append(names, f.name)
+	}
+	return names
+}
+
+// jsonField is one property of a struct as its JSON has it.
+type jsonField struct {
+	name     string
+	optional bool // omitempty
+}
+
+// jsonFields lists the JSON properties of struct type t in declaration order. An embedded
+// struct with no json name of its own is flattened into its parent, as encoding/json and
+// the schema generator do, so a hint names `exclude` and never the embedding type.
+func jsonFields(t reflect.Type) []jsonField {
+	var out []jsonField
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		if f.PkgPath != "" {
+		tag := f.Tag.Get("json")
+		name, opts, _ := strings.Cut(tag, ",")
+		if name == "-" && opts == "" {
 			continue
 		}
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if name == "-" {
-			continue
+		if name == "" && f.Anonymous {
+			et := f.Type
+			for et.Kind() == reflect.Pointer {
+				et = et.Elem()
+			}
+			if et.Kind() == reflect.Struct {
+				out = append(out, jsonFields(et)...)
+				continue
+			}
+		}
+		if f.PkgPath != "" {
+			continue // unexported, so not in the schema
 		}
 		if name == "" {
 			name = f.Name
 		}
-		names = append(names, name)
+		out = append(out, jsonField{name: name, optional: strings.Contains(opts, "omitempty")})
 	}
-	return names
+	return out
 }
 
 // noSession reports whether s carries no session: nil, or an interface holding a nil

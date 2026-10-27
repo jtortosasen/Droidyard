@@ -145,6 +145,19 @@ D4-D11; the shape is the descriptor's):
 - A `device.watchLogs` line names its application's package, read from `pm list packages -U` by the
   line's uid when the stream first sees it ([ADR-0051](../adr/0051-logcat-line-package.md)).
 
+### Filters an agent would otherwise pipe through a terminal
+
+Both log capabilities share one line filter, run on the host, never in an adb argument
+([ADR-0135](../adr/0135-host-side-filters-for-device-logs.md)):
+
+- **RE2**: linear in input × program, which bounds a pattern's shape but not its cost, so a
+  call also has an instruction budget and a time budget read after every line. The pass
+  judges from the end `keep` keeps, so a cut loses the other end.
+- **The subject is `<tag>: <message>`**: one list ORs tags and messages; `^Tag: ` selects a tag.
+- **Processes by name**: one fixed `ps` read, plus `Start proc` lines trusted only from
+  `ActivityManager` at uid 1000, since any app can log that text.
+- A lent device's host filters; an older host refuses an unknown parameter, never ignores it.
+
 ### Filtering by app survives the app's death
 
 The MVP's crash path is the case that must work: after a crash the process is gone, so

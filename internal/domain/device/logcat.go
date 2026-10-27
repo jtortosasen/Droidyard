@@ -25,6 +25,10 @@ const logcatFormat = "threadtime,epoch,usec,uid"
 // logcatBuffers is logcat's default buffer set, the values `buffers` may name.
 var logcatBuffers = []string{"main", "system", "crash"}
 
+// logsBuffers is every buffer device.logs may read, in the order logcat is asked for
+// them: the default set, then events (ADR-0135 §5), which is read only when named.
+var logsBuffers = append(append([]string{}, logcatBuffers...), "events")
+
 var (
 	// logcatLineRE matches a line with the uid column.
 	logcatLineRE = regexp.MustCompile(`^ *([0-9]+)\.([0-9]{6}) +(\S+) +([0-9]+) +([0-9]+) +([VDIWEF]) +(.*)$`)
@@ -403,15 +407,26 @@ func splitColon(s string) (string, string) {
 // startProcPID returns the pid of the app's "Start proc <pid>:<app>/…" line, 0 when the
 // line names another package.
 func startProcPID(message, app string) int {
-	m := startProcRE.FindStringSubmatch(message)
-	if m == nil || m[2] != app {
-		return 0
-	}
-	pid, err := strconv.Atoi(m[1])
-	if err != nil {
+	pid, name, ok := startProcOf(message)
+	if !ok || name != app {
 		return 0
 	}
 	return pid
+}
+
+// startProcOf reads a "Start proc <pid>:<name>/…" message: the pid and the process name,
+// which may hold a colon (a service process, com.google.android.webview:webview_apk). Who
+// may be believed when they say it is the caller's to decide (startProcTrusted).
+func startProcOf(message string) (pid int, name string, ok bool) {
+	m := startProcRE.FindStringSubmatch(message)
+	if m == nil {
+		return 0, "", false
+	}
+	pid, err := strconv.Atoi(m[1])
+	if err != nil || pid <= 0 {
+		return 0, "", false
+	}
+	return pid, m[2], true
 }
 
 // epochForm renders a device-clock instant as logcat -T's epoch form (plan m1i step 1,

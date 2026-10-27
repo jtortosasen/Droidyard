@@ -246,6 +246,13 @@ func TestRelayedLogsCaptureIsStoredLocally(t *testing.T) {
 		t.Errorf("a host's text is not bounded: %d/%d, %d/%d, %d causes, %d, reason %q", len(got.Lines[0].Tag), len(got.Lines[0].Message),
 			len(got.Crashes[0].Exception), len(got.Crashes[0].Message), len(got.Crashes[0].Causes), len(got.Crashes[0].Frames[0]), got.EmptyReason)
 	}
+	// filter.processes is bounded as the request is (ADR-0135 §6): 10 names of 128 bytes, 64 pids each.
+	many := make([]LogProcess, logsProcessesMax+4)
+	many[0] = LogProcess{Name: long, PIDs: make([]int, logsProcessPIDsMax+30)}
+	bounded, _ := (&ADB{}).logsFrom(context.Background(), text, qaPhone, store, LogsResult{Filter: LogFilter{By: "none", Processes: many}})
+	if ps := bounded.(LogsResult).Filter.Processes; len(ps) != logsProcessesMax || len(ps[0].Name) != logsProcessNameMax || len(ps[0].PIDs) != logsProcessPIDsMax {
+		t.Errorf("filter.processes not bounded: %d entries, first name %d bytes, %d pids", len(ps), len(ps[0].Name), len(ps[0].PIDs))
+	}
 	// Replacing invalid UTF-8 can grow a capture: it is cut back to the local cap, and says so.
 	invalid := &fakeHostArtifacts{a: hosting.Artifact{MediaType: "text/plain", Data: bytes.Repeat([]byte("\xffa"), logsCaptureCap/2)}}
 	grown, gerr := (&ADB{}).logsFrom(context.Background(), invalid, qaPhone, store, LogsResult{Capture: &artifact.Ref{Ref: hostShotRef}})

@@ -343,7 +343,7 @@ func (s *relayedSource) start() error {
 	}
 	s.stopRoute = stop
 	if resp.Error != nil {
-		return s.adb.hostError(resp.Error, watchScreenErrors, rt)
+		return s.adb.hostError(resp.Error, watchScreenErrors, rt, params)
 	}
 	if resp.Operation == nil || resp.Operation.State != capability.StateCompleted || resp.Result == nil {
 		return incompatible(rt, "it answered neither a result nor an error")

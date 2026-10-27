@@ -84,7 +84,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `agent.recordCommand`, `agent.recordEdit`, `agent.checkWrite` | Audience `human` ([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md) §3): the hook's channel: records of commands and edits, check before a write. |
 | `sdk.licenses`, `sdk.acceptLicense`, `sdk.uninstall`, `emulator.delete`, `emulator.configure` | Audience `human` ([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §1, §2): a person accepts a licence and removes packages and AVDs. |
 
-`operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
+`operation_wait`, `operation_cancel`, `artifact_read`, `artifact_search` **are** exposed. Each exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and
 answers other calls "tool not found". `all` stays the default: stable prompt caches.
 
@@ -222,8 +222,8 @@ structured content stays the full result, for typed clients and the UI
   artifact larger, or cropped, as an image block; an MCP agent never receives the stored
   bytes as base64.
 - **Build consoles**: a build result carries `consoleRef` and no console tail, once the
-  build has finished. `build_errors` returns the structured errors, and `artifact_read`
-  with a negative `offset` reads the console from its end.
+  build has finished. `build_errors` returns the structured errors, `artifact_read`
+  with a negative `offset` reads its end; `artifact_search` greps it.
 - **Expiry**: an ephemeral reference expires after 15 minutes or a daemon restart, with
   `ARTIFACT_EXPIRED` and a `nextStep` to re-run the capability that produced it. Build
   consoles stay readable as long as their build record.

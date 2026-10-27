@@ -1,5 +1,5 @@
-// Package artifacts registers artifact.read, the one capability that reads every
-// artifact (ADR-0012 §Reading artifacts). The store is internal/artifact's; this
+// Package artifacts registers artifact.read, which reads every artifact (ADR-0012
+// §Reading artifacts), and artifact.search, which searches a text one (ADR-0136). The store is internal/artifact's; this
 // package only translates a call into a Get and a Transform or a text page. An image
 // is read as bytes (maxEdge, region); anything else is read as text (offset, limit).
 package artifacts
@@ -83,13 +83,14 @@ func readText(e artifact.Entry, p ReadParams) (ReadResult, error) {
 // artifacts that peer's own calls made and nothing else of its store (ADR-0099 §2): for a
 // peer the handler resolves the reference by owner.
 func Register(reg *capability.Registry, store *artifact.Store) {
+	registerSearch(reg, store)
 	reg.MustRegister(capability.Descriptor{
 		Name:        "artifact.read",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Lendable:    true,
 		Since:       "0.4.0",
-		Description: "Reads an artifact by the reference another tool returned (a screenshot, a build console, shell output): an image can be resized or cropped, text is paged. Ephemeral references expire after 15 minutes or a daemon restart.",
+		Description: "Reads an artifact by the reference another tool returned (a screenshot, a build console, shell output): an image can be resized or cropped, text is paged, and artifact.search finds lines in it. Ephemeral references expire after 15 minutes or a daemon restart.",
 		Params:      ReadParams{},
 		Result:      ReadResult{},
 		Errors:      []capability.ErrorCode{capability.ErrArtifactNotFound, capability.ErrArtifactExpired, capability.ErrInvalidParams},
