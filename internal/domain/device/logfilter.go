@@ -217,6 +217,7 @@ const (
 // order the pass judged them in.
 type passResult struct {
 	lines []logLine
+	idx   []int  // idx[i] is where lines[i] sits in the lines that were judged
 	flags []bool // flags[i] is the crash flag of lines[i]
 	// stopped is set when the time budget ran out; edge is then the device time of the
 	// last line judged, and the lines beyond it in the pass's direction were not.
@@ -237,6 +238,7 @@ func runPass(ctx context.Context, lines []logLine, crash []bool, inScope func(in
 	}
 	keep := func(i int) {
 		res.lines = append(res.lines, lines[i])
+		res.idx = append(res.idx, i)
 		res.flags = append(res.flags, crash[i])
 	}
 	n := len(lines)
@@ -266,6 +268,7 @@ judging:
 	if order == judgeNewestFirst {
 		for a, b := 0, len(res.lines)-1; a < b; a, b = a+1, b-1 {
 			res.lines[a], res.lines[b] = res.lines[b], res.lines[a]
+			res.idx[a], res.idx[b] = res.idx[b], res.idx[a]
 			res.flags[a], res.flags[b] = res.flags[b], res.flags[a]
 		}
 	}

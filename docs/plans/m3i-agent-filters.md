@@ -145,7 +145,7 @@
 - Needs: step 3; step 1 (a).
 - Not here: the same shape on `device.watchLogs` (Q4: a stream has no final result).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `logsread.go` (the pipeline in Q4's order), `logs.go`, `text.go`, `remoteartifact.go`; every named test passes, plus `TestLogsKeepOldestJudgesForward` (`keep: oldest` judges forward, so a budget cut loses the newest lines), `TestLogsUntilBeforeTheLaunchIsInvalid`, `TestLogsTextShowsTheReadShape`; the events fixture is step 1's real sample. Seen failing with `keep` ignored, the crash flags read at the pick's position, a byte cut instead of a rune boundary, no `until` trim, `collapse` ignoring pid, `topTags` sorted backwards. Verifier nits folded in: `logsText` renders `filter.processes`; the 64-pid cap stated; a relayed `pids: null` becomes `[]`; the filter compiled twice per call, not three times. `collapse` also requires an equal crash flag; `logsText` writes `x500`, `cut`, `ctx` (safe ASCII words) for the plan's `×n`, `[cut]`. `maxToolListBytes` 56,000 (55,284 B).
 
 ### 5. `device.watchLogs`: the line filter, local and relayed (Q2, Q3, Q5)
 

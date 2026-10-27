@@ -25,6 +25,10 @@ const logcatFormat = "threadtime,epoch,usec,uid"
 // logcatBuffers is logcat's default buffer set, the values `buffers` may name.
 var logcatBuffers = []string{"main", "system", "crash"}
 
+// logsBuffers is every buffer device.logs may read, in the order logcat is asked for
+// them: the default set, then events (ADR-0135 §5), which is read only when named.
+var logsBuffers = append(append([]string{}, logcatBuffers...), "events")
+
 var (
 	// logcatLineRE matches a line with the uid column.
 	logcatLineRE = regexp.MustCompile(`^ *([0-9]+)\.([0-9]{6}) +(\S+) +([0-9]+) +([0-9]+) +([VDIWEF]) +(.*)$`)

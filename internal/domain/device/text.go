@@ -434,6 +434,14 @@ func logsText(r LogsResult) string {
 		t.W("empty=" + r.EmptyReason)
 	}
 	t.Nl()
+	// filter.processes: each requested name and how many pids it resolved to (0: none found).
+	if len(r.Filter.Processes) > 0 {
+		t.W("processes")
+		for _, p := range r.Filter.Processes {
+			t.W(p.Name + "=" + strconv.Itoa(len(p.PIDs)))
+		}
+		t.Nl()
+	}
 
 	// A crash block's lines are replaced by the entries: once the read summarised a
 	// crash, every line flagged crash is left out, whatever its pid (a native crash's
@@ -451,18 +459,43 @@ func logsText(r LogsResult) string {
 		if fold(l) {
 			continue
 		}
+		// A context line (neighbour of a match, not a match) opens its own header, marked ctx.
 		head := clock(l.Time) + " " + priorityLetter(l.Priority) + "/" + l.Tag + " " + strconv.Itoa(l.PID)
-		if head == prev {
+		if l.Context {
+			head += " ctx"
+		}
+		if head == prev && l.Repeats <= 1 && !l.Cut {
 			t.Indent(1).Q(l.Message).Nl()
 			continue
 		}
 		prev = head
+		if l.Context {
+			t.W("ctx")
+		}
 		t.W(clock(l.Time)).Pre(priorityLetter(l.Priority)+"/", l.Tag)
 		if l.PID != lastPID {
 			t.W("p" + strconv.Itoa(l.PID))
 			lastPID = l.PID
 		}
-		t.Q(l.Message).Nl()
+		t.Q(l.Message)
+		// After the message: "x500" for a run of equal lines folded by collapse, "cut" for
+		// a message cut to maxMessageBytes. Text writes only safe words, so neither is
+		// written as the multiplication sign or in brackets.
+		if l.Repeats > 1 {
+			t.W("x" + strconv.Itoa(l.Repeats))
+		}
+		if l.Cut {
+			t.W("cut")
+		}
+		t.Nl()
+	}
+	// topTags: the noisiest tags, each as scanned/matched lines in scope.
+	if len(r.TopTags) > 0 {
+		t.W("noise:")
+		for _, g := range r.TopTags {
+			t.Q(g.Tag).W(strconv.Itoa(g.Scanned) + "/" + strconv.Itoa(g.Matched))
+		}
+		t.Nl()
 	}
 	for _, c := range r.Crashes {
 		t.W("crash", kv("pid", int64(c.PID)), clock(c.Time)).Nl()

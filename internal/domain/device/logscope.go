@@ -45,16 +45,17 @@ func (s logScope) has(i int) bool {
 	return s.procs.has(l.pid)
 }
 
-// count is how many lines are in scope, before the line filter: it tells `filtered` from
-// `noLines` (plan m1i D11).
-func (s logScope) count() int {
-	n := 0
+// indices are the in-scope lines, in log order, before the line filter: how many there are
+// tells `filtered` from `noLines` (plan m1i D11), and they are the neighbours context takes
+// from and the lines topTags counts.
+func (s logScope) indices() []int {
+	var out []int
 	for i := range s.lines {
 		if s.has(i) {
-			n++
+			out = append(out, i)
 		}
 	}
-	return n
+	return out
 }
 
 // emptyReason says why no line was returned (plan m1i D11): `filtered` when lines in scope

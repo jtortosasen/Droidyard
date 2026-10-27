@@ -185,7 +185,16 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 					t.Errorf("device.logs crashes[].%s: not marked untrusted", f)
 				}
 			}
-			for _, f := range []string{"time", "pid", "tid", "priority", "crash"} {
+			// The noise report names tags the device chose; its counts are the daemon's own.
+			if v, _ := prop(t, out, "result", "topTags", "[]", "tag")[capability.UntrustedKeyword].(bool); !v {
+				t.Error("device.logs topTags[].tag: not marked untrusted")
+			}
+			for _, f := range []string{"scanned", "matched"} {
+				if v, _ := prop(t, out, "result", "topTags", "[]", f)[capability.UntrustedKeyword].(bool); v {
+					t.Errorf("device.logs topTags[].%s: marked untrusted, but it is the daemon's own", f)
+				}
+			}
+			for _, f := range []string{"time", "pid", "tid", "priority", "crash", "context", "cut", "repeats"} {
 				if v, _ := prop(t, out, "result", "lines", "[]", f)[capability.UntrustedKeyword].(bool); v {
 					t.Errorf("device.logs lines[].%s: marked untrusted, but it is the daemon's own", f)
 				}

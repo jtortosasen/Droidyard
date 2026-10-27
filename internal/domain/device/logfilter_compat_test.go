@@ -40,7 +40,8 @@ func TestAnOlderDecoderRefusesNewFilters(t *testing.T) {
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 
-	for _, field := range []string{"exclude", "match", "excludeTags", "tagPriorities", "processes"} {
+	for _, field := range []string{"exclude", "match", "excludeTags", "tagPriorities", "processes",
+		"until", "keep", "context", "maxMessageBytes", "collapse", "topTags"} {
 		_, err := ops.Start(context.Background(), capability.Request{Capability: "device.logs", Params: []byte(`{"device":"s","` + field + `":["x"]}`)})
 		e := capability.AsError(err)
 		if e.Code != capability.ErrInvalidParams || e.Cause != `json: unknown field "`+field+`"` {
