@@ -24,6 +24,9 @@ import (
 // maxHintBytes bounds the hint (plan m2k step 5).
 const maxHintBytes = 300
 
+// hintRunning is the first line of the hint when a daemon answered the hook.
+const hintRunning = "droidyard is running: if one of its tools failed earlier, call it again."
+
 // Observed is one Android command found in a shell command line.
 type Observed struct {
 	// Program is the base name: gradlew, gradle, adb, emulator, sdkmanager or avdmanager.
@@ -311,9 +314,23 @@ func suggest(prog string, flags map[string]bool, raw, matching []string) string 
 }
 
 // Hint is the line or lines handed back to the agent beside the command's result: one
-// per distinct suggested tool, at most 300 bytes. "" when no command has a tool.
-func Hint(obs []Observed) string {
+// per distinct suggested tool, at most 300 bytes. "" when no command has a tool. With
+// running, set when the hook reached a daemon, a first line says droidyard is running and
+// that a tool which failed earlier should be called again (an agent whose MCP server
+// failed at startup believes droidyard is down, and the plain hint does not contradict
+// that). It does not claim the tools work: a running daemon does not prove the client's
+// MCP connection is live. The line counts toward the 300 bytes; tool lines that no longer
+// fit are dropped.
+func Hint(obs []Observed, running bool) string {
 	var b strings.Builder
+	if running {
+		for _, o := range obs {
+			if o.Suggested != "" {
+				b.WriteString(hintRunning)
+				break
+			}
+		}
+	}
 	seen := map[string]bool{}
 	for _, o := range obs {
 		if o.Suggested == "" || seen[o.Suggested] {

@@ -143,6 +143,10 @@ func TestHookObservesAnAgentsAndroidCommandsAndRecordsThem(t *testing.T) {
 			if !strings.Contains(hint, "`"+c.tool+"`") {
 				t.Errorf("the hint is %q; want it to name %s", hint, c.tool)
 			}
+			// A daemon answered and the workspace opened: the hint says droidyard is running.
+			if !strings.HasPrefix(hint, "droidyard is running:") {
+				t.Errorf("the hint is %q; want it to begin with the running line", hint)
+			}
 			if env, code := p.call(t, "workspace.describe", "--workspace", root); code != 0 || env.Error != nil {
 				t.Errorf("after the hook, workspace.describe exited %d with %+v; want the workspace open", code, env.Error)
 			}
@@ -182,6 +186,8 @@ func TestHookObservesWithoutADaemonAnswersTheHintAndStartsNone(t *testing.T) {
 			}
 			if hint := hintOf(t, client, name, res.stdout); !strings.Contains(hint, "`build_assemble`") {
 				t.Errorf("the hint is %q; want it to name build_assemble", hint)
+			} else if strings.Contains(hint, "is running") {
+				t.Errorf("the hint is %q; with no daemon it must not say droidyard is running", hint)
 			}
 			if locks := findLocks(t, state); len(locks) != 0 {
 				t.Errorf("the hook started a daemon: %v", locks)
