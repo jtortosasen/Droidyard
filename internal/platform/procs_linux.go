@@ -47,6 +47,9 @@ func linuxRead(pid int) (string, []string, error) {
 		// privileges or opted out) or lives in another user namespace (ADR-0132).
 		return "", nil, fmt.Errorf("%w: %v", errReadDenied, err)
 	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil, fmt.Errorf("%w: %v", errNoImage, err)
+	}
 	if err != nil {
 		return "", nil, err
 	}

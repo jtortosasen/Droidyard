@@ -12,6 +12,11 @@ import (
 // to its own user (Linux: no ptrace read access to /proc/<pid>/exe).
 var errReadDenied = errors.New("the kernel does not show this process's executable")
 
+// errNoImage is a reader's answer when a process has no executable left (Linux: readlink of
+// /proc/<pid>/exe is ENOENT): it released its address space on the way out, before the
+// kernel marks it a zombie. Only an exiting process of the user's looks like this.
+var errNoImage = errors.New("the process has no executable: it is exiting")
+
 // Proc is one process of the daemon's own user, as the in-use check of the SDK (plan m3f
 // step 5) needs it: its executable's full path and its arguments, never the kernel's
 // 16-character command name, which misses a name such as qemu-system-aarch64-headless.
@@ -70,6 +75,9 @@ func userProcesses(uid int, src procSource) ([]Proc, error) {
 		}
 		if errors.Is(err, errReadDenied) {
 			continue // the kernel will not show it: not a process running the user's SDK (ADR-0132)
+		}
+		if errors.Is(err, errNoImage) {
+			continue // exiting: it runs nothing; seen on main's CI, its status not yet a zombie
 		}
 		st, serr := src.state(pid)
 		switch {

@@ -216,6 +216,24 @@ func TestUserProcessesSkipsADeniedRead(t *testing.T) {
 	}
 }
 
+// TestUserProcessesSkipsAnExitingProcess: a process of the user's whose executable is gone
+// while its status still says it runs (Linux: exiting, its address space released; seen on
+// main's CI as TestInUseByOpenFile's "could not check") is skipped, not a doubt.
+func TestUserProcessesSkipsAnExitingProcess(t *testing.T) {
+	uid := os.Getuid()
+	src := procSource{
+		list: func() ([]int, error) { return []int{9004}, nil },
+		read: func(int) (string, []string, error) {
+			return "", nil, fmt.Errorf("%w: readlink /proc/9004/exe: no such file or directory", errNoImage)
+		},
+		state: func(int) (procState, error) { return procState{Present: true, SavedUID: uid}, nil },
+	}
+	got, err := userProcesses(uid, src)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("an exiting process: got %+v, %v; want it skipped", got, err)
+	}
+}
+
 // TestUserProcessesStateReadFails: when even the re-read fails, nothing is known of the
 // process and it stays a doubt.
 func TestUserProcessesStateReadFails(t *testing.T) {
