@@ -105,7 +105,7 @@ func TestObserveTable(t *testing.T) {
 		}
 		raw, _ := json.Marshal(got)
 		for _, secret := range []string{"hunter2", "s3cret", "x=y", "emulator-5554", "out/app.apk"} {
-			if strings.Contains(string(raw)+Hint(got), secret) {
+			if strings.Contains(string(raw)+Hint(got, true), secret) {
 				t.Errorf("%q: %q leaked into the record or the hint", c.cmd, secret)
 			}
 		}
@@ -142,7 +142,7 @@ func TestObserveBounds(t *testing.T) {
 // empty when no command has a tool.
 func TestHintShape(t *testing.T) {
 	obs := ObserveCommands("./gradlew assembleDebug; ./gradlew assembleRelease; adb devices; adb install a; adb logcat; adb uninstall a")
-	h := Hint(obs)
+	h := Hint(obs, false)
 	lines := strings.Split(h, "\n")
 	if len(lines) < 2 || len(h) > 300 {
 		t.Fatalf("hint %d bytes, %d lines: %q", len(h), len(lines), h)
@@ -152,8 +152,30 @@ func TestHintShape(t *testing.T) {
 			t.Errorf("hint names %s %d times; want once: %q", tool, strings.Count(h, "`"+tool+"`"), h)
 		}
 	}
-	if Hint(ObserveCommands("adb shell ls; adb push a b")) != "" {
+	if Hint(ObserveCommands("adb shell ls; adb push a b"), false) != "" {
 		t.Error("a hint for commands with no tool")
+	}
+	if strings.Contains(h, hintRunning) {
+		t.Error("the plain hint carries the running line")
+	}
+}
+
+// TestHintRunningForm pins the running form: the running line first, each tool still
+// named once, the whole within 300 bytes, and no lone running line for commands with no
+// tool.
+func TestHintRunningForm(t *testing.T) {
+	obs := ObserveCommands("./gradlew assembleDebug; ./gradlew assembleRelease; adb devices; adb install a; adb logcat; adb uninstall a")
+	h := Hint(obs, true)
+	if !strings.HasPrefix(h, hintRunning+"\n") || len(h) > 300 {
+		t.Fatalf("running hint %d bytes: %q", len(h), h)
+	}
+	for _, tool := range []string{"build_assemble", "device_list"} {
+		if strings.Count(h, "`"+tool+"`") != 1 {
+			t.Errorf("running hint names %s %d times; want once: %q", tool, strings.Count(h, "`"+tool+"`"), h)
+		}
+	}
+	if got := Hint(ObserveCommands("adb shell ls; adb push a b"), true); got != "" {
+		t.Errorf("running hint for commands with no tool is %q; want empty", got)
 	}
 }
 

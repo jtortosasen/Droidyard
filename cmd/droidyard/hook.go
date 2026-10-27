@@ -235,13 +235,15 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 // hookObserve is the answer after a shell command (ADR-0063): the hint for the Android
 // commands it ran, computed before anything is dialled so that the deadline still
 // answers with it, and, when a daemon answers within the deadline, a record of them in
-// Activity. It never denies. A command with no Android program dials nothing.
+// Activity. It never denies. A command with no Android program dials nothing. When the
+// record reached a daemon and opened the workspace, the hint says droidyard is running;
+// otherwise (no daemon, outside the project, the deadline) it is the plain hint.
 func hookObserve(client assistant.Client, root string, ev assistant.AfterEvent, deadline time.Time, fallback *atomic.Pointer[[]byte]) []byte {
 	obs := assistant.ObserveCommands(ev.Command)
 	if len(obs) == 0 {
 		return assistant.PassOutput(client)
 	}
-	out := assistant.AfterOutput(client, ev.Name, assistant.Hint(obs))
+	out := assistant.AfterOutput(client, ev.Name, assistant.Hint(obs, false))
 	fallback.Store(&out)
 	// A command run outside the project and its worktrees is not recorded (ADR-0085 §1),
 	// and with no project to compare against (a rootless hook outside one) none is.
@@ -249,7 +251,9 @@ func hookObserve(client assistant.Client, root string, ev assistant.AfterEvent, 
 		return out
 	}
 	if r, ok := hookRoot(root, commandCwd(root, ev.Command, ev.Cwd)); ok {
-		recordCommands(client, ev.Chat, r, obs, deadline)
+		if recordCommands(client, ev.Chat, r, obs, deadline) {
+			return assistant.AfterOutput(client, ev.Name, assistant.Hint(obs, true))
+		}
 	}
 	return out
 }
@@ -375,41 +379,44 @@ func commandRecord(client assistant.Client, obs []assistant.Observed) agent.Reco
 
 // recordCommands calls agent.recordCommand for obs, and gives up quietly: with no daemon
 // (never started here), a refusal or the deadline, nothing is recorded and the caller
-// answers all the same (ADR-0063 §3).
-func recordCommands(client assistant.Client, chat, root string, obs []assistant.Observed, deadline time.Time) {
+// answers all the same (ADR-0063 §3). It reports whether a daemon answered and opened the
+// workspace (see recordIn).
+func recordCommands(client assistant.Client, chat, root string, obs []assistant.Observed, deadline time.Time) bool {
 	params, err := json.Marshal(commandRecord(client, obs))
 	if err != nil {
-		return
+		return false
 	}
-	recordIn("agent.recordCommand", chat, root, params, deadline)
+	return recordIn("agent.recordCommand", chat, root, params, deadline)
 }
 
 // recordIn calls the workspace-scoped record capability name with params in the workspace
 // of root, opened first, as the hook's: it never starts a daemon and gives up quietly.
 // Opening the workspace and recording take a connection each, as in `droidyard trash`: a
 // cli.Call reads its connection through a goroutine that outlives it. The open runs no
-// project code and grants no trust (ADR-0015 §5).
-func recordIn(name, chat, root string, params json.RawMessage, deadline time.Time) {
+// project code and grants no trust (ADR-0015 §5). It reports whether a daemon answered
+// and the workspace opened, whatever became of the record.
+func recordIn(name, chat, root string, params json.RawMessage, deadline time.Time) bool {
 	hello := daemon.Hello{Client: capability.ClientCLI, Chat: chat}
 	conn, r, _, err := connectOrStart(hello, false, nil)
 	if err != nil {
-		return
+		return false
 	}
 	conn.SetDeadline(deadline)
 	id, err := openProject(conn, r, root)
 	conn.Close()
 	if err != nil {
-		return
+		return false
 	}
 	conn, r, _, err = connectOrStart(hello, false, nil)
 	if err != nil {
-		return
+		return true
 	}
 	defer conn.Close()
 	conn.SetDeadline(deadline)
 	var out bytes.Buffer
 	// The result is ignored: the answer does not depend on the record.
 	_, _ = (cli.Call{Capability: name, Workspace: id, Params: params}).Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil)
+	return true
 }
 
 // checkWrite asks agent.checkWrite for the verdict on paths, for the agent of chat (the
