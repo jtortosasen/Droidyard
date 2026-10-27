@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0113 (§Durability classes)
+- Superseded in part by: ADR-0136 (§Reading artifacts)
 - Date: 2026-09-27
 - Amended: 2026-09-29. What changed: the durability classes, reading artifacts
   (`artifact.read`), and image delivery to agents (review B11). The original decision

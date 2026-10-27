@@ -1,0 +1,284 @@
+# Plan: Milestone 3i — Filters wherever an agent falls back to a terminal
+
+- Status: Approved
+- Approval: approved by the main session under the owner's standing instruction, Delegated (owner, 2026-10-27); every design choice below taken as recommended is `Delegated (owner, 2026-10-27)`. Round 2's two blocking findings were answered in the plan and judged by the main session, not by a third review round; the verifier over steps 2–3 checks those answers in code.
+- Date: 2026-10-27
+- Milestone: the owner, 2026-10-27: an agent on the owner's Samsung gave up on `device.logs` ("too much SurfaceFlinger noise") and ran `adb logcat -d -v time | awk '$2>="11:32:28"' | rg "<7 patterns>" | cut -c1-170`; "put all of those options, and more that we can think of, into every droidyard capability where they apply, so that an agent never has to fall back to a terminal to filter what droidyard returns". `docs/README.md` §Where the work stands says "next, the owner's choice".
+- Phase: none (Phase 3, use and polish). The Scope table is the boundary.
+- Contract: ADR-0041 §2, §6, §7 (as ADR-0042, ADR-0051, ADR-0106 amend it), ADR-0051 §Alternatives, ADR-0012 §Reading artifacts, ADR-0015 §1, ADR-0036 §1, ADR-0060 §2, §4, ADR-0069, ADR-0099 §2, ADR-0100 §3, §4; plan m1i R4, D4–D11; `adb-device.md` §Logs; `capability-api.md` §Bounded output, §Empty is a fact, §Discriminated tools, §Discovery and versioning; `mcp.md` §What is exposed, §Server instructions. New: ADR-0135 and ADR-0136, drafted under Design questions.
+- ADR numbers: 0135 and 0136, reserved for 3i (`board.go adr 3i`).
+- Register: no row's `Work` changes at the plan's commit; step 8 adds the rows §Not in this milestone names.
+- The plan's commit (main session) also adds its row to `docs/plans/README.md` and the two ADRs: until then `internal/doccheck` fails `TestADRMentionsExist` and `TestPlansIndexMatchesFiles` on this file, and nothing else.
+- Parallel: step 1 beside step 2; steps 6 and 7 beside steps 4–5, in the milestone tree (disjoint packages: `internal/artifact` + `internal/domain/artifacts`, `internal/domain/build`, against `internal/domain/device`). A parallel implementer runs only its own packages' tests: the cross-package checks (`internal/schema`, `cmd/droidyard`'s tool-list and profile tests) import `internal/domain/device`, which is mid-edit then. The main session runs those, regenerates the shared outputs (`schema/capabilities.json`, `maxToolListBytes`, the skill tool map) before each commit, and commits together two parallel steps that both changed them.
+- Review: one Opus verifier over steps 2–3 (the pattern bounds, the first contract change, the relay) before steps 4–7 start, and one at the close. Implementer effort `high` for steps 2, 3 and 5.
+- Devices: step 1 and step 8 run on the lane's own scratch AVD (`B=~/Library/Caches/droidyard-dev/3i`, `ANDROID_AVD_HOME=$B/avd`, an adb port and emulator port of its own, checked free with `pgrep -fl qemu-system` and the board; the owner's SDK images read only). Never the owner's phone or AVDs; Samsung behaviour is Unverified.
+- Another lane: none (the lanes file holds 3i only); API `0.40.0` on main, so this milestone takes `0.41.0`, checked again at the close.
+
+## Scope
+
+| Item (the brief's letter) | Here? | Where, or why not |
+| --- | --- | --- |
+| A. One line filter for `device.logs` and `device.watchLogs`, host-side: `excludeTags`, `match`, `exclude`, `tagPriorities`, `processes`, with `tags`, `minPriority`, `contains` | yes | Q1–Q3; steps 2, 3, 5 |
+| A. `device.logs`'s read shape: `until`, `keep`, `context`, `maxMessageBytes`, `topTags`, `collapse`, the `events` buffer | yes | Q4; step 4 |
+| A. Case-insensitive matching | yes, as RE2's `(?i)` | Q1; no parameter |
+| A. A field choice for `match`, per-tag priority beyond `Tag:L` | no | §Not in this milestone |
+| B. Searching text artifacts (logs capture, build console, `shell.exec` output, UI dump, recording timeline) | yes, `artifact.search` | Q6; step 6 |
+| B. `Range` on `GET /v1/artifacts/{id}` (row "Event topics with no producer…") | no | §Not in this milestone |
+| C. Survey of the 100 capabilities at `0.40.0`: `build.errors` by file and pattern | yes | Q7; step 7 |
+| C. The rest of the survey | no | §Not in this milestone, each with its reason |
+| D. Descriptions and `topTags` as the truncation hint; the server instructions unchanged (their 2,000-character budget is full, N1) | yes | steps 3, 4, 6 |
+| E. Lent devices: every new filter across the relay; an older host refuses, never ignores | yes | Q5; steps 3, 5, 8 |
+| F. The Logcat panel keeps its client-side query and works with the changed contract | yes | Q2 (5); steps 3, 5, 8 |
+| The tag/message split defect (register row "`device.logs` on API 36.1: `-T`…") | no | §Not in this milestone |
+
+## Starting point
+
+- Branch `m3i` at `8de6458` (main), API `0.40.0` (`internal/domain/system/system.go`), 100 capabilities in `schema/capabilities.json`.
+- `device.logs`: `internal/domain/device/logs.go` (`LogsParams`, `validate`, `filterLines`, `passesFilters` at line 705: `tags` ≤ 20 exact, OR'd; `contains` one literal; `minPriority`; all AND'd), `logcat.go` (`parseLogLine` splits the tag at the first `": "`, else the first `":"`; `startProcRE`, `startProcPID`), `text.go` `logsText`, `remoteartifact.go` `logsFrom` (bounds a relayed result, fetches the capture). Relayed by `adb.plainThen` (`remote.go`), whose remote branch skips the local `validate`.
+- `device.watchLogs`: `watchlogs.go` (`WatchLogsParams`: `tail`, `since`, `applicationId` by uid; `onLine`), `remotelogs.go` (`watchLogsRemote` validates before the host call). Buffers fixed `main,system,crash` (ADR-0041 §2).
+- `hostParams` marshals the caller's struct, so an `omitempty` field left unset never reaches the host; a host decodes strictly (`capability.decodeParams`, `DisallowUnknownFields`): an unknown field is `REQUEST_INVALID_PARAMS` "`<cap>` has no parameter `"x"`", cause `json: unknown field "x"`, a code `watchLogsErrors` and `device.logs` declare, so it reaches the caller unchanged today.
+- `ps -A -o PID,NAME` is already run, fixed argv, by `psReaders` (`persistent.go:1011`); the NAME column is not cut at 15 characters (reader names are 29).
+- `artifact.read`: `internal/domain/artifacts/artifacts.go`, paging in `internal/artifact/text.go` (`ReadTextReaderAt`, durable files paged in place). Text artifacts: logs capture ≤ 4 MiB, build console ≤ 32 MiB (`consoleCap`), `shell.exec` output, UI dump XML, recording timeline (`application/x-ndjson`).
+- `build.errors`: `internal/domain/build/result.go` (`ErrorsParams{buildId, includeWarnings}`; caps 200 errors, 50 warnings; `extract.Record.File`).
+- Agent surface: `adapters/mcp/mcp.go` (`Instructions`, `CoreTools`), `maxToolListBytes` 51,000 (`cmd/droidyard/toollist_bytes_test.go`), `liveBudget` (`internal/doccheck/register_test.go`). The web client is generated at every `pnpm -C web run verify` (`web/scripts/gen-client.ts`); the Logcat panel sends `{device, tail?}` (`web/src/lib/logcat/stream.ts`).
+- **Baseline, 2026-10-27 at `8de6458`:** `go vet ./...` clean. `go test ./...`: all green but `internal/domain/chats` `TestSQLiteBounded` (the known load flake, as m3g's baseline), which passed alone with `-count=3`. Not red.
+
+## Acceptance
+
+- [ ] A1. **The owner's case**: on a scratch emulator holding a synthetic timeline written with `log -t` (the seven patterns' lines among 2,000 SurfaceFlinger lines), one `device_logs` call with `since`, `match` (the seven patterns translated to the `tag: message` subject), `keep: oldest`, `maxMessageBytes: 170` returns the same lines, in order, as the terminal pipeline over `adb logcat -d -v time` on the same device. "The same" is per line: equal pid, tag, and the message's first bytes up to what both kept (the pipeline's `cut` counts the whole `-v time` line, `maxMessageBytes` the message). Source: the owner. Proven by: steps 3, 4, 8.
+- [ ] A2. **One host-side filter set** on `device.logs` and `device.watchLogs`, with Q2's semantics; no filter text, pattern or process name in any adb argument. Source: Q1, Q2; m1i R4. Proven by: steps 3, 5.
+- [ ] A3. **Bounds**: at most 20 patterns per list, 512 bytes each, one instruction budget for the call's compiled patterns, and a time budget for the filter pass (a read past it is `truncated` with a warning; a stream counts what it could not filter in `dropped`); an invalid or oversized pattern is `REQUEST_INVALID_PARAMS` naming `match[i]` before any adb command or host call. Source: Q1. Proven by: steps 2, 3, 5, 6.
+- [ ] A4. **Processes**: `processes` selects named processes' lines (ps at the call, `Start proc` lines in the read or the stream), alongside `applicationId` as a union. Source: Q3. Proven by: steps 3, 5, 8.
+- [ ] A5. **Read shape**: `until`, `keep`, `context`, `maxMessageBytes`, `topTags` (five by default when truncated), `collapse`, `events`. Source: Q4. Proven by: steps 4, 8.
+- [ ] A6. **Lent**: every filter works on `<remote>/<serial>`, run by the host; toward an older host a call using a new parameter is refused with a nextStep saying the host runs an older droidyard, and a call without one works. Source: Q5. Proven by: steps 3, 5 (level 4), 8 (level 5 against main's binary).
+- [ ] A7. **`artifact.search`** over every text artifact: RE2 match and exclude, context, line numbers, keep, a cap, continuing across a growing or large artifact. Source: Q6. Proven by: steps 6, 8.
+- [ ] A8. **`build.errors`** by `file` prefix and patterns. Source: Q7. Proven by: step 7.
+- [ ] A9. **Discoverable**: `device_logs`'s description names exclusion and RE2 patterns; `artifact_read`'s and the logs capture's descriptions point to `artifact_search`; descriptions within ADR-0036 §1; `tools/list` within `maxToolListBytes` raised by ADR-0060 §4's rule. Source: brief D; ADR-0036. Proven by: steps 3, 4, 6.
+- [ ] A10. **Contract**: one minor (`0.41.0`); the schema diff exactly the steps'; `pnpm -C web run verify` green; the Logcat panel streams lines in headless Chrome. Source: `capability-api.md` §Discovery and versioning; brief F. Proven by: steps 3–8.
+
+## Steps
+
+### 1. Device facts (main session, beside step 2)
+
+- Builds: no product code. On the lane's scratch AVD (API 36 `google_apis_playstore`, and API 31 `google_apis` if it boots in the same sitting), plain `adb -P <own port>`, no daemon; outputs in `$B/facts/`:
+  - (a) `logcat -d -v threadtime,epoch,usec,uid -b events -t 200`: every line matches `logcatLineRE` (checked by feeding the file to `parseLogLines` in a throwaway test outside the tree); a sample of 20 lines kept for step 4's fixture.
+  - (b) `ps -A -o PID,NAME`: the rows of `system_server`, `com.android.systemui`, `/system/bin/surfaceflinger` (or how it is named), and of `com.android.settings` after `monkey -p com.android.settings 1`; output size against `psOutputCap`; and that launch's `Start proc` line in the uid format: its tag and how its uid column prints (`1000` or `system`), for step 3's trust rule (N5).
+  - (c) `log -t MULTIWINDOWS_ANTITAMPERING -p i ' x'` and `log -t SurfaceFlinger -p d y` appear in `logcat -d -v time` and in the uid format with the tag and message as written (step 8's fixture method).
+- Implements: risk first: Q4's `events` rests on (a), Q3 on (b), A1's method on (c).
+- Check: the note answers (a)–(c). Before step 3 starts, the main session records under Changes what redrafts a step: (a) failing drops `events` from Q4; (b) naming the processes otherwise redrafts Q3's name rule; (c) failing redrafts step 8 (a)'s fixture.
+- Schema: no change.
+- Needs: the owner's SDK images, read only.
+- Not here: a physical device; the daemon.
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 2. The pattern engine: `internal/textfilter`
+
+- Builds: a new package, stdlib only (no module dependency):
+  - `Compile(spec Spec) (*Filter, error)`, `Spec{Match, Exclude []string}` with the field names for errors: at most 20 patterns per list, each 1–512 bytes, Go RE2 syntax; **one instruction budget for the call**, `MaxCallInsts` (the sum of both lists' compiled programs, `regexp/syntax`), 4,000 to start; failures are `REQUEST_INVALID_PARAMS` naming `match[i]` or `exclude[i]` (or the budget) with RE2's message (the caller's own text, never device text). `Keep(s)` = (no match patterns or any matches) and no exclude pattern matches.
+  - **A time budget**: `Pass(ctx, budget)` returns a checker callers call after every item (one subject matched against the call's patterns); it reads the monotonic clock (injectable) each time, since the read costs tens of nanoseconds against one regex pass, and reports `ctx` ended or the budget spent. One item is the smallest uninterruptible unit: a log subject up to 32 KiB (`logsLineCap` twice), a search line up to 64 KiB. Callers decide what a spent budget means (steps 3–6).
+  - `Select(n int, matched func(int) bool, context, max int, keep Keep) (picks []Pick, matchedCount int, truncated bool)`: grep `-C` windows over n items (overlapping and adjoining windows merge; a `Pick` says index and whether it is context); `max` counts every pick; `keep` `Newest` drops whole groups from the start, `Oldest` from the end; a group larger than what remains is cut from its far side.
+  - `BenchmarkCost` over 32 MiB of 200-byte lines, for named shapes: a 12-way literal alternation (the stdlib's `Hard1`), a no-literal-prefix `[a-z]{0,40}x`, and `(?i)` of each, at 100, 1,000 and `MaxCallInsts` instructions; it reports ns per MiB per 1,000 instructions.
+- Implements: Q1.
+- Check:
+  - `TestPatternBounds`: 21 patterns, a 513-byte pattern, two lists whose sum passes `MaxCallInsts` while each alone does not, Go's own "expression too large", `(` → each `REQUEST_INVALID_PARAMS` naming its field and index. Seen failing with the budget counted per pattern.
+  - `TestPassStopsAtTheBudget`: a fake clock that advances per item and is spent at item k stops the pass at k or k+1, and a cancelled `ctx` too. Seen failing with the clock read every 1,024 items.
+  - `TestMatchExclude`: OR across patterns, exclude winning, `(?i)`, empty lists.
+  - `TestSelectLikeGrepC`: a table of matched positions and context 0–3 against hand-written expectations from `grep -n -C`'s semantics (merging, edges); `TestSelectKeepAndMax`: newest and oldest, `max` smaller than one group. Seen failing with merging disabled.
+  - `go test -run XXX -bench Cost ./internal/textfilter` recorded in the evidence; from it the step sets `MaxCallInsts` and the filter-pass budget `FilterBudget` (5 s to start) so that a 4 MiB read (a ring's worth, spike S9) with the budget's worst shape finishes inside it, and records both values and the cost figure the ADR's Consequences quote.
+- Schema: no change.
+- Needs: nothing.
+- Not here: logcat's subject, collapsing (device-specific, steps 3–4).
+- Rests on: the filter pass of one call runs past `FilterBudget` by at most one item, whatever its patterns: level 4 (`TestPassStopsAtTheBudget`); the cost per instruction, and so one item's worst time, level 3 (the benchmark on this Mac).
+- [ ] Done. Evidence:
+
+### 3. `device.logs`: the line filter, processes and the relay (Q1–Q3, Q5)
+
+- Builds:
+  - `logfilter.go`: `LineFilter`, embedded in `LogsParams` (Go embedding; the schema flattens it), holding `tags`, `minPriority`, `contains` (moved, unchanged names and meaning) and the new `excludeTags` (≤ 20, exact), `tagPriorities` (≤ 20, `Tag:L`, L one of `V D I W E F S`), `match`, `exclude` (step 2), `processes` (≤ 10 names, 1–128 bytes of `[A-Za-z0-9._:@/+-]`). Every field `omitempty`. `compile()` once per call; `passes(l)` in Q2 (2)'s order over the subject `tag + ": " + message`, under step 2's `Pass` with `FilterBudget`: a spent budget stops the filter pass, the result `truncated` with a warning naming the budget and the device time of the last line filtered.
+  - `internal/capability/operation.go`: `paramNames` and `jsonShape` flatten anonymous (embedded) fields, as the schema does (`internal/schema/schema.go:165`), so the unknown-parameter hint lists `exclude`, never `LineFilter`.
+  - `logs.go`: scope = the app's lines (unchanged, crash lines included) ∪ the named processes' pids: one `shell ps -A -o PID,NAME` (fixed argv, `psOutputCap`) matched exactly by NAME on the host, plus trusted `Start proc <pid>:<name>/` lines of the read: tag `ActivityManager` and, where the uid column prints, the system uid as step 1 (b) recorded it (`startProcRE` generalised to return the name; the app path's own use is unchanged). Crash lines join the scope only through `applicationId`; `crashes[]` is unchanged (every block when no `applicationId`, as today). A failed or cut `ps` read is a warning naming it, the `Start proc` path still applied. `LogFilter.processes [{name, pids}]`; `emptyReason` `noKnownProcess` when no `applicationId` is given and nothing named was found, `filtered` covering the new filters; descriptions updated.
+  - The relay: `plainThen` takes the parameters' check (a `validate func(any) error` argument, nil for the others) and runs it before `authorizeRemote`, so a bad pattern on a remote id costs no host call. `hostError` (`remote.go`): a `REQUEST_INVALID_PARAMS` whose cause begins `json: unknown field ` gets the nextStep "the host <remote> runs an older droidyard that does not take "<field>": update it there, or call without the parameter" (every relayed capability); the field is named only when it is a key of the call's own `hostParams` (the cause is the host's text), else "a parameter". An older host refuses `buffers: ["events"]` by its own `validate` (another cause), so that one keeps the host's words. `logsFrom` bounds the relayed `filter.processes` (10 names of 128 bytes, 64 pids each).
+  - API `0.41.0`; `go test ./internal/schema -update`; `pnpm -C web run verify`; the skill tool map regenerated; `maxToolListBytes` by ADR-0060 §4's rule; `device.logs`'s description within ADR-0036 §1, naming exclusion and RE2 patterns over `tag: message`.
+- Implements: Q1, Q2, Q3, Q5; m1i R4.
+- Check: with the fake adb of `fakeadb_test.go`:
+  - `TestLogsLineFilter`: a fixture of SurfaceFlinger noise and target lines: `excludeTags` drops SurfaceFlinger; `match` keeps lines of either of two patterns, one `Removed [0-9a-f]+ com.facebook.orca#`; `^KeyButtonView: ` selects a tag; `exclude` drops; `tags` still AND; `tagPriorities ["SurfaceFlinger:E"]` keeps its errors only, `X:S` drops X; `counts.matched`, `emptyReason: filtered`. Seen failing with the subject the message alone.
+  - `TestLogsProcesses`: fake `ps` rows `612 system_server`, `1033 com.android.systemui`; lines of 612, 1033, 2000 → 612 and 1033; with `applicationId` (uid) the union; an ActivityManager `Start proc 3001:com.android.systemui/u0a42` line at the system uid adds 3001, the same line under another tag or an app's uid adds nothing; with `processes` only, another app's crash block stays out of `lines` while `crashes[]` lists it; `ps` failing → a warning and the `Start proc` pid; nothing named found → `noKnownProcess`. Seen failing with the union an intersection, and with the forged line trusted.
+  - `TestLogsFilterTextNeverReachesADB`: a call with every filter set; no recorded argv holds any of its strings (R4).
+  - `TestLogsFilterBudget`: an injected budget of zero → `truncated`, the warning, and the lines filtered before it. Seen failing with the pass unchecked.
+  - `TestLogsBadPatternRunsNothing`: `match ["("]` → `REQUEST_INVALID_PARAMS` naming `match[0]`, no adb call; on a remote id through `oneRemote{&hosting.Link{}}` (`remote_relay_test.go:80`), with the id admitted as `TestPeerCallIsNotRelayedOnward` admits it (`f.adb.policy = admitting{…}`), the same code, where a call that reached the link would be `DEVICE_NOT_READY`.
+  - The older host, as three unit facts (step 8 (e) is the level-5 run): (i) `TestAnOlderDecoderRefusesNewFilters`: a `capability.Registry` with a test descriptor whose `Params` is a frozen copy of 0.40.0's `LogsParams` refuses `{"device":"s","exclude":["x"]}` with `REQUEST_INVALID_PARAMS`, cause `json: unknown field "exclude"`; (ii) `TestRemoteErrorMapping` (`remote_test.go:27`) gains that error: kept, nextStep rewritten, and another `REQUEST_INVALID_PARAMS` keeps its own; (iii) `TestNewParamsAreOmitEmpty`: by reflection, every field of `LogsParams` (embedded `LineFilter` included) absent from the frozen copy is `omitempty`, and `hostParams` of a call setting only 0.40.0's fields holds exactly their keys. Seen failing with one new field without `omitempty`, and with the rewrite removed.
+  - `TestUnknownParamHintFlattensEmbedded`: `exlude` on `device.logs` → a hint naming `exclude` and not `LineFilter`. Seen failing on today's `paramNames`.
+  - `TestDeviceLendableSet` unchanged; `TestToolListModelFacingBytes`, `TestDescriptionsFollowTheRule`.
+- Schema: `device.logs`: `LineFilter`'s fields (existing ones may reorder), `filter.processes`, descriptions; `0.41.0`.
+- Needs: step 2; step 1 (b).
+- Not here: the read shape (step 4); `device.watchLogs` (step 5).
+- Rests on: no caller filter text reaches a device shell, level 4 (recorded argv); an older host refuses rather than ignores, level 4 in parts (strict decode, mapping, `omitempty`), level 5 at step 8 (e).
+- [ ] Done. Evidence:
+
+### 4. `device.logs`: the read shape (Q4)
+
+- Builds: in `logs.go`, `text.go`, `remoteartifact.go`, in this order over the parsed lines: scope (step 3) → the window (`since`, `until`) → the line filter → `collapse` over the matched sequence → `Select` (`context` from in-scope neighbours, `keep`, `maxLines`) → `maxMessageBytes` on what is returned. The crash flags travel with each line through every stage (they were once read at the wrong offset, `logs.go:420`).
+  - `until` (device-clock RFC 3339, after `since` when both; lines after it dropped; `window.to` ≤ it; with `followMs` too).
+  - `keep` (`newest` default, `oldest`), for the inline lines and the capture (the capture's dropped-lines warning says which end).
+  - `context` (0–10): in-scope neighbours before the line filter, through `textfilter.Select`; `LogLine.context: true`; `maxLines` counts them; `counts.matched` does not.
+  - `maxMessageBytes` (16–16,384): inline messages cut at a rune boundary, `LogLine.cut: true`; the capture keeps whole lines; patterns run on the whole message.
+  - `collapse`: consecutive matched lines equal in pid, priority, tag and message fold into the first, `LogLine.repeats: n`, before `Select`, so `maxLines` counts the fold once.
+  - `topTags` (1–50): `[{tag (untrusted), scanned, matched}]` over in-scope lines in the window, by `scanned` descending; absent the parameter, five when `truncated`.
+  - `buffers` gains `events` (not in the default set), if step 1 (a) held.
+  - `logsFrom`: a relayed `topTags` cut to 50 entries and each tag to 256 bytes; `repeats` ≥ 0.
+  - `logsText`: context lines marked, ` ×n` for repeats, `[cut]`, a `noise:` line for `topTags`; description and the `truncated`/`emptyReason` descriptions name `topTags`.
+- Implements: Q4.
+- Check:
+  - `TestLogsKeepOldestAfterSince`: ten target lines then 3,000 noise lines after `since`: `keep: oldest, maxLines: 10` returns the ten; `newest` the last ten; with an app crash line among them, its `crash` flag is on that line in both. Seen failing with `keep` ignored, and with the flags read at the untrimmed offset.
+  - `TestLogsUntil`: lines after it absent, `window.to` ≤ it; `until` ≤ `since` → `REQUEST_INVALID_PARAMS`, no adb call.
+  - `TestLogsContext`: two matches three lines apart with `context: 2` give one group; context lines flagged and not in `matched`; a crash line as context keeps its flag.
+  - `TestLogsMaxMessageBytes`: 170 with a 3-byte rune across byte 170 → ≤ 170 bytes, whole runes, `cut`; the capture holds the full line.
+  - `TestLogsCollapse`: 500 equal lines → one with `repeats: 500`, counted once by `maxLines`.
+  - `TestLogsTopTagsNameTheNoise`: a truncated result carries five, SurfaceFlinger first; `topTags: 2` gives two; `internal/schema` untrusted test lists `topTags[].tag`.
+  - `TestLogsEventsBuffer`: `buffers ["events"]` → `-b events` in argv; step 1 (a)'s lines parse.
+  - `TestRemoteLogsBoundsTheNewFields`; `logsText` golden.
+- Schema: `device.logs` gains the six parameters, `events`, `LogLine.context|cut|repeats`, `topTags`.
+- Needs: step 3; step 1 (a).
+- Not here: the same shape on `device.watchLogs` (Q4: a stream has no final result).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 5. `device.watchLogs`: the line filter, local and relayed (Q2, Q3, Q5)
+
+- Builds: in `watchlogs.go`, `remotelogs.go`:
+  - `WatchLogsParams` embeds `LineFilter`; `validate` compiles before any adb or host call. `onLine`, after the parse and the uid filter: scope = the uid ∪ the processes' pids (one `ps` read at start; a trusted `Start proc` line, step 3's rule, naming a listed process adds its pid before that line is scoped), cheap and regex-free as today, so the reader never falls behind logcat.
+  - The line filter runs on the batcher with **no lock held**: each `queuedLine` carries a verdict (none, kept, rejected); each tick the batcher copies the next unjudged lines under `s.mu`, judges them with neither `s.mu` nor `pubMu` held for at most `streamFilterBudget` (25 ms of the 50 ms tick, a constant with a comment; step 2's `Pass`, clock read per line), then writes the verdicts back by `seq` (a line the cap evicted meanwhile is already counted). `take` stops at an unjudged line, as it stops at a line waiting for its package today, skips rejected lines uncounted, and its 500 counts kept lines. The reader never runs the filter: at a full buffer it drops the oldest unjudged line and counts it in `dropped`; a rejected line is never counted, even when evicted. `drain` judges what is left within `FilterBudget`, counts the rest in `dropped`, and loops until nothing is pending before the `stopped` event. So a heavy filter costs at most half a core per stream, the reader keeps up with logcat, and every line written is delivered, rejected or counted (ADR-0041 §5). `LinesEvent.dropped`'s description says that under a filter it also counts lines lost before they were judged.
+  - `processes` given and the `ps` read failing → `DEVICE_LOGS_FAILED` ("the device's process list could not be read"), nothing started. `WatchLogsResult.processes [{name, pids}]` (optional, so an older host's answer decodes); `start()` (`remotelogs.go:179`) relays it, bounded as step 3's `logsFrom`.
+  - The panel: `stream.ts` unchanged; `pnpm -C web run verify`.
+- Implements: Q2, Q3, Q5; ADR-0041 §2 as Q2 supersedes it.
+- Check:
+  - `TestWatchLogsLineFilter` (the streaming fake of `watchlogs_test.go`): SurfaceFlinger excluded, `match` kept, `dropped` 0 for filtered lines; the child's argv unchanged from today's.
+  - `TestWatchLogsFilterBudget`: an injected budget of zero with a backlog past the pending cap → events carry `dropped` equal to the lines lost, the stream still ends cleanly.
+  - `TestWatchLogsFilterConservesLines` (the streaming fake): with the matcher blocked on a channel, `onLine` still returns promptly (seen failing with the filter run under `s.mu`); at a stop with unjudged lines pending, delivered + rejected + `dropped` equals lines written (seen failing with today's `drain` loop).
+  - `TestWatchLogsProcesses`: `ps` at start; a trusted `Start proc` line mid-stream adds its pid, and the new pid's next line is delivered; a forged one adds nothing. Seen failing with the pid set fixed at start.
+  - `TestWatchLogsBadPatternStartsNothing`: no adb, no subscription left open.
+  - The older host: step 3's (i)–(iii) extended to `WatchLogsParams`; a refused start already closes the caller's subscription (`remotelogs.go:116-121`), so no new relay test.
+  - `cmd/droidyard` `TestRemoteDevices` subtest: a remote stream with `excludeTags` delivers only the host fake's other lines, and the result's `processes` comes back bounded.
+- Schema: `device.watchLogs` gains `LineFilter`'s fields and `processes` in its result; `lines.dropped`'s description.
+- Needs: step 3.
+- Not here: `until`, `keep`, `context`, `collapse`, `topTags`, `maxMessageBytes` on a stream (Q4); the panel's query sent to the daemon (Q2 (5)).
+- Rests on: a stream's filter never holds up the reader, costs at most `streamFilterBudget` (plus one line) per tick, and every line is delivered, rejected or counted: level 4 (`TestWatchLogsFilterConservesLines`, `TestWatchLogsFilterBudget`); a real device's rate under a heavy filter is Unverified.
+- [ ] Done. Evidence:
+
+### 6. `artifact.search` (Q6; beside steps 4–5)
+
+- Builds:
+  - `internal/artifact/search.go`: `SearchText(e Entry, q)` scans an entry line by line (bytes, or the durable file in place, never wholly in memory) from `offset` (0 or an earlier `nextOffset`, a line start), numbering lines from the artifact's start (counting newlines up to `offset` is a byte scan, no pattern); a call ends after 8 MiB matched against or step 2's `FilterBudget`, whichever comes first, with `nextOffset` and the line number it stopped at, so a 32 MiB console takes at most four calls and no call outruns the budget; a growing artifact's unterminated last line held back (ADR-0012's rule); a line longer than 64 KiB is matched on its first 64 KiB.
+  - `internal/domain/artifacts`: `artifact.search {ref, match (1–20, required), exclude, context (0–10), maxLines (1–500, default 50), maxLineBytes (16–4,096, default 512), keep (oldest default, newest), offset}` → `{ref, mediaType, lines: [{line, text, context?, cut?}], matched, returned, scanned, size, nextOffset?, growing, truncated}`; query, global, stateless, audience all, not `Lendable` (ADR-0099 §2 unchanged), since `0.41.0`; errors `ARTIFACT_NOT_FOUND`, `ARTIFACT_EXPIRED`, `REQUEST_INVALID_PARAMS`; patterns validated before the reference is resolved; an image → `REQUEST_INVALID_PARAMS` ("read an image with artifact.read"); the call marked untrusted from the artifact (as `artifact.read`); a text rendering `N:text` / `N-text`; `Slim` drops `lines`.
+  - MCP: `CoreTools` gains `artifact_search`; the server instructions stay as they are (about 1,997 of their 2,000 characters, `adapters/mcp/instructions_test.go`): `artifact.read`'s description and `device.logs`'s `capture` and `build.*`'s `consoleRef` descriptions point to `artifact_search` instead; `mcp.md` §Images and artifacts' console bullet; `mvp.md` §MVP capability surface; `liveBudget` raised with the reason; skill tool map, schema, web client, `maxToolListBytes` as step 3.
+- Implements: Q6.
+- Check:
+  - `TestSearchLikeGrep`: a fixture with `grep -n -C1 -E` output written into the test as the expectation (line numbers, context, groups). Seen failing with lines numbered from `offset`.
+  - `TestSearchLargeDurableConsole`: a 20 MiB file-backed console with a match past 16 MiB: calls continue by `nextOffset` until one finds it with its true line number; an injected budget of zero stops a call at its first check with `nextOffset`. Seen failing with the line count restarted at `offset`.
+  - `TestSearchGrowingHoldsThePartialLine`; `TestSearchKeepNewest`; `TestSearchRefusesAnImage`; `TestSearchBadPatternBeforeLookup` (an unknown ref with `match ["("]` → `REQUEST_INVALID_PARAMS`); `TestSearchMarkFollowsTheArtifact` (a logs capture marked, a console not); a peer's call → `REQUEST_NOT_ALLOWED_HERE`.
+  - `mcp_profile_test` (core list), `TestToolListModelFacingBytes`, `TestDescriptionsFollowTheRule`, the doccheck (run by the main session, N6).
+- Schema: one capability; `0.41.0` already.
+- Needs: steps 2, 3 (the version).
+- Not here: HTTP `Range`; `file.read` search (audience human, ADR-0060).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 7. `build.errors` by file and pattern (Q7; beside steps 4–5)
+
+- Builds: `internal/domain/build/result.go`: `ErrorsParams` gains `file` (a prefix of the record's `file` as published: project-relative, external or merged, 1–1,024 bytes), `match`, `exclude` (step 2, over `message`), applied to errors and, with `includeWarnings`, warnings; the result gains `filtered` (records the filters dropped, omitempty); patterns validated before the build is looked up; the description says the filters apply within the 200/50 caps and points to `artifact_search` for the console.
+- Implements: Q7.
+- Check: `TestErrorsFilteredByFileAndPattern` (a recorded build of three files: `file: "app/src/main/java/a/"` keeps its two; `match` and `exclude` over messages; `filtered` counts); `TestErrorsBadPatternBeforeLookup`. Seen failing with `file` matched as a substring. `TestToolListModelFacingBytes`.
+- Schema: `build.errors` gains three parameters and `filtered`.
+- Needs: steps 2, 3 (the version).
+- Not here: severity beyond `includeWarnings` (two values); module (a record carries a path, not a Gradle project).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 8. Level 5, the documents, the close
+
+- Builds: no product code.
+  - **The run** (main session; `verify-daemon` Launch, Doctor, Cleanup; an isolated daemon from the tree; the lane's adb port and AVD; evidence in `$B/evidence/l5/`), a scripted MCP stdio session:
+    - (a) A1: a timeline written with `adb shell log -t … -p …` (lines for each of the owner's seven patterns, 2,000 SurfaceFlinger lines between, a 200-byte message), `device_logs` as A1 says; then the owner's pipeline (`adb logcat -d -v time | awk | rg | cut -c1-170`) on the same device: the same lines in the same order, by A1's per-line equality.
+    - (b) `processes ["system_server", "com.android.systemui"]` with `applicationId com.android.settings` after `device_launch`: every returned pid is one `ps` names; `buffers ["events"]` completes; `context`, `collapse`, `topTags` seen on the noise.
+    - (c) `artifact_search` on (a)'s capture with `context: 1`, and on a `device_uiDump` reference.
+    - (d) The CLI: `droidyard device logs --exclude-tags SurfaceFlinger …` and a `device watchLogs` stream with `--match`; the Logcat panel in headless Chrome streams lines.
+    - (e) Lent: m2y K1's peer pair on this Mac, the host lending the AVD through m2t step 9's stand-in guard: `device_logs` with `exclude` and `processes` on `<remote>/<serial>` (the host's trace `client=peer`); then the host replaced by a binary built from main (`0.40.0`): the same call → `REQUEST_INVALID_PARAMS` with step 3's nextStep, a call without new filters completes.
+    - Zero orphans; the scratch adb server stopped by its port; the AVD deleted; `rm -rf $B`, recorded.
+  - **Documents**: `adb-device.md` §Logs (why the filters are host-side RE2, the subject, processes by `ps` and `Start proc`, the read shape; no restated parameters); `mcp.md` as step 6; the register (a row per §Not in this milestone item that is a limit, and Unverified's open rows); `docs/README.md` §Where the work stands; the plans index; the API minor checked against main.
+- Implements: A1–A10 at level 5.
+- Check: each sub-run's decisive output in the evidence line: (a) the two line lists equal; (b) the pids against `ps`, `events` completed; (c) line numbers and context; (d) the panel's lines; (e) `client=peer`, the old host's refusal and its nextStep; zero orphans.
+- Schema: no change.
+- Needs: steps 1–7.
+- Not here: the owner's Samsung (needs the owner's yes); a second level-5 pass.
+- Rests on: —
+- [ ] Done. Evidence:
+
+## Not in this milestone
+
+Each a register row at step 8 unless said otherwise.
+
+- **The tag/message split defect** (row "`device.logs` on API 36.1: `-T`…"): logcat's text alone does not say where such a tag ends; `match` over `tag: message` sees the line's own text whichever `": "` the split took. The row stays.
+- **A field choice for `match`** (tag, message, line): anchors on `tag: message` express it with one parameter fewer (Q2). No row.
+- **The read shape on `device.watchLogs`** (`until`, `keep`, `context`, `collapse`, `topTags`, `maxMessageBytes`): a stream has no final result to shape; the panel has its own view. No row.
+- **The Logcat panel's query sent to the daemon**, and a process name per streamed line (row "Logcat `process:`…"): ADR-0051's rejected "filter by query in the daemon" holds (every keystroke would restart a stream). The row stays; `processes` is the engine it would reuse.
+- **`device.uiEvents` by type or package**: `until change|settle`, the cursor and the reader's folds (ADR-0111 §6–§8) would need restating for a filtered ring; `max` 200 already bounds it, and no terminal command does it better (`uiautomator events` contends with the reader).
+- **`git.log` by path, author, message, dates; `file.list` by glob**: audience human (ADR-0069, the owner: "the AI already uses git on its own"; ADR-0060 §2): no agent falls back to a terminal through droidyard for them. No row.
+- **`build.watchOutput` and `events.subscribe`'s `filter`**: streaming, not on MCP (`mcp.md` §What is exposed); an agent's shell can stream the console through the CLI (ADR-0122 §7), and `artifact.search` on the growing console, continued by `nextOffset`, is the substitute for piping that stream through grep. The row stays.
+- **`Range` on `GET /v1/artifacts/{id}`**: the UI's route; agents page with `artifact.read` and search with `artifact.search`. The row stays.
+- **Already narrow or small**: `build.tasks` (`module`, `group`, `contains`), `device.uiTree` (`within`), `sdk.packages` (`category`, `query`), `device.list`, `emulator.list`, `project.*`, `sdk.profiles|requirements|status`, `build.lastResult`, `system.capabilities`. No row.
+- **Lines of a process that died before the read** and whose `Start proc` line left the ring, and a process's lines logged before its `Start proc` line in a stream: limits of selecting by pid.
+- **PCRE features** (lookaround, backreferences): RE2 has none; the price of linear time on caller input (Q1). No row.
+- **The `radio` and `kernel` buffers**: not asked; `kernel` needs root on most images.
+- **`artifact.search` of a host's artifacts by a peer**: a client fetches relayed captures and dumps into its own store (ADR-0100 §3), where it searches them. No row.
+
+## Design questions
+
+Delegated (owner, 2026-10-27; the owner's standing instruction to apply the recommended option): the main session writes ADR-0135 (Q1–Q5) and ADR-0136 (Q6–Q7) from these drafts and lands them with this plan's commit; step 1 may run first, and a fact that contradicts a draft redrafts the steps it touches under Changes before they start.
+
+- **Q1. Caller patterns on the host** (steps 2–7). The documents say: m1i R4, `contains` literal so caller text never reaches a device shell; no ADR rejects host-side regex. Recommended: Go's RE2 (`regexp`), compiled on the host, never in an adb argument, so R4 holds; at most 20 patterns per list, 512 bytes each, one instruction budget for the call's compiled patterns (`MaxCallInsts`), `REQUEST_INVALID_PARAMS` naming `field[i]` before anything runs; since RE2's time is input × program and a modest 60-instruction alternation already scans at about 10 MB/s (the stdlib's `Hard1` on this Mac, round 1), the bound that holds is time: a read's filter pass stops at `FilterBudget` (`truncated`, a warning), `artifact.search` at the same budget (`nextOffset`), a stream's filter at 25 ms per 50 ms tick (the rest `dropped`); `(?i)` for case. A peer's patterns run on the host within these budgets per call; how many calls a peer runs at once is not capped (Unverified). Rejected: literal substrings only (the owner's case needs `[0-9a-f]+`); globs (no alternation, no classes); PCRE (backtracking, a hostile pattern costs exponential time); logcat's own `-e` (caller text in the device shell, and a device-side regex engine that varies by version).
+- **Q2. One line filter** (steps 3, 5). The documents say: ADR-0041 §2, no priority, tag or text filter on `device.watchLogs`, "either can be added later as a minor change". Recommended: (1) `LineFilter` shared by both: `tags`, `minPriority`, `contains` (unchanged), `excludeTags`, `tagPriorities` (`Tag:L`, logcat's spec, `S` silences; a listed tag's own minimum replaces `minPriority`), `match`, `exclude`, `processes`. (2) A line passes when in scope (Q3), then priority (`tagPriorities` else `minPriority`), `tags` (if any), not in `excludeTags`, `contains`, any `match` (if any), no `exclude`; `match` is the OR across tags and messages the owner's case needs. (3) The subject of `match` and `exclude` is `<tag>: <message>`, the tag trimmed; `^Tag: ` selects a tag. (4) Applied host-side; a filtered stream line is not `dropped`. (5) The Logcat panel keeps its client-side query (ADR-0051's rejected alternative holds) and sends none of these. Rejected: `match` with a field enum (anchors suffice); logcat's `-v time` text as the subject (the pid's padding and the priority letter vary, and priority has its own filter); `tags` turned into OR with `match` (a breaking change to a published meaning).
+- **Q3. Processes by name** (steps 3, 5). The documents say: ADR-0051 §Alternatives, `ps -A` per unseen pid is "the way to add `process:`"; `adb-device.md` §Filtering by app, `Start proc` lines. Recommended: `processes` (≤ 10 exact names as `ps` prints NAME); one fixed `ps -A -o PID,NAME` per call or stream start, matched on the host, plus `Start proc <pid>:<name>/` lines trusted only from `ActivityManager` at the system uid (any app could log one); the scope is the union with `applicationId`'s, crash lines joining it only through `applicationId`, `crashes[]` unchanged; `device.logs` warns on a failed `ps` read, a stream fails `DEVICE_LOGS_FAILED` (it has no warnings). This also reaches system lines whose uid logcat prints as a name (row "logcat prints the uid column as a name…"). Rejected: `pidof <name>` (caller text in the device shell); `--pid` (one pid, and caller-derived); a process name per line (Not in this milestone).
+- **Q4. `device.logs`'s read shape** (step 4). Recommended: `until`; `keep: newest|oldest` (the agent's start buried by the newest-kept rule); `context` 0–10 from in-scope neighbours, counted by `maxLines`; `maxMessageBytes` with `cut`; `collapse` with `repeats`; `topTags`, five by default when `truncated`, so a truncated result names its noise; `events` in `buffers`, off by default. The capture stays the matched set, so `artifact.search` with `context` over an unfiltered read is the full-log path. Rejected: `topTags` on every result (tokens on every call); context from out-of-scope lines (another app's lines inside an app's read); a `cut` count instead of the per-line flag (the agent cannot tell which line to fetch whole).
+- **Q5. Lent devices and older hosts** (steps 3, 5). The documents say: ADR-0100 §3, §4; m3g Q6, an older host refuses new parameters by strict decoding. Recommended: the host filters (it reads the device); the client validates first, so a bad pattern costs no host call; every new field is `omitempty`, so a call without one reaches an older host unchanged; a call with one is refused there (`REQUEST_INVALID_PARAMS`, cause `json: unknown field`), which `hostError` gives the nextStep "the host runs an older droidyard"; `events` is refused by the older host's own `validate` and keeps its words. The nextStep does not name the host's version (`Link`'s `hostAPI` is unexported; not worth a `hosting` change). `logsFrom` and `start()` bound the new result fields. Rejected: filtering on the borrowing side (`device.logs`'s inline lines and capture are capped on the host, so `matched` and `emptyReason` would be wrong, and a stream would carry every line over the link); a version handshake per capability (`capability-api.md` §Discovery: one API version).
+- **Q6. `artifact.search`** (step 6). The documents say: ADR-0012 §Reading artifacts, "one capability serves every artifact type". Recommended: a second capability that searches text artifacts (Step 6's shape), in `CoreTools`, not `Lendable`; the server instructions unchanged (their budget is full). Rejected: `match` on `artifact.read` (an overloaded tool with two result shapes, against `capability-api.md` §Discriminated tools); searching only the logs capture (the console and `shell.exec` output are what agents grep too).
+- **Q7. `build.errors`** (step 7). Recommended: `file` prefix, `match`, `exclude` over the message, `filtered`. Rejected: `module` (a record holds a path, not a Gradle project); a severity enum (two values, `includeWarnings` exists).
+
+**The two ADRs** (the main session writes them with the `adr` skill; Decision is the Qs' "Recommended", Alternatives their "Rejected"):
+
+- **ADR-0135: Host-side filters for device logs, local and lent** (Q1–Q5). Supersedes ADR-0041 §Decision 2 (in part: the stream takes the line filter and `processes`). Consequences to state: a call's filter pass is bounded in time, not in patterns, and step 2 records the cost per MiB per 1,000 instructions it measured; a peer may run several such calls at once; lines of a process that died with no trusted `Start proc` line in the read are not selected; `device_logs` costs more `tools/list` bytes, held by ADR-0060 §4's rule; API `0.41.0`.
+- **ADR-0136: Searching text artifacts and build errors** (Q6–Q7). Supersedes ADR-0012 §Reading artifacts (in part: a second capability searches text artifacts). Consequences: one more MCP tool, in the core profile, the instructions unchanged; a large console takes several calls.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| The `events` buffer prints in the uid format | 4 | step 1 (a); step 8 (b) |
+| `ps -A -o PID,NAME` names `system_server`, SystemUI and apps as Q3 says, on API 31 and 36; below API 26 (toolbox `ps`) | 3, 5 | step 1 (b); below 26 not run |
+| The filter's cost per MiB per 1,000 instructions, which sets `MaxCallInsts` and `FilterBudget` | 2–7 | step 2's benchmark (this Mac, level 3); the time budgets hold whatever it says (level 4) |
+| One item (a log subject up to 32 KiB, a search line up to 64 KiB) is uninterruptible, so a budget can be passed by one item's time at the worst shape | 2–6 | step 2's benchmark gives that time (level 3) |
+| Whether logd drops lines silently for a reader that stalls (the design keeps the reader from stalling) | 5 | not run |
+| How many filter calls one peer can run at once on a host (no cap found by grep, round 1) | 3–6 | not settled; a register row at step 8 if reading the peer dispatch confirms it |
+| A filtered stream keeps up with a real device's log rate | 5 | step 8 (d) on an emulator; a phone not run |
+| `Start proc` lines carry the system uid as step 1 (b) records | 3, 5 | step 1 (b) on API 36 (31 if booted) |
+| A process's lines before its `Start proc` line are missed in a stream | 5 | not provoked |
+| Parity with the owner's pipeline | 3, 4 | step 8 (a) on an emulator's synthetic timeline; the Samsung's timeline not run |
+| Samsung (One UI): logcat's format, `ps`, the volume of noise | all | not run: the owner's phone needs the owner's yes |
+| An older host's refusal | 3, 5 | level 4 at steps 3, 5; step 8 (e) against main's `0.40.0` binary |
+| The `tools/list` cost (about 4–5 KB) | 3, 4, 6, 7 | measured at each step |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise: 2 blocking, 8 non-blocking, 5 nits | B1 [bounds]: per-pattern limits do not bound a peer's CPU (RE2 is input × program; `Hard1` scans at ~10 MB/s), and step 2's "lower until under 5 s" rule cannot converge. B2 [check]: the older-host tests need a host seam the device package does not have, and the version in the nextStep needs an unexported `hostAPI` | B1: one instruction budget per call; time budgets: `FilterBudget` for a read (`truncated`, warning) and a search (`nextOffset`), 25 ms per tick for a stream (the rest `dropped`); the benchmark reports cost by named shapes and sets the values (Q1, steps 2–6, A3, `TestPassStopsAtTheBudget`, `TestLogsFilterBudget`, `TestWatchLogsFilterBudget`). B2: three unit facts (strict decode of a frozen 0.40.0 struct, `hostError` mapping, `omitempty` by reflection), step 8 (e) at level 5; the nextStep says "older", not the version (A6, Q5) |
+| 1 | | N1 the instructions' budget is full. N2 embedding breaks the unknown-parameter hint. N3 crash lines' scope under `processes`. N4 the read-shape order and the crash flags. N5 a forged `Start proc` line. N6 parallel checks across a mid-edit package. N7 `filter.processes` unbounded for one step; the stream's `processes` relay | N1: instructions unchanged, descriptions point to `artifact_search` (step 6, A9). N2: `paramNames`/`jsonShape` flatten, `TestUnknownParamHintFlattensEmbedded`. N3: crash lines join only through `applicationId`, `crashes[]` unchanged, asserted (Q3, step 3). N4: the order in step 4, crash flags asserted. N5: trusted only from `ActivityManager` at the system uid, step 1 (b) records it, forged-line tests. N6: header. N7: bound moved to step 3; `start()` relays and bounds it (step 5) |
+| 1 | | N8 A1's equality. Nits: `events` to an old host; the 40 MiB fixture; `build.watchOutput` and ADR-0122 §7; the ADR drafts' size; where the remote branch validates | N8: per-line equality in A1. Nits taken: Q5 and step 3 say `events` keeps the host's words; 8 MiB per search call, a 20 MiB fixture; the cut cites ADR-0122 §7; the drafts cut to two bullets; `plainThen` takes `validate`, proved through `oneRemote{&hosting.Link{}}` |
+| 2 (B1, B2 only) | revise: B2 resolved; B1 in part, 2 new blocking (from B1's resolution), 3 nits | R2-B1a [bounds]: a clock read every 1,024 items does not bound time (an item is up to 32 KiB), and the zero-budget tests cannot see it. R2-B1b [concurrency]: filtering in `publishBatch` runs under `s.mu`/`pubMu`, which the reader needs; `drain` stops at a tick that rejected everything; `take`'s 500 counts scanned lines | R2-B1a: the clock read after every item; one item the uninterruptible unit (Unverified); `TestPassStopsAtTheBudget` with a per-item clock spent at item k, seen failing with the 1,024 check (step 2). R2-B1b: verdicts per queued line, judged with no lock held, written back by `seq`; `take` stops at an unjudged line and counts kept lines; the reader never filters and counts what it evicts; `drain` loops until nothing is pending; `TestWatchLogsFilterConservesLines` (a blocked matcher; delivered + rejected + `dropped` = written) (step 5) |
+| 2 | | Nits: admit the remote id in `TestLogsBadPatternRunsNothing`; `dropped`'s description; name the host's field only when it is a call key | All taken (steps 3, 5) |
+
+No third round: R2-B1a and R2-B1b are answered in the plan with round 2's own fixes (`milestone-plan` §Writing one, item 7); the main session or the owner judges the answer.
+
+## Changes
+
+Changes after approval: date, what changed, why, and the ADR if the change touches the design.

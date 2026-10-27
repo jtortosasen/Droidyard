@@ -163,6 +163,8 @@ edits made before this rule and are not added to.
 | [0132](0132-linux-processes-the-kernel-hides.md) | On Linux, a process whose executable the kernel hides is skipped by the in-use check | Accepted |
 | [0133](0133-agents-act-by-coordinates-keys-and-system-verbs.md) | Agents act on the device by coordinates, keys and system verbs | Accepted |
 | [0134](0134-panel-by-worktree-sessions-by-folder.md) | The column shows the tab's project as its worktrees, and the sessions by folder with their client | Accepted |
+| [0135](0135-host-side-filters-for-device-logs.md) | Host-side filters for device logs, local and lent | Accepted |
+| [0136](0136-searching-text-artifacts-and-build-errors.md) | Searching text artifacts and build errors | Accepted |
 
 ## Open decisions (not yet ADRs)
 
