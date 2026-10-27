@@ -7,6 +7,7 @@
 - Supersedes: ADR-0045 §1 (in part: the page without `w` is no longer the picker)
 - Supersedes: ADR-0045 §2 (in part: several projects are not several tabs)
 - Superseded in part by: ADR-0050 (§1, §2)
+- Superseded in part by: ADR-0134 (§1)
 - Relates to: ADR-0043, ADR-0045 §3–§6, ADR-0046, ADR-0048; plan m2d Q1
 - Decided by the owner, 2026-10-10: one instance and no picker on open; a left panel lists
   every project and its agent sessions, and selecting one switches the whole UI. The shape
