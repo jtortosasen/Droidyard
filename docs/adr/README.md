@@ -167,6 +167,7 @@ edits made before this rule and are not added to.
 | [0134](0134-panel-by-worktree-sessions-by-folder.md) | The column shows the tab's project as its worktrees, and the sessions by folder with their client | Accepted |
 | [0135](0135-host-side-filters-for-device-logs.md) | Host-side filters for device logs, local and lent | Accepted |
 | [0136](0136-searching-text-artifacts-and-build-errors.md) | Searching text artifacts and build errors | Accepted |
+| [0137](0137-machine-level-android-tool.md) | Droidyard is a machine-level Android tool; the project is named per call, and the UI, Git, files and sessions leave | Proposed |
 
 ## Open decisions (not yet ADRs)
 
