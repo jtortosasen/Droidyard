@@ -1,6 +1,6 @@
 # ADR-0045: The project start: `droidyard` alone, one tab per project, recents and a folder dialog
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0081 (§5)
 - Superseded in part by: ADR-0084 (§3)
 - Superseded in part by: ADR-0086 (§3)

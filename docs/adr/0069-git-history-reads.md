@@ -1,6 +1,6 @@
 # ADR-0069: The history reads: `git.log`, `git.refs` and `git.show`, addressed by oid, with the history fence
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Supersedes: ADR-0066 §Decision (in part: item 2's invocation, which gains `GIT_NO_REPLACE_OBJECTS=1`, `GIT_GRAFT_FILE=/dev/null` and `-c advice.graftFileDeprecated=false` for every git the daemon runs)
 - Superseded in part by: ADR-0072 (§Decision)

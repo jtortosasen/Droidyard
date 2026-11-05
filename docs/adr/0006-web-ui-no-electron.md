@@ -1,6 +1,6 @@
 # ADR-0006: Web UI served by the core; no Electron
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-09-27
 - Amended: 2026-09-29 — §Consequences said the UI "works on any device on the same
   network". Deliberate narrowing: the MVP binds **loopback only**, and LAN exposure is

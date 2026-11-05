@@ -1,6 +1,6 @@
 # ADR-0095: A hook is joined to its chat's session, and the agent's own edits pass through the hooks
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-18
 - Supersedes: ADR-0088 §Decision (in part: §1, the hook and `droidyard trash` also send `chat`; §4, a chat id also identifies an occupation's holder); ADR-0085 §Decision (in part: §1's root, refined in §5 below); ADR-0063 §Decision (in part: §7, `init` also writes the edit-tool entries); ADR-0048 §Decision (in part: §1, `session` on a call joined to an MCP session); ADR-0062 §Decision (in part: §4, the replacement names `--chat` when the shell has no chat id); ADR-0060 §Consequences (in part: an agent's edits are recorded)
 - Relates to: ADR-0061, ADR-0081 §2, ADR-0082, ADR-0094; `docs/research/spike-c2-sessions-2026-10.md` (c); plan m2s Q2

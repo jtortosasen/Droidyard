@@ -1,6 +1,6 @@
 # ADR-0054: A deleted file goes to its workspace's trash in the state directory
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0096 (§Consequences)
 - Superseded in part by: ADR-0096 (§Decision)
 - Date: 2026-10-11

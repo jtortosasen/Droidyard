@@ -1,6 +1,6 @@
 # ADR-0084: One tab: `droidyard` switches an open tab instead of opening another
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-18
 - Supersedes: ADR-0047 §3 (in part: `droidyard` in a project switches an open tab instead of opening one); ADR-0045 §3 (in part: `workspace.state` gains the event type `show`)
 - Relates to: ADR-0045 §1, ADR-0083; `docs/interfaces/http-websocket.md` §Security baseline; plan m2q Q4

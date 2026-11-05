@@ -1,6 +1,6 @@
 # ADR-0009: Editor component — CodeMirror 6
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-09-27
 
 ## Context

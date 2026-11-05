@@ -1,6 +1,6 @@
 # ADR-0071: The UI's Git writes: fetch, checkout, new branch and submodule update, on a trusted root
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-13
 - Supersedes: ADR-0066 §Decision (in part: item 2's "fetching is off on every root, because the daemon never fetches" and its 10 s limit, and item 4's `GIT_FAILED` cause, for the write capabilities here only)
 - Superseded in part by: ADR-0073 (§Decision)

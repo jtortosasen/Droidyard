@@ -1,6 +1,6 @@
 # ADR-0070: The history graph laid out in the browser, paged by oid, and a commit's file in the Diff tab
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Supersedes: ADR-0067 §Decision (in part: items 2–4, that the Diff tab shows only the active file against HEAD and that its buffer side is always editable)
 - Superseded in part by: ADR-0072 (§Decision)

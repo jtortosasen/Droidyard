@@ -1,6 +1,6 @@
 # ADR-0061: An agent's `rm` is redirected to the trash by an optional assistant hook
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0062 (§Decision, §Consequences)
 - Superseded in part by: ADR-0063 (§Decision)
 - Superseded in part by: ADR-0124 (§Decision)

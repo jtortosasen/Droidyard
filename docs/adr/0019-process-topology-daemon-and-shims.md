@@ -6,6 +6,7 @@
 - Superseded in part by: ADR-0036 (§Processes)
 - Superseded in part by: ADR-0037 (§Processes)
 - Superseded in part by: ADR-0045 (§Processes)
+- Superseded in part by: ADR-0137 (§Processes 1 and 3; §Sessions, the workspace binding and its open)
 - Date: 2026-09-29
 - Superseded in part by: ADR-0061 (§Processes)
 - Superseded in part by: ADR-0062 (§Processes)

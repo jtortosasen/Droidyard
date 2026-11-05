@@ -1,6 +1,6 @@
 # ADR-0105: Activity shows a trash entry no restorable delete row accounts for
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-18
 - Supersedes: ADR-0096 §Decision (in part: §3, which entries Activity shows as rows with Restore)
 - Relates to: ADR-0043 §1, ADR-0054; plan m2s step 8

@@ -1,6 +1,6 @@
 # ADR-0053: The tree's file operations are five batch capabilities, open to agents, that never replace
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-11
 - Superseded in part by: ADR-0060 (§Consequences)
 - Superseded in part by: ADR-0060 (§Decision)

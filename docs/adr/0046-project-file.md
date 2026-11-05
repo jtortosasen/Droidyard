@@ -1,6 +1,6 @@
 # ADR-0046: The project file, `.droidyard/project.json`, for the UI's choices
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0075 (§1, §2, §3)
 - Date: 2026-10-10
 - Supersedes: ADR-0021 §Location (in part: the UI's choices for a project live in the project)

@@ -1,6 +1,6 @@
 # ADR-0096: The trash is listed, so Activity restores a delete made before the tab opened
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0105 (§Decision)
 - Date: 2026-10-18
 - Supersedes: ADR-0054 §Decision (in part: §1, `entry.json` gains `by`); ADR-0054 §Consequences (in part: the trash can be listed)

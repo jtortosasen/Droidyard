@@ -1,7 +1,8 @@
 # ADR-0137: Droidyard is a machine-level Android tool; the project is named per call, and the UI, Git, files and sessions leave
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
+- Supersedes: ADR-0006; ADR-0009; ADR-0039; ADR-0040; ADR-0045; ADR-0046; ADR-0047; ADR-0049; ADR-0050; ADR-0052; ADR-0053; ADR-0054; ADR-0058; ADR-0059; ADR-0060; ADR-0061; ADR-0062; ADR-0063; ADR-0064; ADR-0065; ADR-0066; ADR-0067; ADR-0069; ADR-0070; ADR-0071; ADR-0072; ADR-0073; ADR-0074; ADR-0082; ADR-0083; ADR-0084; ADR-0085; ADR-0086; ADR-0088; ADR-0089; ADR-0095; ADR-0096; ADR-0105; ADR-0125; ADR-0126; ADR-0127; ADR-0128; ADR-0134; in part ADR-0015 §7; ADR-0019 §Processes, §Sessions; ADR-0020 §Scope, §Core primitives; ADR-0032 §Decision; ADR-0037 §Decision; ADR-0075 §2, §4, §7; ADR-0094 §Decision; ADR-0112 §Decision; ADR-0124 §Decision
 - Relates to: ADR-0003; ADR-0015 §5; ADR-0031; ADR-0075; ADR-0081; ADR-0094 (the device's occupation stays, the worktree's goes); ADR-0104; ADR-0122; [plan m3j](../plans/m3j-machine-level-android-tool.md)
 
 ## Context

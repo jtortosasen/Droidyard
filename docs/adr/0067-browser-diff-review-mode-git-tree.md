@@ -1,6 +1,6 @@
 # ADR-0067: The diff in the browser, its Classic and Review modes, and the Git tree
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Superseded in part by: ADR-0070 (§Decision)
 - Relates to: ADR-0009; ADR-0066; plan m2i D8; plan m2l Q2

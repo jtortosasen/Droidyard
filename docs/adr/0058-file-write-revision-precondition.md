@@ -1,6 +1,6 @@
 # ADR-0058: `file.write` takes a revision precondition
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Superseded in part by: ADR-0060 (§Consequences)
 - Superseded in part by: ADR-0059 (§Decision)
