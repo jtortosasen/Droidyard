@@ -40,7 +40,7 @@ func TestInstructionsCarryTheManual(t *testing.T) {
 		"the golden order starts at the build":       "Golden order: project_modules, build_assemble",
 		"act with expect":                            "with expect",
 		"the device is named on every device call":   "Name the target device on every device call",
-		"policy is the user's":                       "Policy (devices, shell, trusted projects) is changed by the user",
+		"policy is the user's":                       "Policy (devices, trusted projects) is changed by the user",
 		"a failed build is a successful call":        "A failed build is a successful call",
 		"operation_wait finishes a slow tool":        "call operation_wait",
 		"artifact references are read with a reader": "references are read with artifact_read",

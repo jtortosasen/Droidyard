@@ -18,15 +18,11 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	"github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
-	"github.com/jtortosasen/droidyard/internal/domain/chats"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
-	"github.com/jtortosasen/droidyard/internal/domain/file"
-	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/sharing"
-	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -87,12 +83,6 @@ func registry() *capability.Registry {
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing, AuthorizeGradle: trustNothing})
-	file.Register(reg, file.Options{})
-	git.Register(reg, git.Options{})
-	chats.Register(reg, chats.Options{})
-	// The shell descriptors only: no handler of the golden registry is ever run, so the
-	// policy, trust, starter and store are left nil.
-	shell.Register(reg, shell.Options{})
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg, ops.Active)
 	return reg
@@ -368,7 +358,7 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	want := []string{"build.assemble", "device.forceStop", "device.inputText", "device.install", "device.installUpload", "device.launch", "device.logs",
 		"device.pressKey", "device.recordUi", "device.rotate", "device.screenshot", "device.scroll", "device.stopUiRecording", "device.swipe", "device.systemPanel", "device.tap", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiRecordings", "device.uiTree",
 		"device.uninstall", "device.watchLogs", "device.watchScreen", "device.watchUiEvents", "emulator.configure", "emulator.create", "emulator.delete", "emulator.start", "emulator.stop", "emulator.wipe",
-		"hosting.share", "hosting.unshare", "hosting.watchShare", "session.release"}
+		"hosting.share", "hosting.unshare", "hosting.watchShare"}
 	var got []string
 	for name := range declared {
 		got = append(got, name)

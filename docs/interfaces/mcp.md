@@ -73,10 +73,8 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput`, `workspace.watch`, `session.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
-| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget`, `session.release`, `session.chats` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md); [ADR-0094](../adr/0094-occupation-by-a-session.md) §3). The core rejects them from an MCP session: enforcement, not just omission. |
-| `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.trash`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
-| `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI uses them. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md)). The core rejects them from an MCP session: enforcement, not just omission. |
 | `device.scroll` | Audience `human` ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md), [ADR-0133](../adr/0133-agents-act-by-coordinates-keys-and-system-verbs.md) §2): a wheel needs a view; agents swipe. |
 | `device.deleteUiRecording` | Audience `human` ([ADR-0113](../adr/0113-ui-recording.md) §6): the UI and the CLI delete a recording. |
 | `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
@@ -182,7 +180,7 @@ test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 - droidyard://artifact/… references are read with artifact_read.
 - A failed build is a successful call: read its problems with build_errors, do not retry
   blindly.
-- Policy (devices, shell, trusted projects) is changed by the user, not through this
+- Policy (devices, trusted projects) is changed by the user, not through this
   server. Errors say what to ask for.
 ```
 

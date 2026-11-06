@@ -161,7 +161,7 @@ func TestReconcileFollowsInterfaces(t *testing.T) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
-	p := startInProcessConfig(t, "127.0.0.1:0", nil, nil, 0,
+	p := startInProcessConfig(t, "127.0.0.1:0", nil, nil,
 		`{"hosting":{"on":"127.0.0.1","port":`+strconv.Itoa(port)+`,"lend":[{"device":"R58M","to":["anna"]}]}}`)
 	var present atomic.Bool
 	present.Store(true)

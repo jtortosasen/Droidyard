@@ -406,9 +406,6 @@ func TestVersion1ExampleParses(t *testing.T) {
 	if ok, err := p.Trusted("/w/pre/x"); err != nil || !ok {
 		t.Errorf("Trusted(/w/pre/x) = %v, %v; want true", ok, err)
 	}
-	if ok, err := p.ShellAllowed("/w/sh"); err != nil || !ok {
-		t.Errorf("ShellAllowed(/w/sh) = %v, %v; want true (globally enabled)", ok, err)
-	}
 	if got := p.PhysicalAdmitted("SER1"); !got.Admitted {
 		t.Errorf("PhysicalAdmitted(SER1) = %+v; want admitted", got)
 	}
@@ -427,8 +424,8 @@ func TestVersion1ExampleParses(t *testing.T) {
 }
 
 // TestInvalidFileFailsClosedForEverySection: a file that is invalid — a wrong type, a
-// relative path, a newer version — trusts nothing (naming the file), keeps shell.exec
-// off, admits no physical device and uses no tool key (ADR-0032 §4; plan m1k D1). Each
+// relative path, a newer version — trusts nothing (naming the file),
+// admits no physical device and uses no tool key (ADR-0032 §4; plan m1k D1). Each
 // row is one of §4's refusals: a reader that validated only one would let the others
 // through.
 func TestInvalidFileFailsClosedForEverySection(t *testing.T) {
@@ -438,12 +435,12 @@ func TestInvalidFileFailsClosedForEverySection(t *testing.T) {
 	}{
 		{"allowPhysical: \"yes\"", `{"schemaVersion":1,"devices":{"allowPhysical":"yes"}}`},
 		{"allowlist: [1]", `{"schemaVersion":1,"devices":{"allowlist":[1]}}`},
-		{"shell.roots: [\"rel\"]", `{"schemaVersion":1,"shell":{"roots":["rel"]}}`},
+		{"trust.prefixes: [\"rel\"]", `{"schemaVersion":1,"trust":{"prefixes":["rel"]}}`},
 		{"gradle.sidecarJavaHome: \"jdk\"", `{"schemaVersion":1,"gradle":{"sidecarJavaHome":"jdk"}}`},
 		{"tools.adb: \"adb\"", `{"schemaVersion":1,"tools":{"adb":"adb"}}`},
 		{"schemaVersion: 2", `{"schemaVersion":2}`},
 		// Sections that would grant everything, beside one invalid key: nothing is granted.
-		{"granting sections beside tools.adb: \"adb\"", `{"schemaVersion":1,"trust":{"roots":["/w/root"]},"shell":{"enabled":true},"devices":{"allowPhysical":true,"allowlist":["SER"]},"tools":{"adb":"adb"}}`},
+		{"granting sections beside tools.adb: \"adb\"", `{"schemaVersion":1,"trust":{"roots":["/w/root"]},"devices":{"allowPhysical":true,"allowlist":["SER"]},"tools":{"adb":"adb"}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {
@@ -454,10 +451,6 @@ func TestInvalidFileFailsClosedForEverySection(t *testing.T) {
 			trusted, err := p.Trusted("/w/root")
 			if trusted || err == nil || !strings.Contains(err.Cause, path) {
 				t.Errorf("Trusted = %v, %v; want false and a cause naming %s", trusted, err, path)
-			}
-			shell, serr := p.ShellAllowed("/w/root")
-			if shell || serr == nil || serr.Code != capability.ErrPolicyShellDisabled || !strings.Contains(serr.Cause, path) {
-				t.Errorf("ShellAllowed = %v, %v; want false and POLICY_SHELL_DISABLED naming %s", shell, serr, path)
 			}
 			if got := p.PhysicalAdmitted("SER"); got.Admitted || !strings.Contains(got.Cause, path) {
 				t.Errorf("PhysicalAdmitted = %+v; want refused with a cause naming %s", got, path)
@@ -478,7 +471,7 @@ func TestInvalidFileFailsClosedForEverySection(t *testing.T) {
 // (ADR-0032 §1). Get reports the defaults rather than nulls.
 func TestNullValuesAreTheDefaults(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, `{"schemaVersion":1,"trust":null,"devices":{"allowPhysical":null,"allowlist":null},"shell":null,"gradle":{"sidecarJavaHome":null},"tools":{"adb":null}}`)
+	write(t, dir, `{"schemaVersion":1,"trust":null,"devices":{"allowPhysical":null,"allowlist":null},"gradle":{"sidecarJavaHome":null},"tools":{"adb":null}}`)
 	p := policy.New(envAt(dir))
 
 	got := p.Get()
@@ -486,7 +479,7 @@ func TestNullValuesAreTheDefaults(t *testing.T) {
 		t.Fatalf("state = %q; want ok (nulls are valid)", got.State)
 	}
 	if len(got.Trust.Roots) != 0 || len(got.Trust.Prefixes) != 0 || got.Devices.AllowPhysical ||
-		len(got.Devices.Allowlist) != 0 || got.Shell.Enabled || len(got.Shell.Roots) != 0 {
+		len(got.Devices.Allowlist) != 0 {
 		t.Errorf("Get() = %+v; want every section at its default", got)
 	}
 	if s := p.Startup(); s.State != policy.StateOK || s.ADB != "" || s.Emulator != "" || s.SidecarJavaHome != "" || s.AllowBelowFloor {
@@ -504,42 +497,56 @@ func TestMissingFileIsTheDefaults(t *testing.T) {
 	if got := p.Startup(); got.State != policy.StateMissing {
 		t.Errorf("toolKeys state = %q; want missing", got.State)
 	}
-	if got, err := p.ShellAllowed("/a"); got || err == nil || err.Code != capability.ErrPolicyShellDisabled {
-		t.Errorf("ShellAllowed with no file = %v, %v; want false and POLICY_SHELL_DISABLED", got, err)
-	}
 	if got := p.PhysicalAdmitted("SER"); got.Admitted {
 		t.Errorf("PhysicalAdmitted with no file = %+v; want refused", got)
 	}
 }
 
-// TestShellAllowedFollowsEnabledOrTheRootAtABoundary: shell.exec is on globally when
-// `shell.enabled`, or for a root equal to or under a `shell.roots` entry at a
-// path-component boundary (ADR-0032 §2; plan m1k D4). The boundary is the failure a
-// bare HasPrefix hides.
-func TestShellAllowedFollowsEnabledOrTheRootAtABoundary(t *testing.T) {
+// TestConfigWithShellSectionStillLoads: shell.exec left with ADR-0137 §1, but a config.json
+// an older droidyard wrote still holds a `shell` section, so it must load: the key is an
+// unknown key like any other, ignored by every check and kept by every rewrite. The file
+// below is full of non-default values in the sections that stay, so a reader that failed on
+// (or dropped) the old section, or read the others differently, is visible. A malformed
+// `shell` is no longer the file's problem either: nothing reads it.
+func TestConfigWithShellSectionStillLoads(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, `{"schemaVersion":1,"shell":{"enabled":false,"roots":["/w/roots/a"]}}`)
+	body := `{
+  "schemaVersion": 1,
+  "trust":      {"roots": ["/w/root"], "prefixes": ["/w/pre"]},
+  "devices":    {"allowPhysical": true, "allowlist": ["SER1"]},
+  "shell":      {"enabled": true, "roots": ["relative-is-not-checked-now"], "extra": [1]},
+  "occupation": {"conflict": "allow", "staleAfterMinutes": 7}
+}`
+	path := write(t, dir, body)
 	p := policy.New(envAt(dir))
 
-	for _, c := range []struct {
-		root string
-		want bool
-	}{
-		{"/w/roots/a", true},   // the entry itself
-		{"/w/roots/a/b", true}, // below it
-		{"/w/roots/a b", false},
-		{"/w/roots/ab", false}, // the boundary a bare HasPrefix misses
-		{"/w/other", false},
-	} {
-		got, err := p.ShellAllowed(c.root)
-		if got != c.want || (got == false && err == nil) {
-			t.Errorf("ShellAllowed(%s) = %v, %v; want %v", c.root, got, err, c.want)
-		}
+	if st := p.ConfigStatus(); st.State != policy.StateOK {
+		t.Fatalf("ConfigStatus = %+v; want ok: a `shell` section must not make the file invalid", st)
 	}
-
-	write(t, dir, `{"schemaVersion":1,"shell":{"enabled":true}}`)
-	if got, err := p.ShellAllowed("/anywhere"); !got || err != nil {
-		t.Errorf("ShellAllowed with enabled: %v, %v; want true (no restart needed)", got, err)
+	if ok, err := p.Trusted("/w/root"); err != nil || !ok {
+		t.Errorf("Trusted(/w/root) = %v, %v; want true as before", ok, err)
+	}
+	if ok, err := p.Trusted("/w/pre/x"); err != nil || !ok {
+		t.Errorf("Trusted(/w/pre/x) = %v, %v; want true as before", ok, err)
+	}
+	if got := p.PhysicalAdmitted("SER1"); !got.Admitted {
+		t.Errorf("PhysicalAdmitted(SER1) = %+v; want admitted as before", got)
+	}
+	if conflict, stale := p.Occupation(); conflict != capability.OccupationAllow || stale != 7*time.Minute {
+		t.Errorf("Occupation = %q, %v; want allow and 7m as before", conflict, stale)
+	}
+	// policy.get no longer reports it.
+	raw, _ := json.Marshal(p.Get())
+	if strings.Contains(string(raw), `"shell"`) {
+		t.Errorf("policy.get still reports the shell section: %s", raw)
+	}
+	// A rewrite of another section keeps the old one, byte for byte as a value.
+	before := read(t, path)
+	if _, err := p.Trust("/w/new"); err != nil {
+		t.Fatal(err)
+	}
+	if after := read(t, path); !reflect.DeepEqual(after["shell"], before["shell"]) {
+		t.Errorf("Trust changed the unknown `shell` key: before %#v after %#v", before["shell"], after["shell"])
 	}
 }
 
@@ -566,7 +573,7 @@ func TestPhysicalAdmittedNeedsBothTheFlagAndAnExactSerial(t *testing.T) {
 // TestTrustKeepsEverySectionAndUnknownKeys: `droidyard trust` edits only the trust
 // section and keeps every other section and every unknown key, top-level and inside a
 // known section, byte-for-byte (ADR-0032 §1; plan m1k D1). A Trust that rebuilt the file
-// from the trust section alone would drop `devices`, `shell`, `gradle` and `tools`.
+// from the trust section alone would drop `devices`, `gradle` and `tools`, and the `shell` key an older droidyard wrote.
 func TestTrustKeepsEverySectionAndUnknownKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, `{
@@ -662,18 +669,18 @@ func TestConfigFileIsReadBoundedAndWithoutBlocking(t *testing.T) {
 
 // TestDuplicateKeysMakeTheFileUnparseable pins ADR-0031 §3's fail-closed path for a
 // repeated key: encoding/json keeps the last of two equal keys, so a hand edit with two
-// `shell` sections (or a repeated key nested under `trust`) would be read as whichever
-// came last, and the first section's off could be undone without a word. A duplicate
-// makes the whole file unparseable at every depth, so nothing is trusted, the shell
-// stays off, and the error names the key.
+// `trust` sections (or a repeated key nested under `trust`) would be read as whichever
+// came last, and the first section's restriction could be undone without a word. A duplicate
+// makes the whole file unparseable at every depth, so nothing is trusted, and the error
+// names the key.
 func TestDuplicateKeysMakeTheFileUnparseable(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
 		key  string
 	}{
-		{"two shell sections, the last enables it",
-			`{"schemaVersion":1,"trust":{"roots":["/w/root"]},"shell":{"enabled":false},"shell":{"enabled":true}}`, "shell"},
+		{"two trust sections, the last trusts the root",
+			`{"schemaVersion":1,"trust":{"roots":[]},"trust":{"roots":["/w/root"]}}`, "trust"},
 		{"a nested duplicate under trust",
 			`{"schemaVersion":1,"trust":{"roots":[],"roots":["/w/root"]}}`, "trust.roots"},
 		{"a duplicate inside an unknown section",
@@ -690,10 +697,8 @@ func TestDuplicateKeysMakeTheFileUnparseable(t *testing.T) {
 			if got, err := p.Trusted("/w/root"); got || err == nil || err.Code != capability.ErrWorkspaceUntrusted {
 				t.Errorf("Trusted = %v, %v; want false and WORKSPACE_UNTRUSTED", got, err)
 			}
-			if got, err := p.ShellAllowed("/w/root"); got || err == nil || err.Code != capability.ErrPolicyShellDisabled {
-				t.Errorf("ShellAllowed = %v, %v; want false and POLICY_SHELL_DISABLED", got, err)
-			} else if !strings.Contains(err.Cause, path) || !strings.Contains(err.Cause, c.key) {
-				t.Errorf("cause %q does not name the file %q and the key %q", err.Cause, path, c.key)
+			if _, err := p.Trusted("/w/root"); err == nil || !strings.Contains(err.Cause, path) || !strings.Contains(err.Cause, c.key) {
+				t.Errorf("cause %v does not name the file %q and the key %q", err, path, c.key)
 			}
 			if st := p.ConfigStatus(); st.State != policy.StateInvalid || !strings.Contains(st.Error, c.key) {
 				t.Errorf("ConfigStatus = %+v; want invalid, naming %q", st, c.key)
@@ -711,7 +716,7 @@ func TestDuplicateKeysMakeTheFileUnparseable(t *testing.T) {
 
 // TestDistinctKeysInSeparateObjectsAreNotDuplicates guards the check against the easy
 // over-reach: the same key in two sibling objects is fine (`roots` under trust and
-// shell, `enabled` once each).
+// the old `shell`, `enabled` once each).
 func TestDistinctKeysInSeparateObjectsAreNotDuplicates(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, `{"schemaVersion":1,"trust":{"roots":["/a"]},"shell":{"roots":["/a"],"enabled":false},"future":[{"k":1},{"k":2}]}`)

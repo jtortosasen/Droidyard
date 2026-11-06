@@ -235,7 +235,7 @@ func (s *Supervisor) Load() error {
 // spawner starts every child from one goroutine locked to its OS thread for the
 // supervisor's life: on Linux, Pdeathsig fires when the thread that forked a child
 // exits, not the process (process-lifecycle.md §Shutdown, layer 2). Every kind but
-// shell-command and git-write asks for that SIGTERM; theirs do not (deathSignal).
+// sdk-tool asks for that SIGTERM; its does not (deathSignal).
 func (s *Supervisor) spawner() {
 	runtime.LockOSThread()
 	for {
@@ -279,8 +279,8 @@ type Recorded struct {
 func (r *Recorded) Pid() int { return r.pid }
 
 // SignalGroup sends sig to the recorded process's entire group (never its pid alone):
-// the caller that kills a shell.exec command's group uses it, so a background child the
-// command left behind is killed too (plan m1k D5). A group with no member left is
+// the caller that kills a recorded run's group uses it, so a background child the
+// run left behind is killed too (plan m1k D5). A group with no member left is
 // ESRCH, which the caller treats as "already gone".
 func (r *Recorded) SignalGroup(sig syscall.Signal) error {
 	return unix.Kill(-r.pid, sig)
@@ -302,17 +302,14 @@ func (r *Recorded) Wait() error {
 // own, and writes its pid record while it runs: a long-lived child that is neither
 // supervised nor stopped when idle, but must be findable after the daemon dies, so the
 // next daemon's Reconcile reaps it (ADR-0021 §Pid records: the durable exception;
-// plan m1i D9). A shell.exec command (kind ShellCommand) is spawned without the death
-// signal, so its leader survives the daemon and Reconcile can reach its group
-// (plan m1k D5), and so are a git write (kind GitWrite, plan m2n P2) and an avdmanager run
-// (kind SDKTool, plan m3f step 6), which are also their own session leaders; every other kind is spawned with it, as before. It overwrites
+// plan m1i D9). An avdmanager run (kind SDKTool, plan m3f step 6) is spawned without the death
+// signal, so its leader survives the daemon and Reconcile can reach its group, and it is its
+// own session leader; every other kind is spawned with it, as before. It overwrites
 // cmd.SysProcAttr. The caller owns the returned handle and must call Wait.
 //
-// When the record cannot be written the child is killed and no handle is returned. A
-// shell-command's whole group is killed — nothing outside it was forked into it, and a
-// background child the command left would otherwise outlive the daemon unrecorded; so is a
-// git write's, which holds the transport a fetch started, an avdmanager run's, which holds
-// its JVM, and a folder dialog's, whose
+// When the record cannot be written the child is killed and no handle is returned. An
+// avdmanager run's whole group is killed — nothing outside it was forked into it, and its
+// JVM would otherwise outlive the daemon unrecorded; so is a folder dialog's, whose
 // group every other end kills too. Every other kind is killed by its pid, never its group,
 // which a forked adb server shares (m1e R8).
 func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) {
@@ -343,7 +340,7 @@ func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) 
 		beforeRecord(cmd)
 	}
 	if err := s.addRecord(rec); err != nil {
-		if kind == ShellCommand || kind == GitWrite || kind == SDKTool || kind == FolderDialog {
+		if kind == SDKTool || kind == FolderDialog {
 			unix.Kill(-pid, unix.SIGKILL)
 		} else {
 			cmd.Process.Kill()

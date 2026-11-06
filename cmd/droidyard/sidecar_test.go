@@ -35,6 +35,10 @@ const (
 	drainEnv    = "DROIDYARD_TEST_DRAIN"
 	shutdownEnv = "DROIDYARD_TEST_SHUTDOWN"
 	httpPortEnv = "DROIDYARD_TEST_HTTP_PORT"
+	// sessionClockEnv names a file holding the seconds to add to the real time the session
+	// registry reads, and sessionSweepEnv the interval of its idle sweep (ADR-0094 §4).
+	sessionClockEnv = "DROIDYARD_TEST_SESSION_CLOCK"
+	sessionSweepEnv = "DROIDYARD_TEST_SESSION_SWEEP"
 	// gradleFakeEnv names a gradletest configuration file: a re-executed daemon then
 	// runs that fake sidecar instead of a real JVM, and gradleJVMEnv names the fake JDK
 	// 17 it "runs on" (plan m1g step 5).
@@ -218,11 +222,6 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(sessionSweepEnv)); err == nil {
 		sessionSweep = d
-	}
-	// A test may set the file.watch pollers' tick, a long one to see what makes a poller walk
-	// before it.
-	if d, err := time.ParseDuration(os.Getenv(watchTickEnv)); err == nil {
-		watchTick = d
 	}
 	// A test may give the daemon a fake osascript, so workspace.chooseRoot runs on any
 	// host without raising a window.

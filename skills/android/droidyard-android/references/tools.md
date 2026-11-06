@@ -46,7 +46,6 @@ A session started with `--tools core` lists only the tools marked core.
 | `sdk_profiles` |  | read-only | Lists the device profiles AVDs are created from (id, name, maker, kind); use an id as emulator_create's profile. |
 | `sdk_requirements` |  | read-only | Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and, for each, ... |
 | `sdk_status` |  | read-only | Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, ... |
-| `shell_exec` |  | changes state | Runs a shell command as the user with `/bin/sh -c` in the project root, or in cwd inside it; stdout and stderr are each the last 16 KiB, and a longer ... |
 | `system_capabilities` |  | read-only | Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point. |
 | `system_health` |  | read-only | Reports whether the core is alive, its version, uptime and operations in flight, where adb and the JVM were found, any state file it could not use, ... |
 | `workspace_close` |  | changes state | Closes the workspace for every session: cancels its running operations, waits up to 10 s for them, and stops its processes. |

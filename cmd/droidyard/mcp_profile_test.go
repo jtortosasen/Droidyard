@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -16,7 +14,6 @@ import (
 	"testing"
 
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
-	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
 // goldenPath is plan m1o D3 without the file tools (ADR-0060): the golden path's tools, the
@@ -104,7 +101,7 @@ func TestCoreProfileListsTheGoldenPath(t *testing.T) {
 		t.Errorf("the core instructions are %q; want the instructions plus the core note", instr)
 	}
 
-	// shell.exec exists and is not core; so does a name nothing registers.
+	// device.uninstall exists and is not core; a name nothing registers does not exist.
 	c.callTool(2, "device_uninstall", `{}`)
 	outside := c.recv()
 	c.callTool(3, "no_suchTool", `{}`)
@@ -128,75 +125,6 @@ func TestCoreProfileListsTheGoldenPath(t *testing.T) {
 
 func mcpadapterSorted() []string { return sorted(mcpadapter.CoreTools) }
 
-// TestFileCapabilitiesAreNotTools: ADR-0060. No file.* is an MCP tool under any profile
-// (no flag, all, core), and mcp-go answers a call to one "tool not found"; the core also
-// refuses file.read from an MCP client (REQUEST_NOT_ALLOWED_HERE, with no operation), while
-// the CLI and the UI's HTTP side still run it. Reversing the decision (a file.* with
-// audience all) lists its tool and lets the MCP client in, so the first and third
-// assertions fail.
-func TestFileCapabilitiesAreNotTools(t *testing.T) {
-	t.Parallel()
-	p, _ := startHTTP(t, "127.0.0.1:0")
-	for _, args := range [][]string{nil, {"--tools", "all"}, {"--tools", "core"}} {
-		c := startShim(t, p.state, "files", args...)
-		c.initialize("files")
-		names, _ := toolNames(t, c, 1)
-		if len(names) == 0 {
-			t.Errorf("%v lists no tools; the check below would pass vacuously", args)
-		}
-		for _, n := range names {
-			if strings.HasPrefix(n, "file_") {
-				t.Errorf("%v lists %s; no file.* is an MCP tool (ADR-0060)", args, n)
-			}
-		}
-		if len(args) == 0 {
-			c.callTool(2, "file_read", `{"path":"a.kt"}`)
-			var msg struct {
-				Error *struct {
-					Code    int    `json:"code"`
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if err := json.Unmarshal(c.recv(), &msg); err != nil {
-				t.Fatal(err)
-			}
-			if msg.Error == nil || msg.Error.Code != -32602 || !strings.Contains(msg.Error.Message, "tool 'file_read' not found") {
-				t.Errorf("tools/call file_read answered %+v; want -32602 tool 'file_read' not found", msg.Error)
-			}
-		}
-		c.exit()
-	}
-
-	root, _ := projectWith(t, "settings.gradle")
-	if err := os.WriteFile(filepath.Join(root, "a.kt"), []byte("A"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	openEnv, code := callIn(t, p.state, root, "workspace.open")
-	if code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, openEnv.Error)
-	}
-	ws := workspaceOf(t, openEnv).ID
-
-	id, err := p.ops.Start(context.Background(), capability.Request{Capability: "file.read", Workspace: ws,
-		Params: json.RawMessage(`{"path":"a.kt"}`), Client: capability.ClientMCP})
-	var e *capability.Error
-	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
-		t.Errorf("file.read as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
-	}
-
-	env, code := callIn(t, p.state, root, "file.read", "--params", `{"path":"a.kt"}`)
-	if code != 0 || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateCompleted {
-		t.Errorf("file.read from the CLI: exit %d, error %+v, operation %+v; want it completed", code, env.Error, env.Operation)
-	}
-
-	resp := callRequest(portOf(t, p.d.HTTPAddr()), p.token,
-		`{"id":"r","capability":"file.read","workspace":"`+ws+`","params":{"path":"a.kt"}}`).send(t, p.d.HTTPAddr())
-	henv := envelopeOf(t, resp)
-	if resp.StatusCode != 200 || henv.Error != nil || henv.Operation == nil || henv.Operation.State != capability.StateCompleted {
-		t.Errorf("POST /v1/call file.read: %d, error %+v, operation %+v; want it completed", resp.StatusCode, henv.Error, henv.Operation)
-	}
-}
-
 // TestDefaultListsEverything: without the flag, and with --tools all, every tool is
 // listed (the surface ADR-0036 Decision 4 promises stays unchanged), and the
 // instructions are the plain ones.
@@ -208,8 +136,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 48 {
-			t.Errorf("%v lists %d tools; want 48", args, len(names))
+		if len(names) != 47 {
+			t.Errorf("%v lists %d tools; want 47", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)
@@ -322,8 +250,7 @@ func TestCoreNextStepsNameCoreTools(t *testing.T) {
 	// A nextStep must not send an agent to a published capability that is no MCP tool
 	// (audience human, or not stateless), unless it is on this list with the reason.
 	notExposed := map[string]string{
-		"policy.update": "named in POLICY_SHELL_DISABLED as the user's channel: the agent asks the user",
-		"policy.get":    "only policy.update's own POLICY_REVISION_CONFLICT (update.go:296); an MCP session cannot call policy.update",
+		"policy.get": "only policy.update's own POLICY_REVISION_CONFLICT (update.go:296); an MCP session cannot call policy.update",
 	}
 	for canon, where := range foundAll {
 		if _, ok := exposed[canon]; ok {

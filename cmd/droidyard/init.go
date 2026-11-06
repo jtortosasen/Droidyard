@@ -18,7 +18,6 @@ import (
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 	"github.com/jtortosasen/droidyard/skills"
@@ -250,7 +249,7 @@ func initInputs(errw io.Writer) (command, stateDir string, tools []string, code 
 			return "", "", nil, 1
 		}
 	}
-	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	return command, stateDir, readOnlyTools(mcpTools(reg)), 0
 }
 
@@ -342,7 +341,7 @@ func startInGroup(cmd *exec.Cmd) error {
 }
 
 // ignoreStep keeps (or on uninstall takes out) the block of the run's untracked files in
-// each target (ADR-0124 §4). The repository is read through the git package's runner,
+// each target (ADR-0124 §4). The repository is read through the assistant package's hardened runner,
 // untrusted. A root outside a repository, or no git, is not an error: an install is
 // refused by Ignore with its reason, an uninstall has no block to remove.
 func ignoreStep(root string, changes []assistant.Change, targets []assistant.IgnoreTarget, dry, uninstall bool) ([]assistant.Change, error) {
@@ -351,9 +350,9 @@ func ignoreStep(root string, changes []assistant.Change, targets []assistant.Ign
 		paths = assistant.IgnoreCandidates(changes)
 	}
 	gitPath, _ := exec.LookPath("git")
-	repo, err := git.Tracked(context.Background(), startInGroup, gitPath, os.Environ(), root, paths)
-	inRepo, noGit := err == nil, errors.Is(err, git.ErrNotFound)
-	if err != nil && !noGit && !errors.Is(err, git.ErrNotRepository) {
+	repo, err := assistant.Tracked(context.Background(), startInGroup, gitPath, os.Environ(), root, paths)
+	inRepo, noGit := err == nil, errors.Is(err, assistant.ErrGitNotFound)
+	if err != nil && !noGit && !errors.Is(err, assistant.ErrNotRepository) {
 		return nil, err
 	}
 	var out []assistant.Change

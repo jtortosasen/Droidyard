@@ -91,14 +91,13 @@ func TestPolicyGetAnswersTheHumanChannels(t *testing.T) {
 	}
 
 	// A valid file: the sections as written, from both channels, and health agrees.
-	writeConfig(t, p, `{"schemaVersion":1,"trust":{"roots":["/w/root"],"prefixes":["/w/pre"]},"devices":{"allowPhysical":true,"allowlist":["SER"]},"shell":{"enabled":true,"roots":["/w/sh"]}}`)
+	writeConfig(t, p, `{"schemaVersion":1,"trust":{"roots":["/w/root"],"prefixes":["/w/pre"]},"devices":{"allowPhysical":true,"allowlist":["SER"]}}`)
 	for _, c := range []struct {
 		name string
 		got  policy.GetResult
 	}{{"CLI", getCLI()}, {"HTTP", getHTTP()}} {
 		if c.got.State != policy.StateOK || len(c.got.Trust.Roots) != 1 || c.got.Trust.Roots[0] != "/w/root" ||
-			len(c.got.Trust.Prefixes) != 1 || !c.got.Devices.AllowPhysical || len(c.got.Devices.Allowlist) != 1 ||
-			!c.got.Shell.Enabled || len(c.got.Shell.Roots) != 1 {
+			len(c.got.Trust.Prefixes) != 1 || !c.got.Devices.AllowPhysical || len(c.got.Devices.Allowlist) != 1 {
 			t.Errorf("%s policy.get = %+v; want the file's sections", c.name, c.got)
 		}
 	}

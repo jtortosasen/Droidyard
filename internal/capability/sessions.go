@@ -50,10 +50,9 @@ type Holder struct {
 // to disk. A paired peer's link is a session too (ConnectPeer, ADR-0104): what it holds is the
 // lease of the lent devices its calls name. Every method is safe for concurrent use.
 //
-// What session.watch shows (ADR-0083 §1) is published from here, under the same lock that
-// changes it, so an event of a session is never published before the row session.watch
-// reads can show it, and none after its end. The chat id is never published or listed
-// (ADR-0088 §4).
+// What a session shows (sessions_state.go) is published from here, under the same lock that
+// changes it, so an event of a session is never published before the row listed can show it,
+// and none after its end. The chat id is never published or listed (ADR-0088 §4).
 type Sessions struct {
 	mu    sync.Mutex
 	byID  map[string]*sessionRec
@@ -78,8 +77,7 @@ type Sessions struct {
 	// device, so the holder's streams on it are stopped (ADR-0104 §4); nil tells no one.
 	leaseEnd func(session, serial string)
 
-	// watchHook and occupyHook are test seams: see SetWatchHook and SetOccupyHook.
-	watchHook  atomic.Pointer[func()]
+	// occupyHook is a test seam: see SetOccupyHook.
 	occupyHook atomic.Pointer[func()]
 }
 
@@ -350,24 +348,6 @@ func (s *Sessions) releaseLocked(id string, r *sessionRec) {
 	}
 }
 
-// ReleaseWorkspace ends the occupation of the linked worktree whose workspace id is
-// workspace, whoever holds it, and publishes the holder's row (ADR-0094 §3). The owner
-// frees it outright: no other session of the holder's chat is handed it, and the holder's
-// binding stays. A worktree nobody holds is already free.
-func (s *Sessions) ReleaseWorkspace(workspace string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for root, hid := range s.holders {
-		r := s.byID[hid]
-		if r == nil || r.holdWorkspace != workspace {
-			continue
-		}
-		delete(s.holders, root)
-		r.holdRoot, r.holdWorkspace, r.holdSince = "", "", time.Time{}
-		s.publish(hid, r)
-	}
-}
-
 // Occupy moves the session's binding to root, workspace being its id, and decides in the
 // same critical section whether the session holds it (ADR-0094 §1 to §6), so two sessions
 // entering one worktree cannot both succeed. linked says root is a linked worktree of the
@@ -452,8 +432,7 @@ func (s *Sessions) End(id string) {
 	}
 }
 
-// listed is the sessions in progress, oldest connection first. Called by session.watch
-// after it has opened its subscription.
+// listed is the sessions in progress, oldest connection first.
 func (s *Sessions) listed() []SessionListed {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -584,17 +563,6 @@ func (s *Sessions) HolderOf(root, asking string) (Holder, bool) {
 		return Holder{}, false
 	}
 	return Holder{Name: h.name, Since: h.holdSince, Stale: h.stale}, true
-}
-
-// SetWatchHook makes every session.watch call run f after it has opened its subscription
-// and before it takes the snapshot. Test-only: it is where a session can connect or end
-// inside the window ADR-0083 §1 closes. Nil removes it.
-func (s *Sessions) SetWatchHook(f func()) {
-	if f == nil {
-		s.watchHook.Store(nil)
-		return
-	}
-	s.watchHook.Store(&f)
 }
 
 // SetOccupyHook makes every Occupy of a linked worktree and every OccupyDevice run f

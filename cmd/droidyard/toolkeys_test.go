@@ -20,14 +20,14 @@ import (
 // adb is found, and the shared server on 5037 is never reached.
 func startInProcessConfigFile(t *testing.T, configBody string) *inProcess {
 	t.Helper()
-	return startInProcessConfig(t, "127.0.0.1:0", nil, nil, 0, configBody)
+	return startInProcessConfig(t, "127.0.0.1:0", nil, nil, configBody)
 }
 
 // startInProcessConfigADB is startInProcessConfigFile with a fake adb the daemon is
 // given too, so a configured `tools.adb` can be resolved and reported.
 func startInProcessConfigADB(t *testing.T, configBody string, adb *adbSeam) *inProcess {
 	t.Helper()
-	return startInProcessConfig(t, "127.0.0.1:0", nil, adb, 0, configBody)
+	return startInProcessConfig(t, "127.0.0.1:0", nil, adb, configBody)
 }
 
 // adbRejected reports whether rejected lists candidate with source and a reason

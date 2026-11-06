@@ -17,7 +17,7 @@ import (
 // something false); they are reported in the Change's notes instead.
 //
 // This package never runs git: the caller reads the repository's facts through
-// internal/domain/git (Tracked) and passes them in IgnoreOptions.
+// Tracked (tracked.go) and passes them in IgnoreOptions.
 
 const (
 	ignoreHeader = "# droidyard init: files it wrote that git does not track (droidyard init --uninstall removes this block)"

@@ -130,12 +130,11 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 // truncated, hint and emptyReason are the daemon's), device.screenshot (its reference
 // field, R9), device.uiDump (its foreground package and its artifact's reference),
 // device.uiEvents (each event's package, class and toast text), device.recordUi and
-// device.stopUiRecording, session.chats (each chat's title: text a person or a model wrote into a client's file),
+// device.stopUiRecording,
 // device.uiRecordings and device.watchUiRecordings (the timeline's reference, which every artifact reference tags: the
 // summary carries no device text, the file it names is all device text),
 // device.logs (each line's tag and message and each crash's exception and
-// message), artifact.read (its data) and shell.exec (its stdout and stderr, which a
-// command fills with whatever it likes, device text included) and sdk.packages (each
+// message), artifact.read (its data) and sdk.packages (each
 // available package's displayName, text from Google's repository) and sdk.licenses (each
 // licence's text, the same source); system.health and
 // device.list report the host's own state and the list of serials, not device text (R6).
@@ -146,7 +145,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.tap": true, "device.swipe": true, "device.pressKey": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "session.chats": true, "sdk.packages": true, "sdk.licenses": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.tap": true, "device.swipe": true, "device.pressKey": true, "device.logs": true, "artifact.read": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "sdk.packages": true, "sdk.licenses": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}

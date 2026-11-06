@@ -53,7 +53,7 @@ const Instructions = `- This server is bound to one project; tools take no works
 - droidyard://artifact/… references are read with artifact_read.
 - A failed build is a successful call: read its problems with build_errors, do not retry
   blindly.
-- Policy (devices, shell, trusted projects) is changed by the user, not through this
+- Policy (devices, trusted projects) is changed by the user, not through this
   server. Errors say what to ask for.`
 
 // Profiles name the tool sets a session can list (ADR-0036 Decision 4). ProfileAll,

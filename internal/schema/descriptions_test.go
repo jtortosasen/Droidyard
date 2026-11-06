@@ -36,8 +36,7 @@ type safetyException struct {
 
 // safetyExceptions is the named list (ADR-0036 Decision 1): a repeat repeats an effect;
 // `expect` can be vacuous; `gone` needs two reads; emulator.start's cancel, which
-// mcp.md §Long-running work (its last bullet) requires the description to say;
-// shell.exec's reach.
+// mcp.md §Long-running work (its last bullet) requires the description to say.
 var safetyExceptions = map[string]safetyException{
 	"device.tapElement": {
 		why:   "a repeat taps again; an expect already true before the tap is vacuous; gone needs two reads",
@@ -63,10 +62,6 @@ var safetyExceptions = map[string]safetyException{
 	"emulator.start": {
 		why:   "cancelling after the serial is resolved leaves the emulator running (mcp.md §Long-running work)",
 		facts: []string{"Cancelling", "leaves the emulator running"},
-	},
-	"shell.exec": {
-		why:   "it runs with the user's full rights, so it reaches droidyard's own configuration and trust",
-		facts: []string{"full rights", "configuration", "trust"},
 	},
 }
 

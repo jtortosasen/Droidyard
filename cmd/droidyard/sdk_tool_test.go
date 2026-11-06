@@ -1,14 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk/sdktest"
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The seam that gives a re-executed daemon an SDK with the fake avdmanager (sdktest) and a
@@ -66,7 +69,7 @@ func TestKilledDaemonsSDKToolIsReapedByTheNext(t *testing.T) {
 	if code := detached.wait(t); code != 0 {
 		t.Fatalf("the detached call exited %d", code)
 	}
-	rec := waitShellRecord(t, state)
+	rec := waitRecord(t, state)
 	if rec.Kind != proc.SDKTool {
 		t.Fatalf("record kind = %q, want %q", rec.Kind, proc.SDKTool)
 	}
@@ -85,7 +88,7 @@ func TestKilledDaemonsSDKToolIsReapedByTheNext(t *testing.T) {
 	if !alive(rec.PID) || groupGone(rec.PGID) {
 		t.Fatalf("the tool (pid %d, group %d) died with the daemon; it must outlive a kill -9", rec.PID, rec.PGID)
 	}
-	if recs := shellRecords(t, state); len(recs) != 1 || recs[0].PID != rec.PID {
+	if recs := processRecords(t, state); len(recs) != 1 || recs[0].PID != rec.PID {
 		t.Fatalf("processes.json holds %+v after the kill, want the tool's record %d", recs, rec.PID)
 	}
 
@@ -97,7 +100,7 @@ func TestKilledDaemonsSDKToolIsReapedByTheNext(t *testing.T) {
 	if alive(child) {
 		t.Errorf("the tool's child %d survived the next daemon's reconciliation", child)
 	}
-	if recs := shellRecords(t, state); len(recs) != 0 {
+	if recs := processRecords(t, state); len(recs) != 0 {
 		t.Errorf("processes.json holds %+v after reconciling, want none", recs)
 	}
 	if code := droidyardProc(t, daemonEnv, "", "stop").wait(t); code != 0 {
@@ -128,7 +131,7 @@ func TestSDKToolEndsWithADaemonShutdown(t *testing.T) {
 	if code := droidyardProc(t, daemonEnv, "", "call", "--no-autostart", "--detach", "sdk.profiles").wait(t); code != 0 {
 		t.Fatalf("the detached call exited %d", code)
 	}
-	rec := waitShellRecord(t, state)
+	rec := waitRecord(t, state)
 	child := waitPid(t, filepath.Join(toolDir, "child.pid"))
 	t.Cleanup(func() { syscall.Kill(-rec.PGID, syscall.SIGKILL) })
 	if code := droidyardProc(t, daemonEnv, "", "stop").wait(t); code != 0 {
@@ -138,7 +141,39 @@ func TestSDKToolEndsWithADaemonShutdown(t *testing.T) {
 	if !groupGone(rec.PGID) || alive(child) {
 		t.Errorf("the tool's group %d (child %d) outlived the daemon's shutdown", rec.PGID, child)
 	}
-	if recs := shellRecords(t, state); len(recs) != 0 {
+	if recs := processRecords(t, state); len(recs) != 0 {
 		t.Errorf("processes.json holds %+v after the shutdown, want none", recs)
 	}
+}
+
+// processRecords reads the pid records processes.json holds, straight from disk, so a test
+// can see them while the daemon runs them (the daemon is a process of its own).
+func processRecords(t *testing.T, state string) []proc.Record {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(state, proc.RecordsFile))
+	if err != nil {
+		return nil
+	}
+	var recs proc.Records
+	if err := json.Unmarshal(raw, &recs); err != nil {
+		t.Fatalf("processes.json: %v", err)
+	}
+	return recs.Processes
+}
+
+// waitRecord polls for the one record a running recorded process wrote.
+func waitRecord(t *testing.T, state string) proc.Record {
+	t.Helper()
+	for deadline := time.Now().Add(testtime.Bound(processGuard)); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if recs := processRecords(t, state); len(recs) == 1 {
+			return recs[0]
+		}
+	}
+	t.Fatalf("no record appeared in processes.json")
+	return proc.Record{}
+}
+
+// groupGone reports whether no process remains in the group: kill(-pgid, 0) is ESRCH.
+func groupGone(pgid int) bool {
+	return syscall.Kill(-pgid, 0) == syscall.ESRCH
 }

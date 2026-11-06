@@ -21,8 +21,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
-	"github.com/jtortosasen/droidyard/internal/domain/file"
-	gitdomain "github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/hosting"
@@ -43,23 +41,20 @@ type slowResult struct {
 }
 
 type inProcess struct {
-	d        *daemon.Daemon
-	reg      *capability.Registry
-	host     *hosting.Host // the peer link, not started: a test that wants it calls startPeers
-	mcp      *mcpadapter.Server
-	http     *httpapi.Server // the UI's HTTP side, for its test seams
-	ops      *capability.Operations
-	bus      *event.Bus
-	store    *artifact.Store // the daemon's artifact store
-	watchers *file.Watchers  // the daemon's live file.watch pollers (plan m1j, D9)
-	// gitWatchers are the daemon's live git.watch pollers.
-	gitWatchers *gitdomain.Watchers
-	adb         *device.ADB   // the daemon's adb: its Close is the daemon's AfterOps
-	token       string        // the HTTP token
-	log         *lockedBuffer // the daemon's log, also copied to stderr
-	state       string
-	started     chan string
-	release     chan struct{}
+	d       *daemon.Daemon
+	reg     *capability.Registry
+	host    *hosting.Host // the peer link, not started: a test that wants it calls startPeers
+	mcp     *mcpadapter.Server
+	http    *httpapi.Server // the UI's HTTP side, for its test seams
+	ops     *capability.Operations
+	bus     *event.Bus
+	store   *artifact.Store // the daemon's artifact store
+	adb     *device.ADB     // the daemon's adb: its Close is the daemon's AfterOps
+	token   string          // the HTTP token
+	log     *lockedBuffer   // the daemon's log, also copied to stderr
+	state   string
+	started chan string
+	release chan struct{}
 }
 
 func startInProcess(t *testing.T) *inProcess {
@@ -134,22 +129,14 @@ var adbSeamMu sync.Mutex
 // environment, so a test can build what the daemon itself derives from it.
 func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam) *inProcess {
 	t.Helper()
-	return startInProcessFull(t, httpAddr, extra, adb, 0)
+	return startInProcessConfig(t, httpAddr, extra, adb, "")
 }
 
-// startInProcessFull is startInProcessADB with the file.watch poller's interval: tick
-// > 0 replaces the one-second default for this daemon, so a test sees a change at once
-// (plan m1j step 4). Zero keeps the default.
-func startInProcessFull(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, tick time.Duration) *inProcess {
-	t.Helper()
-	return startInProcessConfig(t, httpAddr, extra, adb, tick, "")
-}
-
-// startInProcessConfig is startInProcessFull with a configuration file written into the
+// startInProcessConfig is startInProcessADB with a configuration file written into the
 // state root before the daemon reads it. The tool keys are read once, at daemon start
 // (ADR-0032 §3, §6; plan m1k D8), so a test that wants them set writes the file first;
 // an empty body writes no file, and the daemon starts with the configuration missing.
-func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, tick time.Duration, configBody string) *inProcess {
+func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, configBody string) *inProcess {
 	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
 	if adb != nil && adb.state != "" {
@@ -180,7 +167,6 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	}}
 	adbSeamMu.Lock()
 	oldEnv, oldExec, oldWrap := adbEnviron, adbExec, adbStreamWrap
-	oldTick := watchTick
 	oldLaunch, oldFinder := gradleLaunch, gradleFinder
 	oldFloor := adbFloor
 	if adb != nil && adb.floor > 0 {
@@ -192,18 +178,14 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	if adb != nil && adb.gradle != nil {
 		gradleLaunch, gradleFinder = adb.gradle.launch, adb.gradle.finder
 	}
-	watchTick = tick
-	gitWatchersSeam = func(w *gitdomain.Watchers) { p.gitWatchers = w }
-	reg, ops, bus, artifacts, deviceADB, watchers, host := registry(env, st, sup, os.Stderr)
-	gitWatchersSeam = nil
-	adbEnviron, adbExec, adbStreamWrap, watchTick = oldEnv, oldExec, oldWrap, oldTick
+	reg, ops, bus, artifacts, deviceADB, host := registry(env, st, sup, os.Stderr)
+	adbEnviron, adbExec, adbStreamWrap = oldEnv, oldExec, oldWrap
 	gradleLaunch, gradleFinder = oldLaunch, oldFinder
 	adbFloor = oldFloor
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.reg, p.host = reg, host
 	p.ops, p.bus, p.store = ops, bus, artifacts
-	p.watchers = watchers
 	p.adb = deviceADB
 	if extra != nil {
 		extra(reg, env)

@@ -80,7 +80,7 @@ func TestHostingCLI(t *testing.T) {
 	t.Parallel()
 	pol, _ := hostingPolicy(t)
 	// Keys of other sections must survive every verb: a patch is a merge, not a rewrite.
-	if _, err := pol.Update(context.Background(), updateOf(t, `{"devices":{"allowPhysical":true,"allowlist":["R58M"]},"shell":{"enabled":true}}`)); err != nil {
+	if _, err := pol.Update(context.Background(), updateOf(t, `{"devices":{"allowPhysical":true,"allowlist":["R58M"]},"trust":{"prefixes":["/kept"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -211,8 +211,8 @@ func TestHostingCLI(t *testing.T) {
 
 	// None of it touched the other sections.
 	all := pol.Get()
-	if !all.Devices.AllowPhysical || !reflect.DeepEqual(all.Devices.Allowlist, []string{"R58M"}) || !all.Shell.Enabled {
-		t.Errorf("devices %+v and shell %+v changed by the hosting verbs", all.Devices, all.Shell)
+	if !all.Devices.AllowPhysical || !reflect.DeepEqual(all.Devices.Allowlist, []string{"R58M"}) || !reflect.DeepEqual(all.Trust.Prefixes, []string{"/kept"}) {
+		t.Errorf("devices %+v and trust %+v changed by the hosting verbs", all.Devices, all.Trust)
 	}
 }
 

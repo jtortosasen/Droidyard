@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,7 +35,7 @@ func TestPolicyUpdateAnswersTheHumanChannels(t *testing.T) {
 	p := startInProcess(t)
 	httpAddr, port := p.d.HTTPAddr(), portOf(t, p.d.HTTPAddr())
 
-	env, code := p.call(t, "policy.update", "--params", `{"shell": {"enabled": true}}`)
+	env, code := p.call(t, "policy.update", "--params", `{"devices": {"allowPhysical": true}}`)
 	if code != 0 || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateCompleted {
 		t.Fatalf("CLI policy.update exited %d with %+v; want completed", code, env)
 	}
@@ -44,8 +43,8 @@ func TestPolicyUpdateAnswersTheHumanChannels(t *testing.T) {
 	if err := json.Unmarshal(env.Result, &got); err != nil {
 		t.Fatalf("policy.update result %s: %v", env.Result, err)
 	}
-	if got.State != policy.StateOK || !got.Shell.Enabled {
-		t.Errorf("CLI policy.update = %+v; want state ok and shell enabled", got)
+	if got.State != policy.StateOK || !got.Devices.AllowPhysical {
+		t.Errorf("CLI policy.update = %+v; want state ok and physical devices allowed", got)
 	}
 
 	root := platform.Current().Canonical(t.TempDir())
@@ -57,8 +56,8 @@ func TestPolicyUpdateAnswersTheHumanChannels(t *testing.T) {
 	if henv.Error != nil || henv.Result == nil {
 		t.Fatalf("POST /v1/call policy.update: %+v; want a result", henv)
 	}
-	if g := policy.New(envAtState(p)).Get(); !g.Shell.Enabled || len(g.Trust.Roots) != 1 || g.Trust.Roots[0] != root {
-		t.Errorf("after both updates: %+v; want shell enabled and the root %s trusted", g, root)
+	if g := policy.New(envAtState(p)).Get(); !g.Devices.AllowPhysical || len(g.Trust.Roots) != 1 || g.Trust.Roots[0] != root {
+		t.Errorf("after both updates: %+v; want physical devices allowed and the root %s trusted", g, root)
 	}
 }
 
@@ -69,7 +68,7 @@ func TestPolicyUpdateAnswersTheHumanChannels(t *testing.T) {
 func TestPolicyUpdateIsRefusedFromTheCoreOnMCP(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
-	req := capability.Request{Capability: "policy.update", Params: json.RawMessage(`{"shell":{"enabled":true}}`)}
+	req := capability.Request{Capability: "policy.update", Params: json.RawMessage(`{"devices":{"allowPhysical":true}}`)}
 
 	req.Client = capability.ClientMCP
 	_, err := p.ops.Invoke(context.Background(), req)
@@ -80,37 +79,6 @@ func TestPolicyUpdateIsRefusedFromTheCoreOnMCP(t *testing.T) {
 	req.Client = capability.ClientCLI
 	if _, err := p.ops.Invoke(context.Background(), req); err != nil {
 		t.Errorf("policy.update as client cli: %v; want it answered", err)
-	}
-}
-
-// TestPolicyUpdateEnablesTheShellWithoutARestart is the effect row of step 3's check
-// (plan m1k A3): a root trusted with the shell off refuses shell.exec with
-// POLICY_SHELL_DISABLED; the human enables the shell for the root through
-// policy.update; with no restart the next shell.exec there runs.
-func TestPolicyUpdateEnablesTheShellWithoutARestart(t *testing.T) {
-	t.Parallel()
-	p := startInProcess(t)
-	root := platform.Current().Canonical(t.TempDir())
-	writeConfig(t, p, `{"schemaVersion":1,"trust":{"roots":[`+strconv.Quote(root)+`]}}`)
-	if env, code := p.call(t, "workspace.open", "--workspace", root); code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
-	}
-
-	env, code := p.call(t, "shell.exec", "--workspace", root, "--params", `{"command":"echo hi"}`)
-	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrPolicyShellDisabled {
-		t.Fatalf("shell.exec before enabling = (%+v, %d); want POLICY_SHELL_DISABLED", env, code)
-	}
-
-	if env, code := p.call(t, "policy.update", "--params", `{"shell":{"roots":[`+strconv.Quote(root)+`]}}`); code != 0 || env.Error != nil {
-		t.Fatalf("policy.update exited %d: %+v", code, env.Error)
-	}
-
-	env, code = p.call(t, "shell.exec", "--workspace", root, "--params", `{"command":"echo hi"}`)
-	if code != 0 || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateCompleted {
-		t.Fatalf("shell.exec after enabling = (%+v, %d); want completed", env, code)
-	}
-	if !strings.Contains(string(env.Result), "hi") {
-		t.Errorf("shell.exec result %s; want the command's output", env.Result)
 	}
 }
 

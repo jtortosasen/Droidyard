@@ -184,7 +184,7 @@ func TestWaitOwnOperations(t *testing.T) {
 				}
 			},
 		})
-	}, nil, 0, twoPeersConfig(t, clientState, bobState))
+	}, nil, twoPeersConfig(t, clientState, bobState))
 	t.Cleanup(func() { close(hold) })
 	link := pairedWith(t, p, clientState)
 	bobLink := linkedAs(t, p, bobState)

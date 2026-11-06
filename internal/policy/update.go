@@ -23,7 +23,7 @@ import (
 // is a patch object or JSON null (remove the section and return it to its defaults); each
 // known key inside a section is a value or null (remove the key). Every object is
 // closed: an unknown key anywhere is REQUEST_INVALID_PARAMS at Start, not a silent
-// no-op, so `{"gradle": {}}` and `{"shell": {"enable": true}}` are refused (the keys
+// no-op, so `{"gradle": {}}` and `{"trust": {"root": []}}` are refused (the keys
 // already in the file are still kept by the write).
 //
 // The exported fields generate the published schema and give the decoder its strict
@@ -33,7 +33,6 @@ import (
 type UpdateParams struct {
 	Trust      *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
 	Devices    *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
-	Shell      *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
 	Hosting    *HostingPatch `json:"hosting,omitempty" jsonschema_description:"The hosting section to merge: an object with listen, on, port, peers and/or lend, or null to remove the section and lend nothing." jsonschema:"nullable"`
 	Remotes    *[]Remote     `json:"remotes,omitempty" jsonschema_description:"The remotes list, replacing the whole list, or null to remove it. A change applies within seconds, with no restart." jsonschema:"nullable"`
 	IfRevision *string       `json:"ifRevision,omitempty" jsonschema_description:"The revision policy.get returned; the patch applies only if the file still has it, else POLICY_REVISION_CONFLICT."`
@@ -53,12 +52,6 @@ type TrustPatch struct {
 type DevicesPatch struct {
 	AllowPhysical *bool     `json:"allowPhysical,omitempty" jsonschema_description:"Whether physical devices may be used at all." jsonschema:"nullable"`
 	Allowlist     *[]string `json:"allowlist,omitempty" jsonschema_description:"The exact physical serials admitted. Replaces the whole list." jsonschema:"nullable"`
-}
-
-// ShellPatch is the shell section of a policy.update patch.
-type ShellPatch struct {
-	Enabled *bool     `json:"enabled,omitempty" jsonschema_description:"Whether shell.exec is enabled everywhere." jsonschema:"nullable"`
-	Roots   *[]string `json:"roots,omitempty" jsonschema_description:"The project roots shell.exec is enabled for, each an absolute path, canonicalised as droidyard trust does. Replaces the whole list." jsonschema:"nullable"`
 }
 
 // HostingPatch is the hosting section of a policy.update patch.
@@ -98,13 +91,12 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 	if raw == nil {
 		return errors.New("the patch must be a JSON object")
 	}
-	// encoding/json matches field names regardless of case, so "Shell" or "Roots" would
+	// encoding/json matches field names regardless of case, so "Trust" or "Roots" would
 	// pass the strict decode and then be merged as written: the keys are checked exactly
 	// (plan m1k D3; step 3 B1).
 	allowed := map[string][]string{
 		"trust":   {"roots", "prefixes"},
 		"devices": {"allowPhysical", "allowlist"},
-		"shell":   {"enabled", "roots"},
 		"hosting": {"listen", "on", "port", "peers", "lend"},
 	}
 	for k, v := range raw {
@@ -122,7 +114,7 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 		}
 		keys, ok := allowed[k]
 		if !ok {
-			return fmt.Errorf("unknown key %q: a patch names trust, devices, shell, hosting or remotes, exactly", k)
+			return fmt.Errorf("unknown key %q: a patch names trust, devices, hosting or remotes, exactly", k)
 		}
 		if isNull(v) {
 			continue
@@ -137,7 +129,7 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
-	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Shell: w.Shell, Hosting: w.Hosting, Remotes: w.Remotes, IfRevision: w.IfRevision, raw: raw}
+	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Hosting: w.Hosting, Remotes: w.Remotes, IfRevision: w.IfRevision, raw: raw}
 	return nil
 }
 
@@ -333,7 +325,6 @@ func (p *Policy) canonicalise(patch, merged map[string]json.RawMessage) *capabil
 	for _, ref := range []struct{ section, key string }{
 		{"trust", "roots"},
 		{"trust", "prefixes"},
-		{"shell", "roots"},
 	} {
 		ps, ok := patch[ref.section]
 		if !ok || isNull(ps) {

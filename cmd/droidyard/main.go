@@ -22,21 +22,16 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
-	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
-	"github.com/jtortosasen/droidyard/internal/domain/chats"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen/scrcpyserver"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
-	"github.com/jtortosasen/droidyard/internal/domain/file"
-	gitdomain "github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/sharing"
-	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/hosting"
@@ -130,12 +125,6 @@ func (r requirements) Missing(req capability.Requirement) (string, bool) {
 		return r.gradle.Missing(req)
 	case capability.RequiresFolderDialog:
 		return r.dialog.Missing()
-	case capability.RequiresGit:
-		// Looked up afresh, as git.read does, so the two cannot disagree (ADR-0066 §1).
-		if _, err := exec.LookPath("git"); err != nil {
-			return "git was not found on the PATH droidyard runs with (" + err.Error() + ")", true
-		}
-		return "", false
 	default:
 		return string(req) + " was not found on this machine", true
 	}
@@ -181,13 +170,6 @@ var (
 	// embedded jars on the discovered JVM: the fake sidecar of a test. Nil runs the
 	// real one.
 	gradleLaunch gradle.Launch
-	// watchTick, when > 0, is the file.watch and git.watch pollers' interval for the daemons this
-	// process starts: the in-process WebSocket test shortens it to 50 ms so a change is
-	// seen at once (plan m1j step 4). Set under adbSeamMu, like adbEnviron.
-	watchTick time.Duration
-	// gitWatchersSeam, when set, is given the git.watch poller set a registry builds: a test
-	// reads its Live count. The shipped binary never sets it. Set under adbSeamMu.
-	gitWatchersSeam func(*gitdomain.Watchers)
 	// dialogSeam, when set, adjusts the folder dialog before the daemon uses it: a test
 	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
 	// sets it.
@@ -201,27 +183,6 @@ var (
 	sessionSweep time.Duration
 )
 
-// clientDirs are the user's client directories as the daemon's own environment resolves
-// them (assistant.ResolveUserDirs, the same as `init --user`'s). Without a home directory
-// only CLAUDE_CONFIG_DIR can name one, and the Cursor directory is then empty.
-func clientDirs(env platform.Env) assistant.UserDirs {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return assistant.UserDirs{Claude: env.Getenv("CLAUDE_CONFIG_DIR")}
-	}
-	return assistant.ResolveUserDirs(home, env.Getenv)
-}
-
-// cursorIDEDir is the Cursor IDE's globalStorage directory for the daemon's home, empty
-// (not locatable) without one.
-func cursorIDEDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return chats.IDEGlobalStorage(home)
-}
-
 // registry builds the shipped registry, the operation store that dispatches from it
 // and the daemon's event bus, over the state store st and the supervisor sup, logging
 // to log. internal/schema's test builds the same set for the golden file. caps and
@@ -232,7 +193,7 @@ func cursorIDEDir() string {
 // env is the daemon's environment: it decides where the state root and, with it, the
 // user configuration live, so an in-process test daemon reads its own configuration
 // and not this machine's (plan m1g step 3).
-func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *file.Watchers, *hosting.Host) {
+func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *hosting.Host) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (overview.md §Events).
@@ -243,7 +204,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if st != nil {
 		problems = st.Problems
 	}
-	// The daemon's one policy: it decides trust, shell.exec and physical devices, reports
+	// The daemon's one policy: it decides trust and physical devices, reports
 	// the configuration file's state, and reads the tool keys once, here, so they take
 	// effect at this start and not before the next (ADR-0032 §3, §6; plan m1k D1, D8). A
 	// daemon that reads no configuration still starts: a bad file is reported, not fatal.
@@ -447,23 +408,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		defer cancel()
 		gradleClient.Close(ctx, root)
 	}
-	// The daemon's live file.watch and git.watch pollers: a workspace close ends that
-	// workspace's watches, each publishing its stopped event (plan m1j, D9; ADR-0066 §1).
-	watchers := file.NewWatchers()
-	gitWatchers := gitdomain.NewWatchers()
-	if gitWatchersSeam != nil {
-		gitWatchersSeam(gitWatchers)
-	}
-	// The trash of file.delete, under the state root, swept when a workspace opens beside
-	// the build history's sweep (ADR-0054 §3). Without a state store there is none, and
-	// file.delete and file.restore answer FILE_IO_FAILED.
-	var trash *file.Trash
-	if st != nil {
-		trash = file.NewTrash(st)
-	}
 	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, StopPollers: func(id string) { watchers.Stop(id); gitWatchers.Stop(id) }, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
-		OnOpen: func(id, root string) { history.Sweep(id); trash.Sweep(id, root) }})
+		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
+		OnOpen: func(id, root string) { history.Sweep(id) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
 	authorize := pol.Authorize(func(call *capability.Call) (string, bool) {
@@ -516,119 +463,15 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		InUse: sdk.SystemInUse(ops.Active)})
 	project.Register(reg, gradleClient, authorizeGradle)
 	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize, AuthorizeGradle: authorizeGradle})
-	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its
-	// only registry read is the workspace's canonical root (ADR-0015 §1, §5; plan m1j D2).
-	file.Register(reg, file.Options{
-		Root: func(id string) (string, bool) {
-			info, err := ws.Describe(id)
-			if err != nil {
-				return "", false
-			}
-			return info.Root, true
-		},
-		Env:        env,
-		Bus:        bus,
-		Watchers:   watchers,
-		WriteLocks: file.NewWriteLocks(),
-		Tick:       watchTick,
-		Trash:      trash,
-	})
-	// git.read is the diff's HEAD side and git.watch the status (ADR-0066): audience
-	// human, never an MCP tool. Their git is started through the supervisor's spawner,
-	// in its own group, in the daemon's environment minus GIT_*, and the root's trust is
-	// read at every call and every tick (ADR-0015 §2).
-	gitdomain.Register(reg, gitdomain.Options{
-		Root: func(id string) (string, bool) {
-			info, err := ws.Describe(id)
-			if err != nil {
-				return "", false
-			}
-			return info.Root, true
-		},
-		Env:      env,
-		Trusted:  pol.Trusted,
-		Starter:  spawn,
-		Bus:      bus,
-		Watchers: gitWatchers,
-		Tick:     watchTick,
-		// The writes (ADR-0071): gated on the same trust hook as project code, and started
-		// recorded, as shell.exec's commands are, so a killed daemon's next start reaps
-		// their groups.
-		Authorize: authorize,
-		Recorded:  gitWriteStarter(sup),
-	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
-	// session.chats lists the clients' chats of the projects the index knows, read from the
-	// clients' own stores (ADR-0127): audience human, stateless, joined to the live sessions
-	// by chat id. The stores are those `init --user` writes in, resolved from the daemon's
-	// own environment. Cursor's databases are read through `sqlite3`, started through the
-	// supervisor's spawner as git is.
-	chats.Register(reg, chats.Options{
-		Sessions: ops.Sessions(), Known: ws.Known, Env: env, Dirs: clientDirs(env),
-		CursorIDE: cursorIDEDir(), Starter: spawn,
-	})
-	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
-	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
-	// hook the project-code capabilities share; its command is spawned through the
-	// supervisor's recorded starter and its group killed at every end. Its children
-	// inherit the daemon's own environment: not adbEnviron, which a test replaces with
-	// an empty PATH for adb's sake (the shell then failed to find sleep, a flake that
-	// showed under one parent shell only; m1k §Changes, step 2).
-	shell.Register(reg, shell.Options{
-		RootOf: func(call *capability.Call) (string, bool) {
-			info, err := ws.Describe(call.Workspace)
-			if err != nil {
-				return "", false
-			}
-			return info.Root, true
-		},
-		ShellAllowed: pol.ShellAllowed,
-		Authorize:    authorize,
-		ResolveDir: func(root, path string) (string, error) {
-			return file.ResolveDir(env, root, path)
-		},
-		Recorded:  shellStarter(sup),
-		Env:       os.Environ(),
-		Artifacts: artifacts,
-	})
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
 	if testHosting != nil && host != nil {
 		testHosting(reg, host)
 	}
-	return reg, ops, bus, artifacts, adb, watchers, host
-}
-
-// shellStarter adapts the supervisor's recorded spawner to shell.exec's starter: the
-// command is recorded while it runs and its whole group is killed if the record cannot
-// be written (plan m1k D5). Without a supervisor (caps, schema) it is nil, and a call
-// that somehow reached the handler would fail SHELL_EXEC_FAILED.
-func shellStarter(sup *proc.Supervisor) shell.Starter {
-	if sup == nil {
-		return nil
-	}
-	return func(cmd *exec.Cmd, kind string) (shell.Recorded, error) {
-		return sup.SpawnRecorded(cmd, proc.Kind(kind))
-	}
-}
-
-// gitWriteStarter adapts the supervisor's recorded spawner to the git writes' starter: the
-// git is recorded while it runs, as its own session and group leader, and its whole group
-// is killed if the record cannot be written (process.GitWrite). Without a supervisor (caps,
-// schema) it is nil, and a write that somehow reached the handler would fail GIT_FAILED.
-func gitWriteStarter(sup *proc.Supervisor) gitdomain.RecordedStarter {
-	if sup == nil {
-		return nil
-	}
-	return func(cmd *exec.Cmd, kind string) (gitdomain.Recorded, error) {
-		r, err := sup.SpawnRecorded(cmd, proc.Kind(kind))
-		if err != nil {
-			return nil, err // a nil interface, not a typed nil
-		}
-		return r, nil
-	}
+	return reg, ops, bus, artifacts, adb, host
 }
 
 // sdkToolStarter adapts the supervisor's recorded spawner to the avdmanager runner's
@@ -650,7 +493,7 @@ func sdkToolStarter(sup *proc.Supervisor) sdk.RecordedStarter {
 }
 
 func printCaps() error {
-	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -687,7 +530,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

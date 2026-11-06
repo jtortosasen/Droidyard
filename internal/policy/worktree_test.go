@@ -52,12 +52,11 @@ func newProject(t *testing.T) project {
 	return p
 }
 
-// config writes the user configuration trust.roots / trust.prefixes / shell.roots.
-func (p project) config(t *testing.T, trustRoots, trustPrefixes, shellRoots []string) *policy.Policy {
+// config writes the user configuration trust.roots / trust.prefixes.
+func (p project) config(t *testing.T, trustRoots, trustPrefixes []string) *policy.Policy {
 	t.Helper()
 	doc := map[string]any{"schemaVersion": 1,
-		"trust": map[string]any{"roots": trustRoots, "prefixes": trustPrefixes},
-		"shell": map[string]any{"roots": shellRoots}}
+		"trust": map[string]any{"roots": trustRoots, "prefixes": trustPrefixes}}
 	body, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +81,7 @@ func trusted(t *testing.T, pol *policy.Policy, root string) bool {
 func TestWorktreeTrust(t *testing.T) {
 	t.Run("trust.roots names the main tree", func(t *testing.T) {
 		p := newProject(t)
-		pol := p.config(t, []string{p.main}, nil, nil)
+		pol := p.config(t, []string{p.main}, nil)
 		// The decision: the project is trusted, so its worktrees are. Without the
 		// worktree clause in Trusted both worktrees come back untrusted.
 		for _, wt := range []string{p.wt, p.sibling} {
@@ -103,7 +102,7 @@ func TestWorktreeTrust(t *testing.T) {
 
 	t.Run("trust.prefixes covers the main tree only", func(t *testing.T) {
 		p := newProject(t)
-		pol := p.config(t, nil, []string{filepath.Join(p.base, "pre")}, nil)
+		pol := p.config(t, nil, []string{filepath.Join(p.base, "pre")})
 		if !trusted(t, pol, p.main) {
 			t.Fatal("the prefix does not cover the main tree; the fixture is wrong")
 		}
@@ -114,7 +113,7 @@ func TestWorktreeTrust(t *testing.T) {
 
 	t.Run("a worktree trusted by path trusts neither its main tree nor its siblings", func(t *testing.T) {
 		p := newProject(t)
-		pol := p.config(t, []string{p.wt}, nil, nil)
+		pol := p.config(t, []string{p.wt}, nil)
 		if !trusted(t, pol, p.wt) {
 			t.Fatal("a root trusted by path is not trusted")
 		}
@@ -130,7 +129,7 @@ func TestWorktreeTrust(t *testing.T) {
 
 	t.Run("a planted directory naming a genuine worktree's data", func(t *testing.T) {
 		p := newProject(t)
-		pol := p.config(t, []string{p.main}, nil, []string{p.main})
+		pol := p.config(t, []string{p.main}, nil)
 		data, err := os.ReadFile(filepath.Join(p.wt, ".git"))
 		if err != nil {
 			t.Fatal(err)
@@ -145,39 +144,11 @@ func TestWorktreeTrust(t *testing.T) {
 		if trusted(t, pol, planted) {
 			t.Error("a directory whose .git names a genuine worktree's data is trusted")
 		}
-		if ok, _ := pol.ShellAllowed(planted); ok {
-			t.Error("the shell is allowed in the planted directory")
-		}
-	})
-
-	t.Run("shell.roots names the main tree", func(t *testing.T) {
-		p := newProject(t)
-		pol := p.config(t, nil, nil, []string{p.main})
-		// ADR-0081 §4: the same rule decides shell.exec.
-		for _, wt := range []string{p.wt, p.sibling} {
-			if ok, err := pol.ShellAllowed(wt); !ok {
-				t.Errorf("ShellAllowed(%s) = false (%v); want the worktree of a shell.roots project allowed", wt, err)
-			}
-		}
-		if ok, _ := pol.Trusted(p.wt); ok {
-			t.Error("shell.roots trusted the worktree: the two lists are separate")
-		}
-
-		pol = p.config(t, nil, nil, []string{p.wt})
-		if ok, _ := pol.ShellAllowed(p.main); ok {
-			t.Error("shell.roots naming a worktree allowed the shell in its main tree")
-		}
-		if ok, _ := pol.ShellAllowed(p.sibling); ok {
-			t.Error("shell.roots naming a worktree allowed the shell in its sibling")
-		}
-		if ok, err := pol.ShellAllowed(p.wt); !ok {
-			t.Errorf("ShellAllowed(the named worktree) = false (%v)", err)
-		}
 	})
 
 	t.Run("the failure names the main tree", func(t *testing.T) {
 		p := newProject(t)
-		pol := p.config(t, nil, nil, nil)
+		pol := p.config(t, nil, nil)
 		authorize := pol.Authorize(func(*capability.Call) (string, bool) { return p.wt, true })
 		_, err := authorize(t.Context(), &capability.Call{})
 		ce, ok := err.(*capability.Error)
@@ -212,7 +183,7 @@ func TestWorktreeTrust(t *testing.T) {
 		}
 
 		// Once the main tree is trusted the worktree is authorized, canonical.
-		pol = p.config(t, []string{p.main}, nil, nil)
+		pol = p.config(t, []string{p.main}, nil)
 		got, err := pol.Authorize(func(*capability.Call) (string, bool) { return p.wt, true })(t.Context(), &capability.Call{})
 		if err != nil || got != p.wt {
 			t.Errorf("Authorize(worktree of a trusted main) = (%v, %v); want (%s, nil)", got, err, p.wt)

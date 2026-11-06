@@ -98,7 +98,7 @@
 - Needs: step 3.
 - Not here: an owner's release of a held device (`session.release` left; the device's other ends stay, ADR-0094 §3, and the CLI is never refused): a register row.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: schema exactly the 25 capabilities out and `shell` out of `policy.get`'s result and `policy.update`'s input (compared parsed against HEAD); 13 error codes retired into `duplicates_test.go`'s `retiredCodes`, guarded by `TestRetiredCodesAreNoConstants`; tool count 48 → 47, `maxToolListBytes` 54,000 (measured 53,933). `TestConfigWithShellSectionStillLoads` (trust, devices, occupation read as before; the key kept on rewrite; a `shell` patch refused as unknown), seen failing with `decode` rejecting the key; `TestInitExcludeStillWorks`, seen failing with `Tracked` returning `ErrNotRepository`; `TestInitExcludeIgnoresFsmonitor` (no marker; plain git as the control makes it), seen failing with `core.fsmonitor=false` dropped; `TestSystemCapabilitiesListsNoLeftDomain`, seen failing with a `git.probe` registered. `proc.ShellCommand`, `proc.GitWrite` gone; an old record of them is reaped by `Reconcile`'s default branch. Left for step 6: `TestWorktreeOccupation` deleted (it read rows through `session.watch`; the worktree half keeps its unit tests until step 6 removes it), `session.state` rows with no consumer. The four commands clean; `go test ./...` every package ok.
 
 ### 5. Per-root lifetime: opened by the first call, released after idle
 

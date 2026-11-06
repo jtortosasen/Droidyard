@@ -54,9 +54,8 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 }
 
 // ReadTextReaderAt reads one page of a text source: r is read at byte offsets and size
-// is its length. It is the same paging as ReadText over an open reader, so file.read
-// (internal/domain/file) pages the descriptor a root opened without pulling the file
-// into memory. A negative offset counts back from the end, and when it lands mid-line
+// is its length. It is the same paging as ReadText over an open reader, so a caller
+// holding an open descriptor pages it without pulling the file into memory. A negative offset counts back from the end, and when it lands mid-line
 // it is moved forward to the next line start. The text ends at the last complete line
 // within limit: a line the limit cuts in half is held back, and a single line longer
 // than the limit is cut at a UTF-8 boundary with Truncated. An offset at or past the

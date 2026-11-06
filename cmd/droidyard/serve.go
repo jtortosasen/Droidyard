@@ -279,7 +279,7 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: logw})
-	reg, ops, bus, artifacts, adb, _, host := registry(env, st, sup, logw)
+	reg, ops, bus, artifacts, adb, host := registry(env, st, sup, logw)
 	defer artifacts.Close()
 	// The idle sweep of the session registry runs for the daemon's life (ADR-0094 §4).
 	sweep := capability.SweepInterval
