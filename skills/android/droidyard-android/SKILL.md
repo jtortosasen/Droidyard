@@ -8,10 +8,12 @@ metadata:
 # Android work through droidyard
 
 droidyard is the machine's, not a project's: the same tools are listed wherever your client
-started it. The tools that act on a project (`project_*`, `build_*`, `sdk_requirements`,
-`device_install`) take `project`: the absolute path of the folder or git worktree of the
-project you work in, or of a folder inside it; pass the worktree's path when you work in
-one, and the project's own when you do not. The device, emulator and SDK tools take none.
+started it. The tools that act on a project (`project_*`, `build_*`, `sdk_requirements`)
+take `project`: the absolute path of the folder or git worktree of the project you work
+in, or of a folder inside it; pass the worktree's path when you work in one, and the
+project's own when you do not. `device_install` takes `apk` (an absolute path to an APK
+file, with no project), or `build` with `project`. The other device, emulator and SDK
+tools take none.
 The tools are listed in `references/tools.md` (generated from the registry). Call them
 directly, not through a code-execution wrapper, and prefer them to `adb`, `gradle` or
 `uiautomator` in a shell: they return structured results, verify their effect and never

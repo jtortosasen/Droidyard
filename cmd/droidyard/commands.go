@@ -149,6 +149,31 @@ func (ct *cmdTree) runDerived(d cli.Derived) int {
 	return runCapability(strings.ReplaceAll(d.Call.Capability, ".", " "), c)
 }
 
+// absoluteAPK makes a relative `apk` of a device.install call absolute against this
+// process's current directory, as a person writes it (`--apk app.apk`); the daemon has no
+// cwd of this process and refuses a relative path, as MCP's calls still do.
+func absoluteAPK(c *cli.Call) {
+	if c.Capability != "device.install" {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(c.Params, &fields) != nil {
+		return
+	}
+	var apk string
+	if json.Unmarshal(fields["apk"], &apk) != nil || apk == "" || filepath.IsAbs(apk) {
+		return
+	}
+	abs, err := filepath.Abs(apk)
+	if err != nil {
+		return
+	}
+	fields["apk"], _ = json.Marshal(abs)
+	if out, err := json.Marshal(fields); err == nil {
+		c.Params = out
+	}
+}
+
 // defaultProject gives a call that takes a project the one the command line names, as an
 // absolute path, or the current directory when it names none (ADR-0137 §5): the daemon has
 // no cwd of this process, so the path goes in the call. A capability that takes none, and
@@ -157,6 +182,7 @@ func (ct *cmdTree) defaultProject(c *cli.Call) {
 	if ct == nil || ct.reg == nil {
 		return
 	}
+	absoluteAPK(c)
 	d, ok := ct.reg.Lookup(c.Capability)
 	if !ok || d.Scope != capability.Workspace {
 		return

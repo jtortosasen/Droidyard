@@ -254,13 +254,13 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 	}
 
 	server := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp"}})
-	serverSpec := jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: server, stale: staleStdioServer}}}
+	serverSpec := jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: server, stale: staleStdioServer(nil)}}}
 	// Cursor rebuilds the server's environment, so a custom state root travels in the entry
 	// (row 199, ADR-0037 §Decision 2); Claude Code's .mcp.json is not observed to lose it.
 	cursorServerSpec := serverSpec
 	if o.StateDir != "" {
 		withEnv := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp"}, Env: map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}})
-		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv, stale: staleStdioServer}}}
+		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv, stale: staleStdioServer(map[string]string{"DROIDYARD_STATE_DIR": o.StateDir})}}}
 	}
 	allowSpec := func(c Client) (jsonSpec, error) { return allowlistSpec(c, tools, allowed) }
 
@@ -357,34 +357,42 @@ type openCodeServer struct {
 
 // staleStdioServer recognises the server entry an earlier init wrote for Cursor or Claude
 // Code, which named a project: `mcp --root <absolute path>`, or Cursor's user entry
-// `mcp --from ${workspaceFolder}`, with any binary path and at most the state root in env.
-// ADR-0137 §2 makes the server the machine's, so init replaces it with `mcp` (ADR-0090 §1).
-// An entry with any other field or argument is the user's.
-func staleStdioServer(raw json.RawMessage) bool {
-	var s struct {
-		Type    string            `json:"type"`
-		Command string            `json:"command"`
-		Args    []string          `json:"args"`
-		Env     map[string]string `json:"env"`
-	}
-	if !strictDecode(raw, &s, "type", "command", "args", "env") {
-		return false
-	}
-	for k := range s.Env {
-		if k != "DROIDYARD_STATE_DIR" {
+// `mcp --from ${workspaceFolder}`, with any binary path. ADR-0137 §2 makes the server the
+// machine's, so init replaces it with `mcp` (ADR-0090 §1). env is what init writes in the
+// entry now: an entry whose env differs (a state root init no longer has) or that has any
+// other field or argument is the user's, and is kept.
+func staleStdioServer(env map[string]string) func(json.RawMessage) bool {
+	return func(raw json.RawMessage) bool {
+		var s struct {
+			Type    string            `json:"type"`
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+		}
+		if !strictDecode(raw, &s, "type", "command", "args", "env") {
 			return false
 		}
+		if len(s.Env) != len(env) {
+			return false
+		}
+		for k, v := range env {
+			if got, ok := s.Env[k]; !ok || got != v {
+				return false
+			}
+		}
+		return s.Command != "" && (s.Type == "" || s.Type == "stdio") && staleMCPArgs(s.Args)
 	}
-	return s.Command != "" && (s.Type == "" || s.Type == "stdio") && staleMCPArgs(s.Args)
 }
 
-// staleOpenCodeServer is staleStdioServer for OpenCode's local server.
+// staleOpenCodeServer is staleStdioServer for OpenCode's local server, which init writes
+// with codemode false: an entry with codemode true is the user's.
 func staleOpenCodeServer(raw json.RawMessage) bool {
 	var s struct {
-		Type    string   `json:"type"`
-		Command []string `json:"command"`
+		Type     string   `json:"type"`
+		Command  []string `json:"command"`
+		Codemode bool     `json:"codemode"`
 	}
-	if !strictDecode(raw, &s, "type", "command", "codemode") || s.Type != "local" || len(s.Command) == 0 {
+	if !strictDecode(raw, &s, "type", "command", "codemode") || s.Type != "local" || s.Codemode || len(s.Command) == 0 {
 		return false
 	}
 	return s.Command[0] != "" && staleMCPArgs(s.Command[1:])

@@ -29,8 +29,9 @@ import (
 
 // Instructions is sent in every initialize result: verbatim, the block of
 // docs/interfaces/mcp.md §Server instructions (a core session adds CoreNote).
-const Instructions = `- Tools that act on a project (build, project, sdk requirements, device install) take
-  project: the absolute path of the folder or worktree you work in; no other tool does.
+const Instructions = `- Tools that act on a project (build, project, sdk requirements) take project: the
+  absolute path of the folder or worktree you work in. Installing takes apk (an absolute
+  path) or build with project. No other tool takes one.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not

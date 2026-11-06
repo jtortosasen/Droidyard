@@ -1,6 +1,6 @@
 # Plan: Milestone 3j — A machine-level Android tool: the project per call, the workbench out
 
-- Status: Approved
+- Status: Done
 - Date: 2026-10-29
 - Milestone: the owner, 2026-10-28: "this droidyard is covering too much"; Droidyard becomes purely an Android tool at machine level, a CLI/MCP on adb and SDK management; Build and Gradle stay; the web UI, Git, files, sessions and chats, the binding, the assistant hooks, `shell.exec` and the trash leave to a separate project. `docs/README.md` §Where the work stands: "next, the owner's choice".
 - Phase: none (Phase 3). The Scope table is the boundary.
@@ -42,15 +42,15 @@
 
 ## Acceptance
 
-- [ ] A1. **Device work needs no project**: a shim started in a folder with no Android project lists every tool and runs `device_list`, `device_uiTree`, `emulator_list`. Source: ADR-0137 §2. Proven by: steps 7, 10.
-- [ ] A2. **The project per call**: every workspace-scoped capability takes `project`; a relative, missing, nonexistent or Gradle-less one is refused at Start, no operation, naming what to pass; no envelope carries `workspace`. Source: ADR-0137 §3. Proven by: steps 6, 10.
-- [ ] A3. **Per-root lifetime**: a root opens once on the first calls naming it, concurrent or not; it is released after 30 min with no call and no running operation; a release never cancels a call; a call during a release waits and runs. Source: ADR-0137 §3. Proven by: steps 5, 10 (release at level 4).
-- [ ] A4. **Trust unchanged**: an untrusted root fails `WORKSPACE_UNTRUSTED` before anything spawns; a linked worktree of a trusted repository is trusted. Source: ADR-0015 §5, ADR-0081. Proven by: steps 6, 10.
-- [ ] A5. **One shim, two projects**: one shim serves calls naming two roots in turn, each building its own; `--root`/`--from` are accepted with one stderr line. Source: ADR-0137 §2. Proven by: steps 7, 10.
-- [ ] A6. **`device.install`**: `apk`, or `project` with `build`, exactly one. Source: ADR-0137 §4. Proven by: steps 8, 10.
-- [ ] A7. **Removed**: no page served, `ui` and `trash` unknown; no `git.`, `file.`, `session.`, `workspace.`, `agent.`, `shell.` capability; an installed hook passes; `/v1/call`, `/v1/ws`, `/v1/screen`, the topics answer behind the token. Source: ADR-0137 §1, §6. Proven by: steps 2–7, 10.
-- [ ] A8. **Contract**: API `1.0.0`; the schema diff exactly the steps'. Source: ADR-0137 §8. Proven by: steps 3, 4, 6, 8.
-- [ ] A9. **The export**: a bundle outside the repository holds only the leaving paths, with their full history, and the register rows that leave; those rows are closed here. Source: ADR-0137 §7, §Consequences. Proven by: steps 1, 9.
+- [x] A1. **Device work needs no project**: a shim started in a folder with no Android project lists every tool and runs `device_list`, `device_uiTree`, `emulator_list`. Source: ADR-0137 §2. Proven by: steps 7, 10. Proven: `TestMCPListsAllToolsAnywhere`, `TestMCPOutsideAProjectDials`; level 5 (a).
+- [x] A2. **The project per call**: every workspace-scoped capability takes `project`; a relative, missing, nonexistent or Gradle-less one is refused at Start, no operation, naming what to pass; no envelope carries `workspace`. Source: ADR-0137 §3. Proven by: steps 6, 10. Proven, with the exception the ADR declares for install: `device.install` takes `project` only with `build` (`ProjectOptional`), and its mode refusals come from `Authorize`, a failed operation rather than a Start refusal. `TestProjectIsRequiredAndAbsolute`, `TestEnvelopeHasNoWorkspace`, `TestEveryProjectCapabilityTakesOneRequiredProject`; level 5 (b).
+- [ ] A3. **Per-root lifetime**: a root opens once on the first calls naming it, concurrent or not; it is released after 30 min with no call and no running operation; a release never cancels a call; a call during a release waits and runs. Source: ADR-0137 §3. Proven by: steps 5, 10 (release at level 4). In part: opening once under concurrency and the release's decision proven at level 4 with `-race` (step 5) and on a real daemon with a clock seam (`TestIdleReleaseStopsTheSidecar`, `TestIdleReleaseClosesTheGradleRootOnce`); level 5 (d) one `opening`/`ready` pair; the idle release on a real daemon past a real half hour not run (a register row).
+- [x] A4. **Trust unchanged**: an untrusted root fails `WORKSPACE_UNTRUSTED` before anything spawns; a linked worktree of a trusted repository is trusted. Source: ADR-0015 §5, ADR-0081. Proven by: steps 6, 10. Proven: `TestUntrustedProjectSpawnsNothing`, `TestLinkedWorktreeInheritsTrust`; level 5 (b), `processes.json` unchanged for `U`.
+- [x] A5. **One shim, two projects**: one shim serves calls naming two roots in turn, each building its own; `--root`/`--from` are accepted with one stderr line. Source: ADR-0137 §2. Proven by: steps 7, 10. Proven: `TestMCPListsAllToolsAnywhere`; level 5 (c).
+- [x] A6. **`device.install`**: `apk`, or `project` with `build`, exactly one. Source: ADR-0137 §4. Proven by: steps 8, 10. Proven: `TestInstallApkOrBuild`, `TestInstallApkLocalAndLent`; level 5 (b) on a local device, a lent one at level 4.
+- [x] A7. **Removed**: no page served, `ui` and `trash` unknown; no `git.`, `file.`, `session.`, `workspace.`, `agent.`, `shell.` capability; an installed hook passes; `/v1/call`, `/v1/ws`, `/v1/screen`, the topics answer behind the token. Source: ADR-0137 §1, §6. Proven by: steps 2–7, 10. Proven: the schema (every removed capability out), `TestNoPageIsServed`, `TestUIIsNotACommand`, `TestTrashIsNotACommand`, `TestInstalledHookPasses`; level 5 (e); `/v1/ws` at level 4.
+- [x] A8. **Contract**: API `1.0.0`; the schema diff exactly the steps'. Source: ADR-0137 §8. Proven by: steps 3, 4, 6, 8. Proven: the close verifier's parsed diff, exactly the steps' lines.
+- [x] A9. **The export**: a bundle outside the repository holds only the leaving paths, with their full history, and the register rows that leave; those rows are closed here. Source: ADR-0137 §7, §Consequences. Proven by: steps 1, 9. Proven: step 1's bundle checks; step 9's register, with four rows the Area rule missed closed or reworded at the close.
 
 ## Steps
 
@@ -242,8 +242,14 @@ Each has a recommended option. **Answered 2026-10-31 by the main session under t
 | 1 | | Nits: `workspace.*` scope count; the version asked though the documents decide it; the tag shape is a check; home by rule (b); the export list | All taken |
 | 2 (B1–B5 only) | revise: B2, B3, B5 resolved; B4 resolved provided the fold into ADR-0137 happens before approval; B1 in part | R2-B1: `lastUsed` stamped only at admission and end, so a fresh or reopened root could be released between `Open` and its admission and the one retry lose again (also on `closed`); the stress test passed with a refused `Enter`. Not blocking: `Enter`'s open of an open root rewrote `workspaces.json` per call | Every `Open`, the no-op included, stamps `lastUsed` under `r.mu`; one retry covers `closing` and `closed`; `TestReleaseNeverCancelsAnAdmittedCall` asserts every `Enter` admitted, seen failing without the stamp; an open root's `Open` writes nothing (step 5) |
 | 2 | | Nits: the `session.*` and `workspace.*` rows of `mcp.md`'s exposure table not named; the export clone's ref | Named in steps 4 and 6; `--single-branch --branch m3j`, renamed `main` (step 1) |
+| Step 5 verifier | proceed: 0 blocking, 4 non-blocking, 5 nits | N1 [contract] `PROJECT_NO_GRADLE_ROOT`'s nextStep named the UI and the project file; N2 [doc] two `Changes ADR` lines; N3 [test] `TestLastResultSurvivesRelease` never read the last result; N4 [bug] a folder gone between resolve and open answered `WORKSPACE_ROOT_INVALID` | All taken in the step 5 fix round and commit |
+| Step 6 verifier | proceed: 0 blocking, 4 non-blocking, 5 nits | N1 [test] the idle release's real wiring untested (a mutation removing `StopSidecars`, `CloseRoot` passed); N2 [bug] `--params` carrying `project` refused by the CLI; N3 [plan] `workspace.lifecycle`'s `root` is not a schema item; N4 [doc] `Instructions` wrong about `sdk_requirements`; nit: trust inheritance below a worktree's top | N1, N2, N4 fixed; N3 in the evidence; the nit a register row |
+| Close verifier | close: 0 blocking, 5 non-blocking, 5 nits | N1, N2 [test] stale MCP entries' `--uninstall` and OpenCode `--root` untested; N3 [bug] a stale entry's custom `env` or `codemode` overwritten; N4 [plan] A2's `device.install` exception; N5 [doc] four open rows on removed capabilities; nits: `Instructions` silent on `apk`, a relative `--apk` on the CLI, `FolderDialog`'s comment, the export check's prefix listing, a FIFO swapped in after the stat | N1–N3, the `apk` and `--apk` nits, `FolderDialog` fixed in the close commit; N4 in A2; N5 rows closed or reworded; the FIFO race left (a racing local writer) |
+| Level 5 | (a)–(e) as expected; (f) not run | (f) assumed an AVD could be lent; only a physical device is | (f) an Unverified row kept |
 
 No third round: R2-B1 is answered with round 2's own fix (`milestone-plan` §Writing one, item 7); the main session or the owner judges it, and the step 5 verifier checks it in code.
+
+Count by tag (plan review, step verifiers, close verifier, level 5): [bug] 0/3/1/0, [contract] 1/1/0/0, [test] 1/3/2/0, [plan] 3/1/1/1, [doc] 0/3/1/0, [concurrency] 1/0/0/0, [nit] 7/10/5/0.
 
 ## Changes
 

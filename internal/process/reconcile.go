@@ -35,10 +35,10 @@ const (
 	// shell-command or git-write kind that an older daemon left is reaped by the default
 	// branch like any other kind (ADR-0137 §1).
 	SDKTool Kind = "sdk-tool"
-	// FolderDialog is the osascript folder dialog of a workspace.chooseRoot call (plan m2r
-	// step 2; ADR-0021 §Pid records), recorded for as long as the dialog is up. It keeps
-	// the death signal and is reaped by Reconcile's default branch, group included, so a
-	// panel a killed daemon left on the screen is closed by the next start.
+	// FolderDialog was the osascript folder dialog of the workspace.chooseRoot call (plan m2r
+	// step 2; ADR-0021 §Pid records). Nothing produces it since m3j removed that call: it is
+	// reaped only as an old record, by Reconcile's default branch, group included, so a
+	// panel an older daemon left on the screen is closed by the next start.
 	FolderDialog Kind = "folder-dialog"
 	// EmulatorLaunch is an emulator launcher recorded from its spawn until its serial is
 	// resolved (plan m1p Q1; ADR-0021's 2026-10-08 line). Unlike every other kind, a

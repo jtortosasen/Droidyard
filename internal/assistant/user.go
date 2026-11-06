@@ -228,7 +228,7 @@ func runUser(o Options) (Result, error) {
 			// Cursor rebuilds the server's environment (row 199), as in a project.
 			server.Env = map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}
 		}
-		file(cursorRoot, jsonJob("mcp.json", jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: rawJSON(server), stale: staleStdioServer}}}), "")
+		file(cursorRoot, jsonJob("mcp.json", jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: rawJSON(server), stale: staleStdioServer(server.Env)}}}), "")
 		spec, err := allowlistSpec(Cursor, tools, allowed)
 		if err != nil {
 			return Result{}, err
