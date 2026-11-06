@@ -65,3 +65,4 @@ the output.
 | [m3g-agent-device-gestures.md](m3g-agent-device-gestures.md) | 3g — Agents act on the device: gestures, keys, system panels and adb verbs | Done |
 | [m3h-worktrees-and-sessions-panel.md](m3h-worktrees-and-sessions-panel.md) | 3h — The left panel by worktree, sessions by folder with their client | Done |
 | [m3i-agent-filters.md](m3i-agent-filters.md) | 3i — Filters wherever an agent falls back to a terminal | Done |
+| [m3j-machine-level-android-tool.md](m3j-machine-level-android-tool.md) | 3j — A machine-level Android tool: the project per call, the workbench out | Done |

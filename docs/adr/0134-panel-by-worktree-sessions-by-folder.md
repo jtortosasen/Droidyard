@@ -1,6 +1,6 @@
 # ADR-0134: The column shows the tab's project as its worktrees, and the sessions by folder with their client
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-27
 - Supersedes: ADR-0127 §Decision (in part: §4, the panel); ADR-0083 §Decision (in part: §2, the panel by project); ADR-0047 §Decision (in part: §1, a panel listing every project); ADR-0128 §Decision (in part: §1, "colour means state, nothing else", for client tags only)
 - Relates to: ADR-0015 §1, ADR-0050 §3, ADR-0052 §3, ADR-0083 §3, ADR-0086, ADR-0088 §Alternatives considered, ADR-0089 §1, §3, §Alternatives considered, ADR-0094 §3, ADR-0095 §1, ADR-0104 §1, ADR-0128 §3; [plan m3h](../plans/m3h-worktrees-and-sessions-panel.md) Q1–Q4

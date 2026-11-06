@@ -207,7 +207,7 @@ func TestInitUserWritesTheUserFiles(t *testing.T) {
 	// The files, where ADR-0124 §1's table puts them.
 	want := map[string][]string{
 		u.claude:                         {"settings.json", "skills/droidyard-android/SKILL.md"},
-		filepath.Join(u.home, ".cursor"): {"mcp.json", "hooks.json", "cli-config.json"},
+		filepath.Join(u.home, ".cursor"): {"mcp.json", "cli-config.json"},
 		filepath.Join(u.xdg, "opencode"): {"opencode.json"},
 		filepath.Join(u.home, ".agents"): {"skills/droidyard-android/SKILL.md"},
 	}
@@ -226,8 +226,8 @@ func TestInitUserWritesTheUserFiles(t *testing.T) {
 		} `json:"mcpServers"`
 	}
 	readJSON(t, filepath.Join(u.home, ".cursor", "mcp.json"), &cursor)
-	if s := cursor.Servers["droidyard"]; strings.Join(s.Args, " ") != "mcp --from ${workspaceFolder}" {
-		t.Errorf("Cursor's user entry runs %q; want `mcp --from ${workspaceFolder}`", s.Args)
+	if s := cursor.Servers["droidyard"]; strings.Join(s.Args, " ") != "mcp" {
+		t.Errorf("Cursor's user entry runs %q; want `mcp`, no --from (ADR-0137 §2)", s.Args)
 	}
 	if allow := allowOf(t, filepath.Join(u.claude, "settings.json")); len(allow) < 10 {
 		t.Errorf("Claude's user settings.json allows %v", allow)
@@ -235,7 +235,7 @@ func TestInitUserWritesTheUserFiles(t *testing.T) {
 	// No file of the configuration names a root, or the project.
 	for _, f := range []string{
 		filepath.Join(u.claude, "settings.json"), filepath.Join(u.home, ".cursor", "mcp.json"),
-		filepath.Join(u.home, ".cursor", "hooks.json"), filepath.Join(u.xdg, "opencode", "opencode.json"),
+		filepath.Join(u.xdg, "opencode", "opencode.json"),
 	} {
 		raw, err := os.ReadFile(f)
 		if err != nil {

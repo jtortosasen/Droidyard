@@ -16,8 +16,7 @@ import (
 
 // TestSidecarCrashDegradesTheWorkspace is plan m2c D21 / S6, on the shipped wiring over
 // a fake sidecar that dies mid-build: the workspace whose build was running goes
-// degraded with BUILD_SIDECAR_CRASHED as degradedBy, on workspace.lifecycle and on
-// workspace.state; another open workspace is untouched; the next successful sidecar
+// degraded with BUILD_SIDECAR_CRASHED as degradedBy, on workspace.lifecycle; another open workspace is untouched; the next successful sidecar
 // start returns the crashed one to ready, clearing that cause only, so a workspace
 // degraded by WORKSPACE_STATE_NEWER stays degraded through the same sequence. Without
 // the workspace hooks only the Gradle client remembers the crash (workspace-state.md
@@ -66,31 +65,31 @@ func TestSidecarCrashDegradesTheWorkspace(t *testing.T) {
 
 	invoke := func(name, root, params string) capability.Outcome {
 		t.Helper()
-		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Workspace: root, Params: json.RawMessage(params), Client: capability.ClientCLI})
+		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Params: withProject(params, root), Client: capability.ClientCLI})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		return out
 	}
 	for _, root := range []string{crashed, other, newer} {
-		if out := invoke("workspace.open", root, ""); out.State != capability.StateCompleted {
-			t.Fatalf("workspace.open %s: %+v", root, out)
+		if out := invoke("fixture.touch", root, ""); out.State != capability.StateCompleted {
+			t.Fatalf("fixture.touch %s: %+v", root, out)
 		}
 	}
 	describe := func(root string) workspace.Info {
 		t.Helper()
-		out := invoke("workspace.describe", root, "")
-		info, ok := out.Result.(workspace.Described)
-		if !ok {
-			t.Fatalf("workspace.describe %s: %+v", root, out)
+		id, _ := platform.Current().WorkspaceID(root)
+		info, err := p.ws.Describe(id)
+		if err != nil {
+			t.Fatalf("describe %s: %v", root, err)
 		}
-		return info.Info
+		return info
 	}
 	if s := describe(newer); s.State != workspace.Degraded || s.DegradedBy == nil || s.DegradedBy.Code != workspace.ErrStateNewer {
 		t.Fatalf("the newer-version workspace is %+v; want degraded by WORKSPACE_STATE_NEWER", s)
 	}
 
-	sub := p.bus.Subscribe([]string{workspace.LifecycleTopic, workspace.StateTopic}, nil)
+	sub := p.bus.Subscribe([]string{workspace.LifecycleTopic}, nil)
 	defer sub.Close()
 	// events returns what both topics carried since the last call, as "<topic> <type> <workspace>".
 	events := func() (out []string, causes map[string]capability.ErrorCode) {
@@ -124,14 +123,12 @@ func TestSidecarCrashDegradesTheWorkspace(t *testing.T) {
 		t.Fatalf("build.run = %+v; want failed with BUILD_SIDECAR_CRASHED", built)
 	}
 	got, causes := events()
-	wantEvents := []string{"workspace.lifecycle degraded " + crashedID, "workspace.state state " + crashedID}
-	if len(got) != 2 || got[0] != wantEvents[0] || got[1] != wantEvents[1] {
+	wantEvents := []string{"workspace.lifecycle degraded " + crashedID}
+	if len(got) != 1 || got[0] != wantEvents[0] {
 		t.Errorf("the crash published %v; want %v, and nothing for another workspace", got, wantEvents)
 	}
-	for _, topic := range []string{workspace.LifecycleTopic, workspace.StateTopic} {
-		if causes[topic+" "+crashedID] != capability.ErrBuildSidecarCrashed {
-			t.Errorf("%s carried degradedBy %q; want BUILD_SIDECAR_CRASHED", topic, causes[topic+" "+crashedID])
-		}
+	if causes[workspace.LifecycleTopic+" "+crashedID] != capability.ErrBuildSidecarCrashed {
+		t.Errorf("workspace.lifecycle carried degradedBy %q; want BUILD_SIDECAR_CRASHED", causes[workspace.LifecycleTopic+" "+crashedID])
 	}
 	if s := describe(crashed); s.State != workspace.Degraded || s.DegradedBy == nil || s.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
 		t.Errorf("the crashed workspace is %+v; want degraded by BUILD_SIDECAR_CRASHED", s)
@@ -140,7 +137,7 @@ func TestSidecarCrashDegradesTheWorkspace(t *testing.T) {
 		t.Errorf("another open workspace is %+v; want it untouched", s)
 	}
 	// A degraded workspace still takes calls: it is partially usable, not closed.
-	if out := invoke("workspace.describe", crashed, ""); out.State != capability.StateCompleted {
+	if out := invoke("fixture.touch", crashed, ""); out.State != capability.StateCompleted {
 		t.Errorf("a degraded workspace refused a call: %+v", out)
 	}
 
@@ -149,8 +146,8 @@ func TestSidecarCrashDegradesTheWorkspace(t *testing.T) {
 		t.Fatalf("project.modules on the other workspace = %+v; want a fresh sidecar to answer", out)
 	}
 	got, causes = events()
-	wantEvents = []string{"workspace.lifecycle ready " + crashedID, "workspace.state state " + crashedID}
-	if len(got) != 2 || got[0] != wantEvents[0] || got[1] != wantEvents[1] || len(causes) != 0 {
+	wantEvents = []string{"workspace.lifecycle ready " + crashedID}
+	if len(got) != 1 || got[0] != wantEvents[0] || len(causes) != 0 {
 		t.Errorf("the restart published %v (causes %v); want %v, ready and no degradedBy", got, causes, wantEvents)
 	}
 	if s := describe(crashed); s.State != workspace.Ready || s.DegradedBy != nil {
@@ -186,22 +183,19 @@ func TestSidecarDyingUnderTheRunRequestDegradesTheWorkspace(t *testing.T) {
 	}
 	invoke := func(name, params string) capability.Outcome {
 		t.Helper()
-		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Workspace: root, Params: json.RawMessage(params), Client: capability.ClientCLI})
+		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Params: withProject(params, root), Client: capability.ClientCLI})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		return out
 	}
-	if out := invoke("workspace.open", ""); out.State != capability.StateCompleted {
-		t.Fatalf("workspace.open: %+v", out)
-	}
 	built := invoke("build.run", `{"tasks":[":assembleDebug"]}`)
 	if built.State != capability.StateFailed || built.Error == nil || built.Error.Code != capability.ErrBuildSidecarCrashed {
 		t.Fatalf("build.run = %+v; want failed with BUILD_SIDECAR_CRASHED", built)
 	}
-	described, ok := invoke("workspace.describe", "").Result.(workspace.Described)
-	info := described.Info
-	if !ok || info.State != workspace.Degraded || info.DegradedBy == nil || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
+	id, _ := platform.Current().WorkspaceID(root)
+	info, err := p.ws.Describe(id)
+	if err != nil || info.State != workspace.Degraded || info.DegradedBy == nil || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
 		t.Errorf("after the sidecar died under build.run the workspace is %+v; want degraded by BUILD_SIDECAR_CRASHED", info)
 	}
 }
@@ -237,24 +231,25 @@ func TestSidecarCrashDegradesTheTopWorkspace(t *testing.T) {
 	}
 	invoke := func(name, root, params string) capability.Outcome {
 		t.Helper()
-		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Workspace: root, Params: json.RawMessage(params), Client: capability.ClientCLI})
+		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Params: withProject(params, root), Client: capability.ClientCLI})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		return out
 	}
 	for _, root := range []string{top, other} {
-		if out := invoke("workspace.open", root, ""); out.State != capability.StateCompleted {
-			t.Fatalf("workspace.open %s: %+v", root, out)
+		if out := invoke("fixture.touch", root, ""); out.State != capability.StateCompleted {
+			t.Fatalf("fixture.touch %s: %+v", root, out)
 		}
 	}
 	describe := func(root string) workspace.Info {
 		t.Helper()
-		described, ok := invoke("workspace.describe", root, "").Result.(workspace.Described)
-		if !ok {
-			t.Fatalf("workspace.describe %s failed", root)
+		id, _ := platform.Current().WorkspaceID(root)
+		info, err := p.ws.Describe(id)
+		if err != nil {
+			t.Fatalf("describe %s: %v", root, err)
 		}
-		return described.Info
+		return info
 	}
 	// The other workspace resolves its own root first; the model fetch starts the sidecar.
 	if out := invoke("project.modules", other, ""); out.State != capability.StateCompleted {

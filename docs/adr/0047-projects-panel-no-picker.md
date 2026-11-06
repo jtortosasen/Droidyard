@@ -1,6 +1,6 @@
 # ADR-0047: One tab for every project: the projects panel replaces the picker
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0083 (§1)
 - Superseded in part by: ADR-0084 (§3)
 - Date: 2026-10-10

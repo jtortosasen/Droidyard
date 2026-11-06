@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0038 (§Decision)
+- Superseded in part by: ADR-0137 (§Decision, the hooks)
 - Date: 2026-10-08
 - Superseded in part by: ADR-0061 (§Consequences)
 - Superseded in part by: ADR-0061 (§Decision)

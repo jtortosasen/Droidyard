@@ -1,6 +1,6 @@
 # ADR-0049: `file.watch` returns its baseline and publishes its events, for the file tree
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-10
 - Relates to: ADR-0010, ADR-0020 §Retention, ADR-0036, ADR-0041 §4; `files.md` §The watch;
   plan m1j D7, D8; plan m2d Q3

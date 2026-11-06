@@ -273,8 +273,8 @@ func TestDegradedWithoutADB(t *testing.T) {
 	}
 
 	root, _ := gradleProject(t)
-	ws, code := p.call(t, "--workspace", root, "workspace.open")
-	if code != 0 || workspaceOf(t, ws).State != "ready" {
-		t.Errorf("workspace.open exited %d, %+v: an open workspace stays ready without adb", code, ws.Error)
+	ws, code := p.call(t, "--project", root, "fixture.touch")
+	if code != 0 || workspaceOf(t, ws).Root != root {
+		t.Errorf("fixture.touch exited %d, %+v: a project call needs no adb", code, ws.Error)
 	}
 }

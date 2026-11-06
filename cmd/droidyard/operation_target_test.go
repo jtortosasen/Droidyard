@@ -52,11 +52,12 @@ func TestOperationStateCarriesTarget(t *testing.T) {
 	})
 	root, _ := projectWith(t, "settings.gradle")
 	wid, _ := platform.Current().WorkspaceID(root)
+	_ = wid
 
 	w := wsConnect(t, p)
-	w.send("open", "workspace.open", root, "{}", nil)
-	if f := w.must("workspace.open"); f.ID != "open" || f.Error != nil {
-		t.Fatalf("workspace.open: %+v", f)
+	w.send("open", "fixture.touch", root, "", nil)
+	if f := w.must("fixture.touch"); f.ID != "open" || f.Error != nil {
+		t.Fatalf("fixture.touch: %+v", f)
 	}
 	w.send("watch", "operation.watch", "", `{}`, nil)
 	f := w.must("the operation.watch response")
@@ -70,9 +71,9 @@ func TestOperationStateCarriesTarget(t *testing.T) {
 	calls := []struct{ id, name, workspace, params string }{
 		{"tap", "device.tapElement", "", `{"device":"emulator-5554","target":{"text":"OK"}}`},
 		{"start", "emulator.start", "", `{"avd":"Pixel_8"}`},
-		{"assemble", "build.assemble", wid, `{"module":":app","variant":"debug"}`},
-		{"install", "device.install", wid, `{"device":"emulator-5554","build":{"module":":app","variant":"release"}}`},
-		{"run", "build.run", wid, `{"tasks":["assemble"]}`},
+		{"assemble", "build.assemble", root, `{"module":":app","variant":"debug"}`},
+		{"install", "device.install", root, `{"device":"emulator-5554","build":{"module":":app","variant":"release"}}`},
+		{"run", "build.run", root, `{"tasks":["assemble"]}`},
 		{"long", "fixture.longTarget", "", ``},
 		{"empty", "fixture.emptyTarget", "", ``},
 		{"blocked", "fixture.targeted", "", ``},

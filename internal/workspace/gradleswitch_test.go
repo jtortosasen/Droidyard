@@ -16,7 +16,7 @@ import (
 // records nothing. Seen failing with the set kept growing: the crash of A degraded the
 // workspace.
 func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
-	h := newWatchHarness(t, nil)
+	h := newHarness(t, 200*time.Millisecond)
 	const ga, gb, gshared = "/gradle/a", "/gradle/b", "/gradle/shared"
 	crash := capability.Errorf(capability.ErrBuildSidecarCrashed, "the sidecar died")
 	use := func(id, abs string) []string {
@@ -28,7 +28,7 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 		return forgotten
 	}
 
-	root := project(t)
+	root := gradleProject(t)
 	id := h.open(t, root).ID
 	if got := use(id, ga); got != nil {
 		t.Errorf("the first root forgot %v; want nothing", got)
@@ -63,7 +63,7 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 	}
 
 	// A root another open workspace remembers is forgotten but not returned.
-	other := project(t)
+	other := gradleProject(t)
 	idOther := h.open(t, other).ID
 	use(idOther, gshared)
 	use(id, gshared)
@@ -77,8 +77,8 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 	// A closed workspace refuses and records nothing.
 	h.closeWS(t, root)
 	_, err := h.ws.UseGradleRoot(id, "/gradle/late")
-	if e, ok := err.(*capability.Error); !ok || e.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("UseGradleRoot on a closed workspace = %v; want WORKSPACE_NOT_OPEN", err)
+	if e, ok := err.(*capability.Error); !ok || e.Code != capability.ErrInvalidParams || e.NextStep == "" {
+		t.Errorf("UseGradleRoot on a closed workspace = %v; want a refusal that says to retry", err)
 	}
 	if got := rootsOf(h.ws, id); len(got) != 0 {
 		t.Errorf("a closed workspace holds %v; want none", got)
@@ -86,22 +86,26 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 }
 
 // TestUseGradleRootRefusesAClosingWorkspace is the same refusal while the workspace is
-// closing (its drain still running): the call is refused and nothing is recorded, so a
+// closing (its release still running): the call is refused and nothing is recorded, so a
 // connection it would open is not left behind unrecorded (ADR-0075 §8, ADR-0092 §1).
 func TestUseGradleRootRefusesAClosingWorkspace(t *testing.T) {
 	h := newHarness(t, 300*time.Millisecond)
-	a := project(t)
+	a := gradleProject(t)
 	idA := h.open(t, a).ID
 	if _, err := h.ws.UseGradleRoot(idA, "/gradle/own"); err != nil {
 		t.Fatal(err)
 	}
-	h.start(t, "fixture.ignores", a)
-	done := h.run(CapClose, a)
+	held, resume := make(chan string), make(chan struct{})
+	hold := func(id string) { held <- id; <-resume }
+	h.ws.releaseHook.Store(&hold)
+	done := make(chan struct{})
+	go func() { defer close(done); h.closeWS(t, a) }()
+	recv(t, held, "the release at its hook")
 	waitState(t, h.ws, a, Closing)
 
 	forgotten, err := h.ws.UseGradleRoot(idA, "/gradle/late")
-	if e, ok := err.(*capability.Error); !ok || e.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("UseGradleRoot on a closing workspace = %v; want WORKSPACE_NOT_OPEN", err)
+	if e, ok := err.(*capability.Error); !ok || e.Code != capability.ErrInvalidParams {
+		t.Errorf("UseGradleRoot on a closing workspace = %v; want a refusal that says to retry", err)
 	}
 	if forgotten != nil {
 		t.Errorf("a refused call returned %v; want nothing", forgotten)
@@ -109,11 +113,8 @@ func TestUseGradleRootRefusesAClosingWorkspace(t *testing.T) {
 	if got := rootsOf(h.ws, idA); len(got) != 0 {
 		t.Errorf("the closing workspace remembers %v after a refused call; want nothing", got)
 	}
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the close did not end")
-	}
+	close(resume)
+	recv(t, done, "the release")
 }
 
 // TestGradleRootInUse is what a close that waited for a root's operations asks before
@@ -122,9 +123,9 @@ func TestUseGradleRootRefusesAClosingWorkspace(t *testing.T) {
 // the root of a workspace that is closed. Seen failing with the answer taken from a set
 // that keeps forgotten roots.
 func TestGradleRootInUse(t *testing.T) {
-	h := newWatchHarness(t, nil)
+	h := newHarness(t, 200*time.Millisecond)
 	const ga, gb = "/gradle/a", "/gradle/b"
-	a, b := project(t), project(t)
+	a, b := gradleProject(t), gradleProject(t)
 	idA, idB := h.open(t, a).ID, h.open(t, b).ID
 	if h.ws.GradleRootInUse(ga) {
 		t.Fatal("a root nobody resolved is in use")

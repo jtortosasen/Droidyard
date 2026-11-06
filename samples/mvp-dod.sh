@@ -301,14 +301,14 @@ trust_root() {
 # under $E/<name>.out. Returns the CLI's status (1 iff the envelope carries an error).
 call() {
 	if [ $# -ge 3 ]; then
-		run "$1" "$DY" call --no-autostart --workspace "$G" "$2" --params "$3"
+		run "$1" "$DY" call --no-autostart --project "$G" "$2" --params "$3"
 	else
-		run "$1" "$DY" call --no-autostart --workspace "$G" "$2"
+		run "$1" "$DY" call --no-autostart --project "$G" "$2"
 	fi
 }
 
 # gcall <name> <capability> <params>: the same for a global capability (emulator.*, and
-# device.* but install), which refuses a workspace (REQUEST_UNEXPECTED_WORKSPACE).
+# device.* but install), which takes no project.
 gcall() {
 	run "$1" "$DY" call --no-autostart "$2" --params "$3"
 }
@@ -316,7 +316,6 @@ gcall() {
 # The golden path's build half (D4, D3): assemble, inject the error, build, errors,
 # restore, build. Writes the four JSON files and returns; check-errors judges them.
 build_phase() {
-	call open workspace.open || die "workspace.open failed: $(cat "$E/open.out")"
 	call modules project.modules || die "project.modules failed"
 	call build-ok build.assemble '{"module":":app","variant":"debug"}' || die "build.assemble failed to run: $(cat "$E/build-ok.out")"
 	cp "$E/build-ok.out" "$OUT/build-ok.json"

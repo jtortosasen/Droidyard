@@ -1,6 +1,6 @@
 # ADR-0052: The sessions column also shows as an overlay, on hover and at the window's left edge
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-11
 - Supersedes: ADR-0050 §1 (in part: "No hover reveal")
 - Relates to: ADR-0050 §2, §3, ADR-0047 §2; plan m2f Q1, D43–D45

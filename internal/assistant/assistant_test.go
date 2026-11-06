@@ -149,8 +149,8 @@ func statusOf(t *testing.T, res Result, path string) Change {
 func notesOf(c Change) string { return strings.Join(c.Notes, " | ") }
 
 // The files each client gets, written out in full: the golden trees of plan m1o step 8.
-// Every command is the binary's absolute path and every server names the root, since
-// a client's spawn directory is not known.
+// Every command is the binary's absolute path and no server names the root: the server is
+// the machine's and every tool takes its project (ADR-0137 §2).
 func TestInitWritesEachClientsFiles(t *testing.T) {
 	skill := "---\nname: droidyard-android\n---\nbody\n"
 	tools := "| tool |\n"
@@ -165,108 +165,30 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
   }
 }
 `
-	// The hook entries (ADR-0061 §5, ADR-0063 §7); a temp root has no character shellArg
-	// quotes.
-	claudeAllow := func(root string) string {
-		event := func(name string, last bool) string {
-			end := ","
-			if last {
-				end = ""
-			}
-			// The edit tools' entry follows the Bash one, before and after a write only.
-			edit := ""
-			if name != "PostToolUseFailure" {
-				edit = fmt.Sprintf(`,
-      {
-        "matcher": "Write|Edit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/opt/bin/droidyard hook --client claude --root %s"
-          }
-        ]
-      }`, root)
-			}
-			return fmt.Sprintf(`    %q: [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/opt/bin/droidyard hook --client claude --root %s"
-          }
-        ]
-      }%s
-    ]%s
-`, name, root, edit, end)
-		}
-		return `{
+	// No hook entry: init writes none (ADR-0137).
+	claudeAllow := `{
   "permissions": {
     "allow": [
       "mcp__droidyard__device_list",
       "mcp__droidyard__device_uiTree"
     ]
-  },
-  "hooks": {
-` + event("PreToolUse", false) + event("PostToolUse", false) + event("PostToolUseFailure", true) + `  }
-}
-`
-	}
-	cursorHooks := func(root string) string {
-		return fmt.Sprintf(`{
-  "version": 1,
-  "hooks": {
-    "beforeShellExecution": [
-      {
-        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s"
-      }
-    ],
-    "preToolUse": [
-      {
-        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
-        "matcher": "Delete"
-      },
-      {
-        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
-        "matcher": "Write"
-      }
-    ],
-    "postToolUse": [
-      {
-        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
-        "matcher": "Shell"
-      },
-      {
-        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
-        "matcher": "Write"
-      }
-    ],
-    "postToolUseFailure": [
-      {
-        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
-        "matcher": "Shell"
-      }
-    ]
   }
 }
-`, root)
-	}
-	server := func(root string) string {
+`
+	server := func() string {
 		return fmt.Sprintf(`{
   "mcpServers": {
     "droidyard": {
       "command": "/opt/bin/droidyard",
       "args": [
-        "mcp",
-        "--root",
-        %q
+        "mcp"
       ]
     }
   }
 }
-`, root)
+`)
 	}
-	opencode := func(root string) string {
+	opencode := func() string {
 		return fmt.Sprintf(`{
   "mcp": {
     "servers": {
@@ -274,16 +196,14 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
         "type": "local",
         "command": [
           "/opt/bin/droidyard",
-          "mcp",
-          "--root",
-          %q
+          "mcp"
         ],
         "codemode": false
       }
     }
   }
 }
-`, root)
+`)
 	}
 	cases := []struct {
 		client Client
@@ -297,10 +217,9 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".agents/skills/droidyard-android/SKILL.md":            skill,
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
-				".cursor/":           "",
-				".cursor/mcp.json":   server(root),
-				".cursor/cli.json":   cursorAllow,
-				".cursor/hooks.json": cursorHooks(root),
+				".cursor/":         "",
+				".cursor/mcp.json": server(),
+				".cursor/cli.json": cursorAllow,
 			}
 		}},
 		{Claude, func(root string) map[string]string {
@@ -311,8 +230,8 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".claude/skills/droidyard-android/SKILL.md":            skill,
 				".claude/skills/droidyard-android/references/":         "",
 				".claude/skills/droidyard-android/references/tools.md": tools,
-				".claude/settings.json":                                claudeAllow(root),
-				".mcp.json":                                            server(root),
+				".claude/settings.json":                                claudeAllow,
+				".mcp.json":                                            server(),
 			}
 		}},
 		{OpenCode, func(root string) map[string]string {
@@ -323,7 +242,7 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".agents/skills/droidyard-android/SKILL.md":            skill,
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
-				"opencode.json":                                        opencode(root),
+				"opencode.json":                                        opencode(),
 			}
 		}},
 	}

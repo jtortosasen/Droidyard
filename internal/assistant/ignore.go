@@ -17,7 +17,7 @@ import (
 // something false); they are reported in the Change's notes instead.
 //
 // This package never runs git: the caller reads the repository's facts through
-// internal/domain/git (Tracked) and passes them in IgnoreOptions.
+// Tracked (tracked.go) and passes them in IgnoreOptions.
 
 const (
 	ignoreHeader = "# droidyard init: files it wrote that git does not track (droidyard init --uninstall removes this block)"
@@ -58,12 +58,13 @@ type IgnoreOptions struct {
 }
 
 // IgnoreCandidates are the paths (slash-separated, relative to the root) of the files
-// the run left in the tree: what the caller asks git about before calling Ignore.
+// the run left in the tree: what the caller asks git about before calling Ignore. A file
+// the run deleted (a hook file that held only init's entries) is not one.
 func IgnoreCandidates(changes []Change) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, c := range changes {
-		if c.Status == Refused || seen[c.Path] {
+		if c.Status == Refused || c.Status == Deleted || seen[c.Path] {
 			continue
 		}
 		seen[c.Path] = true

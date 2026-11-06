@@ -1,18 +1,18 @@
 # Interface: HTTP and WebSocket
 
-How the capability API is projected to the web UI. This is an **adapter**: it
+How the capability API is projected to HTTP and WebSocket: the way out for any UI or tool of
+its own ([ADR-0137](../adr/0137-machine-level-android-tool.md) §6). This is an **adapter**: it
 translates and holds no domain logic ([ADR-0003](../adr/0003-unified-capability-api.md)).
 It runs inside the daemon, next to the MCP adapter
-([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
-
-> Status: draft. §Security baseline is **required before the Phase 0 HTTP skeleton
-> ships**. The rest may change as the UI grows.
+([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). **The daemon serves no page**
+and has no `ui` subcommand: a UI is a client like any other. A page from another origin is
+refused by rules 3 and 5 (its `Origin` is not the daemon's, and no CORS is granted), so a UI
+brings its own server or shell, which calls the daemon with the token.
 
 ## Security baseline
 
-The listener exposes `file.write`, `build.run`, which executes project code, and
-`shell.exec` when policy enables it. It does so on a port that every web page open in
-the user's browser can reach. Without a fence:
+The listener exposes `build.run`, which executes project code, and the device's actions. It
+does so on a port that every web page open in the user's browser can reach. Without a fence:
 
 - **CSRF.** A page can send a "simple" cross-origin request (a form post, or
   `text/plain`). The browser delivers it even though the page cannot read the reply.
@@ -33,7 +33,7 @@ bare HTTP error and never reaches the capability layer.
    instead. `daemon.lock` (`http`) and
    `droidyard status` report the actual address. A non-loopback address is **refused at
    startup**: this listener stays loopback ([ADR-0097](../adr/0097-local-first-with-peers.md)
-   §3), and LAN access to the UI needs its own ADR. Paired Droidyards reach a separate peer
+   §3), and LAN access needs its own ADR. Paired Droidyards reach a separate peer
    listener, on private addresses or the one `hosting.listen` names, with its own TLS and pinning
    ([ADR-0098](../adr/0098-peer-transport-identity-pairing.md),
    [ADR-0109](../adr/0109-private-networks-live-peer-config.md); [peer.md](peer.md)).
@@ -60,26 +60,15 @@ bare HTTP error and never reaches the capability layer.
 6. **JSON only.** `POST` bodies must be `application/json`, or the request gets `415`.
    Non-simple content types force a preflight, and rule 5 refuses it.
 7. **Response headers.**
-   - UI pages: `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'`.
    - API and artifact responses: `Cache-Control: no-store`.
    - Everywhere: `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-8. **Untrusted data is rendered inert.** The UI renders fields that the schema marks as
+8. **Untrusted data is rendered inert.** A client that displays fields the schema marks as
    device- or app-derived ([ADR-0015](../adr/0015-untrusted-data-authorization.md)) as
-   plain text: never as HTML or Markdown, and never as links. Artifacts are served only
+   renders them as plain text: never as HTML or Markdown, and never as links. Artifacts are served only
    as `image/png`, `image/jpeg` or `text/plain; charset=utf-8`.
 
-**Bootstrapping the browser.** `droidyard ui`, or `droidyard` alone (which auto-start the
-daemon), opens `http://127.0.0.1:<port>/#token=<token>`, with `&w=<workspace id>` when run
-in a project, which it opens ([ADR-0045](../adr/0045-project-start-flow.md)); the page
-without `w` shows the newest open project, else the projects panel
-([ADR-0047](../adr/0047-projects-panel-no-picker.md)). With a tab already open, `droidyard`
-switches it to the project instead (`workspace.show`,
-[ADR-0084](../adr/0084-one-tab-workspace-show.md)). `droidyard status` prints the URL without `w`. A URL
-fragment is never sent to a server and never appears in `Referer`. The UI moves the
-token into `sessionStorage` and strips it from the address bar. `sessionStorage` is
-scoped to the exact origin, port included. A tab opened without a token shows
-"run `droidyard ui`". The static UI bundle is served without the token, because it
-contains no data. Rules 1–3 and 7 still apply to it.
+**Finding the daemon and the token.** `droidyard status` prints the listener's address; the
+token is in the file of rule 4, readable by the same user only.
 
 **Residual risk, stated plainly.** Any process running as the same user can read the
 token file, as it can connect to the Unix socket. Same-uid code is inside the
@@ -88,29 +77,29 @@ not against the user's own processes.
 
 ## Endpoints
 
-The routes and their shapes are `adapters/httpapi`: the embedded UI bundle (no token),
-`POST /v1/call`, `GET /v1/artifacts/{id}`, `GET /v1/ws` and `GET /v1/screen`. HTTP requests identify their
+The routes and their shapes are `adapters/httpapi`: `POST /v1/call`, `GET /v1/artifacts/{id}`,
+`GET /v1/ws` and `GET /v1/screen`, all behind the token; any other path is `404`. HTTP requests identify their
 adapter as `ui`, and that identity is what lets human-only capabilities through
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
 
 ### `POST /v1/call`
 
 - The body is the request envelope
-  ([capability-api](../architecture/capability-api.md) §Request envelope). `workspace`
-  comes from the UI's own selection. `waitMs` bounds the wait
-  ([ADR-0020](../adr/0020-operation-contract.md)); for long-running capabilities the UI
+  ([capability-api](../architecture/capability-api.md) §Request envelope). A project
+  capability's `project` is in `params`, like any parameter. `waitMs` bounds the wait
+  ([ADR-0020](../adr/0020-operation-contract.md)); for long-running capabilities a client
   passes a short `waitMs` and follows progress over the WebSocket.
 - The reply is **`200` with a response envelope**, even for rejections and failed
   operations. Consumers branch on `error.code`, never on the HTTP status. Other statuses
   come only from the baseline and from transport problems (malformed JSON, token, Host or
   Origin, body size, content type).
-- A result that carries device- or app-derived data has `meta.untrusted: true`, and the UI
+- A result that carries device- or app-derived data has `meta.untrusted: true`, and a client
   finds out which fields to render inert from the schema's `x-droidyard-untrusted` marks
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1). A failed call whose
-  handler marked it carries `meta.untrusted: true` too; the UI renders that error's
+  handler marked it carries `meta.untrusted: true` too; a client renders that error's
   `details` inert as a whole.
 - A plain HTTP request has no session. Stateful and streaming capabilities (`events.*`,
-  `file.watch`) are rejected with `SESSION_REQUIRED`
+  `device.watchLogs`) are rejected with `SESSION_REQUIRED`
   ([ADR-0010](../adr/0010-capability-statefulness.md)); use the WebSocket.
 
 ### `GET /v1/ws`
@@ -124,8 +113,8 @@ only after a response carrying its `subscriptionId` has been written on this ses
 subscribe's own, or a later `operation.wait` when the subscribe answered `running`), so a
 client never sees an id before the answer that gives it.
 
-Subscriptions belong to the session and end with it. After a reconnect the UI resumes
-with `since`, except a `file.watch`, which watches again and re-lists
+Subscriptions belong to the session and end with it. After a reconnect a client resumes
+with `since`, except a stream such as `device.watchLogs`, which starts again
 ([capability-api](../architecture/capability-api.md) §Subscriptions). A subscriber that
 overflows gets an `events.gap` marker and never loses events silently. Frame limits, the
 close codes and the keepalive are in `adapters/httpapi/ws.go`.
@@ -141,8 +130,8 @@ view's input ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md) §3) wh
 
 ### `GET /v1/artifacts/{id}`
 
-- `{id}` is the last segment of the artifact reference (`droidyard://artifact/<id>`). The
-  UI builds this path from nothing else.
+- `{id}` is the last segment of the artifact reference (`droidyard://artifact/<id>`). A
+  client builds this path from nothing else.
 - The route has the same semantics and authorization as `artifact.read` and is recorded as
   that operation. Only the encoding differs: raw bytes instead of JSON. A binary route
   cannot return a `200` envelope, so this is the one place where the status carries
@@ -154,6 +143,6 @@ view's input ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md) §3) wh
 - An artifact produced by an untrusted capability (a screenshot) is served with
   `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1; ADR-0024).
-- The UI fetches with the `Authorization` header and displays the result through `blob:`
+- A client fetches with the `Authorization` header and displays the result through `blob:`
   URLs. An `<img src>` pointing at the API cannot carry the header, and a cookie is ruled
   out by rule 5.

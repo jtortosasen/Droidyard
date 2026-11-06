@@ -1,6 +1,6 @@
 # ADR-0125: The Git watch reads inside submodules: git flags them on a trusted root, the daemon reads them on an untrusted one
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-23
 - Supersedes: ADR-0066 §Decision (in part: item 1's one status a tick, which becomes the project's status plus a submodule pass; item 5's entries, which gain a submodule's records and files)
 - Relates to: ADR-0066 §2, §3; ADR-0071 §1, §7; ADR-0067 §2, §5; ADR-0015 §2; plan m3b Q1–Q3

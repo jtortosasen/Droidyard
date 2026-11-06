@@ -169,22 +169,44 @@ func TestFlagShapes(t *testing.T) {
 		parseErr(t, k, noEnv, "--name", "a", "stray")
 	})
 	t.Run("the CLI's own flags", func(t *testing.T) {
-		d := parse(t, k, noEnv, "--name", "a", "--json", "--no-autostart", "--detach", "--workspace", "/p")
-		if !d.JSON || !d.Call.NoAutostart || !d.Call.Detach || d.Call.Workspace != "/p" || d.Call.Capability != "demo.kitchenSink" {
+		d := parse(t, k, noEnv, "--name", "a", "--json", "--no-autostart", "--detach", "--project", "/p")
+		if !d.JSON || !d.Call.NoAutostart || !d.Call.Detach || d.Call.Project != "/p" || d.Call.Capability != "demo.kitchenSink" {
 			t.Errorf("%+v", d)
 		}
 	})
-	t.Run("--detach and --workspace exist only where they mean something", func(t *testing.T) {
+	t.Run("--detach and --project exist only where they mean something", func(t *testing.T) {
 		plain := spec("demo.plain", `{"type":"object","additionalProperties":false,"properties":{}}`)
 		parseErr(t, plain, noEnv, "--detach")
-		parseErr(t, plain, noEnv, "--workspace", "/p")
+		parseErr(t, plain, noEnv, "--project", "/p")
+		parseErr(t, k, noEnv, "--name", "a", "--workspace", "/p")
 	})
-	t.Run("a workspace parameter of a global capability is a parameter", func(t *testing.T) {
-		s := spec("session.release", `{"type":"object","additionalProperties":false,"properties":{"workspace":{"type":"string"}}}`)
-		d := parse(t, s, noEnv, "--workspace", "w1")
-		sameJSON(t, d.Call.Params, `{"workspace":"w1"}`)
-		if d.Call.Workspace != "" {
-			t.Errorf("the envelope workspace was set: %q", d.Call.Workspace)
+	t.Run("a project parameter of a global capability is a parameter", func(t *testing.T) {
+		s := spec("demo.where", `{"type":"object","additionalProperties":false,"properties":{"project":{"type":"string"}}}`)
+		d := parse(t, s, noEnv, "--project", "p1")
+		sameJSON(t, d.Call.Params, `{"project":"p1"}`)
+		if d.Call.Project != "" {
+			t.Errorf("the call's project was set: %q", d.Call.Project)
+		}
+	})
+	t.Run("the project is the CLI's own flag: the schema's property is not a flag and not required", func(t *testing.T) {
+		// What schema.Input publishes for a project capability: `project` first and required.
+		s := spec("build.errors", `{"type":"object","additionalProperties":false,"required":["project","module"],"properties":{"project":{"type":"string","description":"The project."},"module":{"type":"string"}}}`,
+			func(s *Spec) { s.Scope = capability.Workspace })
+		d := parse(t, s, noEnv, "--module", ":app")
+		sameJSON(t, d.Call.Params, `{"module":":app"}`)
+		if d.Call.Project != "" {
+			t.Errorf("project = %q before the caller defaults it", d.Call.Project)
+		}
+		d = parse(t, s, noEnv, "--module", ":app", "--project", "/p")
+		if d.Call.Project != "/p" {
+			t.Errorf("project = %q; want /p", d.Call.Project)
+		}
+		if err := CheckSpec(s); err != nil {
+			t.Errorf("CheckSpec on what the schema publishes: %v", err)
+		}
+		help, err := verbHelp(s)
+		if err != nil || strings.Contains(help, "--project <string>") || !strings.Contains(help, "--project <path> (default: the current directory)") {
+			t.Errorf("help: %v\n%s", err, help)
 		}
 	})
 	t.Run("required keys of an object parameter that is given", func(t *testing.T) {
@@ -394,10 +416,6 @@ func TestCheckSpec(t *testing.T) {
 	if err := CheckSpec(long); err == nil {
 		t.Error("detach parameter on a long-running capability accepted")
 	}
-	ws := spec("demo.ws", `{"type":"object","additionalProperties":false,"properties":{"workspace":{"type":"string"}}}`, func(s *Spec) { s.Scope = capability.Workspace })
-	if err := CheckSpec(ws); err == nil {
-		t.Error("workspace parameter on a workspace-scoped capability accepted")
-	}
 }
 
 func noInputs() []Spec {
@@ -407,7 +425,6 @@ func noInputs() []Spec {
 		spec("device.screenshot", `{"type":"object","additionalProperties":false,"required":["device"],"properties":{"device":{"type":"string","description":"The serial of the device, from device.list."}}}`),
 		spec("build.run", `{"type":"object","additionalProperties":false,"required":["tasks"],"properties":{"tasks":{"type":"array","items":{"type":"string"},"description":"Gradle tasks."}}}`, func(s *Spec) { s.LongRunning = true; s.Scope = capability.Workspace }),
 		// The ones the listings hide.
-		spec("workspace.enter", empty, func(s *Spec) { s.Binding = true }),
 		spec("events.unsubscribe", empty, func(s *Spec) { s.Statefulness = capability.Stateful }),
 		spec("agent.record", empty),
 		spec("device.watchScreen", empty, func(s *Spec) { s.Statefulness = capability.Streaming }),
@@ -510,7 +527,7 @@ func TestHelpLevels(t *testing.T) {
 		}
 	}
 	run, _ := tree.Help([]string{"build", "run"})
-	for _, want := range []string{"--tasks <string> (repeat for each) (required)", "--detach", "--workspace", "long-running"} {
+	for _, want := range []string{"--tasks <string> (repeat for each) (required)", "--detach", "--project", "long-running"} {
 		if !strings.Contains(run, want) {
 			t.Errorf("verb help lacks %q:\n%s", want, run)
 		}

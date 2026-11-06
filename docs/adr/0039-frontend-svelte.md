@@ -1,6 +1,6 @@
 # ADR-0039: Frontend built with Svelte 5 and TypeScript
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-09
 - Supersedes: ADR-0008
 - Relates to: ADR-0006, ADR-0009, ADR-0003

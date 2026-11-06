@@ -1,13 +1,12 @@
 // Command droidyard is the Droidyard binary.
 //
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
-// daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it, and
+// daemon on its socket; `call`, `mcp`, `status` and `stop` talk to it, and
 // `trust` writes the user configuration directly, with no daemon involved, and so do
 // `host` and `remote` (the peer pairing and lending, ADR-0098 §7; `id` asks the daemon
 // for its fingerprint) and `init`, which writes the assistant integration into a project (ADR-0037). `hook`
-// answers an assistant's hook event and dials the daemon only if one is running
-// (ADR-0061). `trash` moves files to the trash through a running daemon and starts none
-// (ADR-0062).
+// passes an assistant's hook event and does nothing else: it stays one minor release for
+// the entries an earlier init wrote (ADR-0137, plan m3j Q4).
 package main
 
 import (
@@ -23,22 +22,16 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
-	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/agent"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
-	"github.com/jtortosasen/droidyard/internal/domain/chats"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen/scrcpyserver"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
-	"github.com/jtortosasen/droidyard/internal/domain/file"
-	gitdomain "github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/sharing"
-	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/hosting"
@@ -78,15 +71,14 @@ func versionCommand(w io.Writer, args []string) int {
 }
 
 // main resolves the command line through the command tree (commands.go, ADR-0122): a hand
-// command, a capability as `<domain> <verb>`, or help. No subcommand is `ui`: a user types
-// `droidyard` in a project folder (ADR-0045 §1).
+// command, a capability as `<domain> <verb>`, or help. No subcommand is the help.
 func main() {
-	if len(os.Args) < 2 {
-		os.Exit(ui(nil))
-	}
 	ct, err := newCmdTree()
 	if err != nil {
 		fail(err)
+	}
+	if len(os.Args) < 2 {
+		os.Exit(ct.help(nil, os.Stdout, os.Stderr))
 	}
 	if a := os.Args[1]; a == "-h" || a == "--help" {
 		os.Exit(ct.help(nil, os.Stdout, os.Stderr))
@@ -104,9 +96,6 @@ type requirements struct {
 	adb      *device.ADB
 	emulator *emulator.Emulator
 	gradle   *gradle.Client
-	// dialog answers folderDialog: workspace.chooseRoot's macOS folder dialog
-	// (ADR-0045 §4).
-	dialog workspace.Dialog
 }
 
 func (r requirements) Missing(req capability.Requirement) (string, bool) {
@@ -131,14 +120,6 @@ func (r requirements) Missing(req capability.Requirement) (string, bool) {
 			return "no Gradle sidecar client is configured", true
 		}
 		return r.gradle.Missing(req)
-	case capability.RequiresFolderDialog:
-		return r.dialog.Missing()
-	case capability.RequiresGit:
-		// Looked up afresh, as git.read does, so the two cannot disagree (ADR-0066 §1).
-		if _, err := exec.LookPath("git"); err != nil {
-			return "git was not found on the PATH droidyard runs with (" + err.Error() + ")", true
-		}
-		return "", false
 	default:
 		return string(req) + " was not found on this machine", true
 	}
@@ -155,7 +136,8 @@ var (
 	// joinSeam, when set, stands in for the host a hosting.join dials, so a test can have a host
 	// whose answer is hostile. The shipped binary never sets it.
 	joinSeam sharing.JoinFunc
-	// testDrain replaces workspace.close's drain bound; zero keeps the default.
+	// testDrain replaces the drain bound an idle release waits for its workspace's operations;
+	// zero keeps the default.
 	testDrain time.Duration
 	// adbEnviron is the environment adb is resolved in and its clients run with: the
 	// daemon's own. Tests replace it so none finds or runs this machine's adb or
@@ -184,17 +166,6 @@ var (
 	// embedded jars on the discovered JVM: the fake sidecar of a test. Nil runs the
 	// real one.
 	gradleLaunch gradle.Launch
-	// watchTick, when > 0, is the file.watch and git.watch pollers' interval for the daemons this
-	// process starts: the in-process WebSocket test shortens it to 50 ms so a change is
-	// seen at once (plan m1j step 4). Set under adbSeamMu, like adbEnviron.
-	watchTick time.Duration
-	// gitWatchersSeam, when set, is given the git.watch poller set a registry builds: a test
-	// reads its Live count. The shipped binary never sets it. Set under adbSeamMu.
-	gitWatchersSeam func(*gitdomain.Watchers)
-	// dialogSeam, when set, adjusts the folder dialog before the daemon uses it: a test
-	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
-	// sets it.
-	dialogSeam func(d *workspace.Dialog)
 	// sessionClock, when set, is the clock the session registry reads (a session's last
 	// request and the idle sweep): a test advances it to make a holder idle. The shipped
 	// binary never sets it.
@@ -202,28 +173,12 @@ var (
 	// sessionSweep, when > 0, is how often the idle sweep runs, in place of the minute
 	// (capability.SweepInterval). The shipped binary never sets it.
 	sessionSweep time.Duration
+	// workspaceClock, when set, is the idle clock of the workspace registry, and
+	// workspaceSweep, when > 0, the interval of its idle sweep: a test moves the clock past
+	// workspace.IdleAfter to release a root (ADR-0137 §3). The shipped binary never sets them.
+	workspaceClock func() time.Time
+	workspaceSweep time.Duration
 )
-
-// clientDirs are the user's client directories as the daemon's own environment resolves
-// them (assistant.ResolveUserDirs, the same as `init --user`'s). Without a home directory
-// only CLAUDE_CONFIG_DIR can name one, and the Cursor directory is then empty.
-func clientDirs(env platform.Env) assistant.UserDirs {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return assistant.UserDirs{Claude: env.Getenv("CLAUDE_CONFIG_DIR")}
-	}
-	return assistant.ResolveUserDirs(home, env.Getenv)
-}
-
-// cursorIDEDir is the Cursor IDE's globalStorage directory for the daemon's home, empty
-// (not locatable) without one.
-func cursorIDEDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return chats.IDEGlobalStorage(home)
-}
 
 // registry builds the shipped registry, the operation store that dispatches from it
 // and the daemon's event bus, over the state store st and the supervisor sup, logging
@@ -235,7 +190,7 @@ func cursorIDEDir() string {
 // env is the daemon's environment: it decides where the state root and, with it, the
 // user configuration live, so an in-process test daemon reads its own configuration
 // and not this machine's (plan m1g step 3).
-func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *file.Watchers, *hosting.Host) {
+func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *hosting.Host, *workspace.Registry) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (overview.md §Events).
@@ -246,7 +201,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if st != nil {
 		problems = st.Problems
 	}
-	// The daemon's one policy: it decides trust, shell.exec and physical devices, reports
+	// The daemon's one policy: it decides trust and physical devices, reports
 	// the configuration file's state, and reads the tool keys once, here, so they take
 	// effect at this start and not before the next (ADR-0032 §3, §6; plan m1k D1, D8). A
 	// daemon that reads no configuration still starts: a bad file is reported, not fatal.
@@ -363,27 +318,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// hosting.lend, read live as the policy is, says which of this machine's devices a
 	// paired peer may use (ADR-0099 §1).
 	adb.SetLending(pol)
-	// Who occupies which device (ADR-0094): the one registry of MCP sessions, which also holds
-	// the worktrees, so a session that ends or returns to the main tree frees both.
+	// Who occupies which device (ADR-0094): the one registry of MCP sessions, so a session that
+	// ends frees the devices it held.
 	adb.SetOccupation(ops.Sessions())
-	// workspace.chooseRoot's folder dialog is started through the supervisor's recorded
-	// spawner (ADR-0045 §4; ADR-0021 §Pid records), so a daemon killed while it is up leaves
-	// a record the next start reaps; a test replaces the osascript it runs and the platform
-	// it asks on. Without a supervisor (caps, schema) the dialog has no spawner.
-	var dialogSpawn func(cmd *exec.Cmd) (func() error, error)
-	if sup != nil {
-		dialogSpawn = func(cmd *exec.Cmd) (func() error, error) {
-			r, err := sup.SpawnRecorded(cmd, proc.FolderDialog)
-			if err != nil {
-				return nil, err
-			}
-			return r.Wait, nil
-		}
-	}
-	dialog := workspace.NewDialog(dialogSpawn)
-	if dialogSeam != nil {
-		dialogSeam(&dialog)
-	}
 	// The peer link (ADR-0098): the daemon's identity, the links it dials and what its
 	// listener reports. Nothing is read or written until serve starts it, once the daemon
 	// holds the lock, since the identity has one writer. Without a state store (caps,
@@ -419,7 +356,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		base := problems
 		problems = func() []store.Problem { return append(base(), host.Problems()...) }
 	}
-	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient, dialog: dialog}, adb, ops, problems, gradleClient, pol, hostHealth)
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient, pol, hostHealth)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch
@@ -438,63 +375,52 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {
-		// workspace.close stops the workspace's sidecars after its drain and before it
-		// marks the workspace closed (ADR-0027 §Decision).
+		// A released workspace's sidecars are stopped after its drain and before it is
+		// marked closed (ADR-0027 §Decision).
 		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
 	}
-	// A closing workspace releases its root's Gradle connection, so Gradle's daemon
+	// A released workspace gives up its root's Gradle connection, so Gradle's daemon
 	// connection is not left to the sidecar's idle timeout (gradle.md §Protocol). Any
-	// failure here is not the close's business: the sidecar is stopped with the daemon.
+	// failure here is not the release's business: the sidecar is stopped with the daemon.
 	closeRoot := func(root string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		gradleClient.Close(ctx, root)
 	}
-	// The daemon's live file.watch and git.watch pollers: a workspace close ends that
-	// workspace's watches, each publishing its stopped event (plan m1j, D9; ADR-0066 §1).
-	watchers := file.NewWatchers()
-	gitWatchers := gitdomain.NewWatchers()
-	if gitWatchersSeam != nil {
-		gitWatchersSeam(gitWatchers)
+	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain,
+		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus,
+		OnOpen: func(id, root string) { history.Sweep(id) }})
+	if workspaceClock != nil {
+		ws.UseClock(workspaceClock)
 	}
-	// The trash of file.delete, under the state root, swept when a workspace opens beside
-	// the build history's sweep (ADR-0054 §3). Without a state store there is none, and
-	// file.delete and file.restore answer FILE_IO_FAILED.
-	var trash *file.Trash
-	if st != nil {
-		trash = file.NewTrash(st)
+	if workspaceSweep > 0 {
+		ws.UseIdleEvery(workspaceSweep)
 	}
-	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, StopPollers: func(id string) { watchers.Stop(id); gitWatchers.Stop(id) }, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
-		OnOpen: func(id, root string) { history.Sweep(id); trash.Sweep(id, root) }})
-	// The trust hook: a call's root comes from its workspace, and an untrusted root
-	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
+	// The trust hook: a call's root is the project root its `project` resolved to at Start
+	// (Registry.Enter, workspace.ResolveProject), never the path the caller passed: a folder
+	// inside a linked worktree is judged by the worktree's root, and so inherits its
+	// project's trust (ADR-0081). An untrusted root fails WORKSPACE_UNTRUSTED before the
+	// handler runs (plan m1g step 3, R4).
 	authorize := pol.Authorize(func(call *capability.Call) (string, bool) {
-		info, err := ws.Describe(call.Workspace)
-		if err != nil {
-			return "", false
-		}
-		return info.Root, true
+		return call.Root, call.Root != ""
 	})
 	// The Gradle capabilities run on the Gradle root, a directory inside the project root
-	// (ADR-0075 §3): trust is decided on the project root first, before anything is
-	// resolved or spawned, then the root is resolved again at every call, without a
-	// cache, so a choice written to the project file takes effect on the next call. A
-	// project with none fails PROJECT_NO_GRADLE_ROOT, the candidates in its details.
+	// (ADR-0075 §3), resolved at Start with the project root (call.GradleRoot, the key the
+	// build lock is held on): trust is decided on the resolved project root before anything
+	// is spawned. A project with no Gradle root, or several, was refused at Start
+	// (PROJECT_NO_GRADLE_ROOT, the candidates in its details).
 	authorizeGradle := func(ctx context.Context, call *capability.Call) (any, error) {
 		v, err := authorize(ctx, call)
 		if err != nil {
 			return nil, err
 		}
 		projectRoot := v.(string)
-		// Without candidates: a failure lists them anyway, and a valid key skips the scan.
-		r := workspace.ResolveGradleRoot(projectRoot, false)
-		// The workspace's current root, also when there is none, so a crash of this root
-		// degrades it and its close releases the connection (ADR-0075 §8). A root it
-		// switched away from that no other workspace remembers is closed once no operation
-		// holds it (ADR-0092 §2), each in a goroutine of its own: the wait has no deadline.
-		// A workspace that began closing since the trust check refuses the call.
-		forgotten, err := ws.UseGradleRoot(call.Workspace, r.Abs)
+		// The workspace's current root, so a crash of this root degrades it and its release
+		// closes the connection (ADR-0075 §8). A root it switched away from that no other
+		// workspace remembers is closed once no operation holds it (ADR-0092 §2), each in a
+		// goroutine of its own: the wait has no deadline. A workspace that began closing since
+		// the trust check refuses the call.
+		forgotten, err := ws.UseGradleRoot(call.Workspace, call.GradleRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -503,10 +429,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			// workspace may have taken the root meanwhile.
 			go gradleClient.CloseWhenFree(g, func() bool { return ws.GradleRootInUse(g) })
 		}
-		if r.Abs == "" {
-			return nil, r.Err
-		}
-		return gradle.Roots{Project: projectRoot, Gradle: r.Abs}, nil
+		return gradle.Roots{Project: projectRoot, Gradle: call.GradleRoot}, nil
 	}
 	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
 	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
@@ -519,124 +442,14 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		InUse: sdk.SystemInUse(ops.Active)})
 	project.Register(reg, gradleClient, authorizeGradle)
 	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize, AuthorizeGradle: authorizeGradle})
-	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its
-	// only registry read is the workspace's canonical root (ADR-0015 §1, §5; plan m1j D2).
-	file.Register(reg, file.Options{
-		Root: func(id string) (string, bool) {
-			info, err := ws.Describe(id)
-			if err != nil {
-				return "", false
-			}
-			return info.Root, true
-		},
-		Env:        env,
-		Bus:        bus,
-		Watchers:   watchers,
-		WriteLocks: file.NewWriteLocks(),
-		Tick:       watchTick,
-		Trash:      trash,
-	})
-	// git.read is the diff's HEAD side and git.watch the status (ADR-0066): audience
-	// human, never an MCP tool. Their git is started through the supervisor's spawner,
-	// in its own group, in the daemon's environment minus GIT_*, and the root's trust is
-	// read at every call and every tick (ADR-0015 §2).
-	gitdomain.Register(reg, gitdomain.Options{
-		Root: func(id string) (string, bool) {
-			info, err := ws.Describe(id)
-			if err != nil {
-				return "", false
-			}
-			return info.Root, true
-		},
-		Env:      env,
-		Trusted:  pol.Trusted,
-		Starter:  spawn,
-		Bus:      bus,
-		Watchers: gitWatchers,
-		Tick:     watchTick,
-		// The writes (ADR-0071): gated on the same trust hook as project code, and started
-		// recorded, as shell.exec's commands are, so a killed daemon's next start reaps
-		// their groups.
-		Authorize: authorize,
-		Recorded:  gitWriteStarter(sup),
-	})
-	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
-	// agent.recordCommand, agent.recordEdit and agent.checkWrite are the hook's channel
-	// (ADR-0063, ADR-0095 §3): audience human, stateless; a record is the operation's
-	// result. The check reads who holds a worktree from the session registry, and a
-	// recorded edit makes the file watches walk at once.
-	agent.Register(reg, agent.Options{Sessions: ops.Sessions(), Canonical: env.Canonical, Nudge: watchers.Nudge})
-	// session.chats lists the clients' chats of the projects the index knows, read from the
-	// clients' own stores (ADR-0127): audience human, stateless, joined to the live sessions
-	// by chat id. The stores are those `init --user` writes in, resolved from the daemon's
-	// own environment. Cursor's databases are read through `sqlite3`, started through the
-	// supervisor's spawner as git is.
-	chats.Register(reg, chats.Options{
-		Sessions: ops.Sessions(), Known: ws.Known, Env: env, Dirs: clientDirs(env),
-		CursorIDE: cursorIDEDir(), Starter: spawn,
-	})
-	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
-	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
-	// hook the project-code capabilities share; its command is spawned through the
-	// supervisor's recorded starter and its group killed at every end. Its children
-	// inherit the daemon's own environment: not adbEnviron, which a test replaces with
-	// an empty PATH for adb's sake (the shell then failed to find sleep, a flake that
-	// showed under one parent shell only; m1k §Changes, step 2).
-	shell.Register(reg, shell.Options{
-		RootOf: func(call *capability.Call) (string, bool) {
-			info, err := ws.Describe(call.Workspace)
-			if err != nil {
-				return "", false
-			}
-			return info.Root, true
-		},
-		ShellAllowed: pol.ShellAllowed,
-		Authorize:    authorize,
-		ResolveDir: func(root, path string) (string, error) {
-			return file.ResolveDir(env, root, path)
-		},
-		Recorded:  shellStarter(sup),
-		Env:       os.Environ(),
-		Artifacts: artifacts,
-	})
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
 	if testHosting != nil && host != nil {
 		testHosting(reg, host)
 	}
-	return reg, ops, bus, artifacts, adb, watchers, host
-}
-
-// shellStarter adapts the supervisor's recorded spawner to shell.exec's starter: the
-// command is recorded while it runs and its whole group is killed if the record cannot
-// be written (plan m1k D5). Without a supervisor (caps, schema) it is nil, and a call
-// that somehow reached the handler would fail SHELL_EXEC_FAILED.
-func shellStarter(sup *proc.Supervisor) shell.Starter {
-	if sup == nil {
-		return nil
-	}
-	return func(cmd *exec.Cmd, kind string) (shell.Recorded, error) {
-		return sup.SpawnRecorded(cmd, proc.Kind(kind))
-	}
-}
-
-// gitWriteStarter adapts the supervisor's recorded spawner to the git writes' starter: the
-// git is recorded while it runs, as its own session and group leader, and its whole group
-// is killed if the record cannot be written (process.GitWrite). Without a supervisor (caps,
-// schema) it is nil, and a write that somehow reached the handler would fail GIT_FAILED.
-func gitWriteStarter(sup *proc.Supervisor) gitdomain.RecordedStarter {
-	if sup == nil {
-		return nil
-	}
-	return func(cmd *exec.Cmd, kind string) (gitdomain.Recorded, error) {
-		r, err := sup.SpawnRecorded(cmd, proc.Kind(kind))
-		if err != nil {
-			return nil, err // a nil interface, not a typed nil
-		}
-		return r, nil
-	}
+	return reg, ops, bus, artifacts, adb, host, ws
 }
 
 // sdkToolStarter adapts the supervisor's recorded spawner to the avdmanager runner's

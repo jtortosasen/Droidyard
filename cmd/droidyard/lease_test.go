@@ -177,14 +177,13 @@ func (l *leaseLab) listedHolder(t *testing.T) string {
 	return ""
 }
 
-// releaseLease is the host's owner releasing the phone (session.release, a human's action),
-// which ends whoever's lease of it.
+// releaseLease is the host's owner releasing the phone, which ends whoever's lease of it.
+// The capability that did it (session.release) left with ADR-0137 §1; the registry call it
+// made is the same one the device's other ends use (an emulator stopped or wiped, the
+// device leaving), so the test makes it directly on the host's registry.
 func (l *remoteLab) releaseLease(t *testing.T) {
 	t.Helper()
-	env := l.host.invoke("session.release", `{"device":"`+phone1+`"}`)
-	if env.Error != nil {
-		t.Fatalf("session.release: %+v", env.Error)
-	}
+	l.host.ops.Sessions().ReleaseDevice(phone1)
 }
 
 func (l *leaseLab) release(t *testing.T) { t.Helper(); l.releaseLease(t) }

@@ -119,16 +119,35 @@ type buildFixture struct {
 	log     *captureLog
 }
 
-// admitWS admits testWS and otherWS and nothing else, the way the workspace registry
-// admits an open one.
+// admitWS admits the projects testWS and otherWS and nothing else, each as the workspace of
+// that name with a Gradle root of its own, the way the workspace registry admits a project.
 type admitWS struct{}
 
-func (admitWS) Admit(target string, record func(id string)) bool {
-	if target != testWS && target != otherWS {
-		return false
+func (admitWS) Enter(project string, record func(capability.Entered)) error {
+	if project != testWS && project != otherWS {
+		return capability.Errorf(capability.ErrInvalidParams, "the project %q cannot be used", project)
 	}
-	record(target)
-	return true
+	record(capability.Entered{ID: project, Root: "/root/" + project, GradleRoot: "/gradle/" + project})
+	return nil
+}
+
+func (admitWS) Ended(string) {}
+
+// projectParams is the parameter object raw (empty means {}) with `project` added: what an
+// adapter sends for a call of a project capability.
+func projectParams(project, raw string) []byte {
+	fields := map[string]json.RawMessage{}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+			panic(err)
+		}
+	}
+	fields[capability.ProjectParam], _ = json.Marshal(project)
+	out, err := json.Marshal(fields)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }
 
 // fixtureInUse is the fixtures' Options.InUse (m3e step 5): nil, as for a client with no
@@ -249,7 +268,7 @@ func modelWith(t *testing.T, cfg gradletest.Config, buildDir string) gradletest.
 func (f *buildFixture) call(t *testing.T, name, params string) capability.Outcome {
 	t.Helper()
 	out, err := f.ops.Invoke(context.Background(), capability.Request{
-		Capability: name, Workspace: testWS, Params: []byte(params),
+		Capability: name, Params: projectParams(testWS, params),
 	})
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
@@ -261,7 +280,7 @@ func (f *buildFixture) call(t *testing.T, name, params string) capability.Outcom
 func (f *buildFixture) start(t *testing.T, name, params string) string {
 	t.Helper()
 	id, err := f.ops.Start(context.Background(), capability.Request{
-		Capability: name, Workspace: testWS, Params: []byte(params),
+		Capability: name, Params: projectParams(testWS, params),
 	})
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)

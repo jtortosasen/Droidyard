@@ -21,10 +21,6 @@ func TestSDKRequirementsRequiresTrust(t *testing.T) {
 
 	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, sub, "workspace.open"); code != 0 {
-		t.Fatalf("open exited %d: %+v", code, env.Error)
-	}
-
 	// Untrusted: the trust re-check refuses before the model fetch (ADR-0015 §5).
 	env, code := callIn(t, state, sub, "sdk.requirements")
 	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {

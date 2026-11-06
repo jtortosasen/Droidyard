@@ -1,6 +1,6 @@
 # ADR-0082: A session enters a worktree of its project; a worktree is a workspace of its project
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0088 (§Decision)
 - Date: 2026-10-18

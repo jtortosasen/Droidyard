@@ -1,6 +1,6 @@
 # ADR-0073: A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-13
 - Supersedes: ADR-0071 §Decision (in part: item 3's means of "never a prompt")
 - Relates to: ADR-0015 §5; ADR-0066 §2; ADR-0071 §2, §3; plan m2n P1

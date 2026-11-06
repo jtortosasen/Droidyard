@@ -15,25 +15,19 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/agent"
 	"github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	"github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
-	"github.com/jtortosasen/droidyard/internal/domain/chats"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
-	"github.com/jtortosasen/droidyard/internal/domain/file"
-	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/sharing"
-	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/schema"
-	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // update rewrites the golden file instead of comparing against it.
@@ -88,14 +82,6 @@ func registry() *capability.Registry {
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing, AuthorizeGradle: trustNothing})
-	file.Register(reg, file.Options{})
-	git.Register(reg, git.Options{})
-	agent.Register(reg, agent.Options{})
-	chats.Register(reg, chats.Options{})
-	// The shell descriptors only: no handler of the golden registry is ever run, so the
-	// policy, trust, starter and store are left nil.
-	shell.Register(reg, shell.Options{})
-	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg, ops.Active)
 	return reg
 }
@@ -370,7 +356,7 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	want := []string{"build.assemble", "device.forceStop", "device.inputText", "device.install", "device.installUpload", "device.launch", "device.logs",
 		"device.pressKey", "device.recordUi", "device.rotate", "device.screenshot", "device.scroll", "device.stopUiRecording", "device.swipe", "device.systemPanel", "device.tap", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiRecordings", "device.uiTree",
 		"device.uninstall", "device.watchLogs", "device.watchScreen", "device.watchUiEvents", "emulator.configure", "emulator.create", "emulator.delete", "emulator.start", "emulator.stop", "emulator.wipe",
-		"hosting.share", "hosting.unshare", "hosting.watchShare", "session.release"}
+		"hosting.share", "hosting.unshare", "hosting.watchShare"}
 	var got []string
 	for name := range declared {
 		got = append(got, name)
@@ -438,4 +424,92 @@ func namesDevice(params any) bool {
 		}
 	}
 	return false
+}
+
+// TestEveryProjectCapabilityTakesOneRequiredProject is the decision of ADR-0137 §3, plan m3j
+// Q3: `project` is a parameter the generator adds, from the descriptor's scope, to the input
+// of every workspace-scoped capability, and to none else: one property, with the one
+// description, first among the properties and among the required ones, an absolute path as a
+// string. A descriptor cannot leave it out (the scope decides) and none declares it itself
+// (Register refuses one that does). Seen failing with the property added by scope but left
+// off the required list, and with a global capability that took one.
+func TestEveryProjectCapabilityTakesOneRequiredProject(t *testing.T) {
+	reg := registry()
+	doc, err := schema.Generate(reg, system.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeOf := map[string]capability.Scope{}
+	optionalOf := map[string]bool{}
+	for _, d := range reg.All() {
+		scopeOf[d.Name] = d.Scope
+		optionalOf[d.Name] = d.ProjectOptional
+	}
+	scoped := 0
+	for _, c := range doc.Capabilities {
+		var in struct {
+			Properties map[string]struct {
+				Type        string `json:"type"`
+				Description string `json:"description"`
+			} `json:"properties"`
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(c.Input, &in); err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		prop, has := in.Properties[capability.ProjectParam]
+		if scopeOf[c.Name] != capability.Workspace {
+			if has {
+				t.Errorf("%s is %s and has a %q property", c.Name, scopeOf[c.Name], capability.ProjectParam)
+			}
+			continue
+		}
+		scoped++
+		wantDesc := schema.ProjectDescription
+		if optionalOf[c.Name] {
+			wantDesc = schema.ProjectOptionalDescription
+		}
+		if !has || prop.Type != "string" || prop.Description != wantDesc {
+			t.Errorf("%s: project is %+v; want a string with the one description", c.Name, prop)
+		}
+		// Decision (ADR-0137 §4): project is required of every workspace-scoped input but
+		// one that is ProjectOptional (device.install, where only a build needs it).
+		if optionalOf[c.Name] {
+			if slices.Contains(in.Required, capability.ProjectParam) {
+				t.Errorf("%s: required is %v; project is optional here", c.Name, in.Required)
+			}
+		} else if len(in.Required) == 0 || in.Required[0] != capability.ProjectParam {
+			t.Errorf("%s: required is %v; want project first", c.Name, in.Required)
+		}
+		// Its place among the properties is first, in the published order.
+		var raw struct {
+			Properties json.RawMessage `json:"properties"`
+		}
+		json.Unmarshal(c.Input, &raw)
+		if !strings.HasPrefix(strings.TrimSpace(string(raw.Properties)), `{"`+capability.ProjectParam+`"`) {
+			t.Errorf("%s: properties begin %.40s; want project first", c.Name, raw.Properties)
+		}
+	}
+	if scoped < 8 {
+		t.Fatalf("only %d capabilities are workspace-scoped; the check proved nothing", scoped)
+	}
+
+	// A descriptor whose parameters cannot take the property is an error of the generator
+	// too, never a published schema without it.
+	type clash struct {
+		Project string `json:"project"`
+	}
+	bad := capability.NewRegistry()
+	bad.MustRegister(capability.Descriptor{Name: "fixture.clash", Kind: capability.Query, Scope: capability.Global,
+		Description: "A global capability with a project parameter of its own.", Params: clash{}, Result: struct{}{},
+		Handler: func(context.Context, *capability.Call) (any, error) { return struct{}{}, nil }})
+	d, _ := bad.Lookup("fixture.clash")
+	d.Scope = capability.Workspace // as if Register had let it through
+	if _, err := schema.Input(d); err == nil {
+		t.Error("a workspace-scoped input that already has a project property was published")
+	}
+	d.Params = struct{}{}
+	if raw, err := schema.Input(d); err != nil || !strings.Contains(string(raw), `"required":["project"]`) {
+		t.Errorf("an empty parameter struct in a project scope: %s, %v; want project required", raw, err)
+	}
 }

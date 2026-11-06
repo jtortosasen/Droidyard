@@ -1,6 +1,6 @@
 # ADR-0127: The sessions panel lists chats read from the clients' own stores
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0134 (§Decision 4)
 - Date: 2026-10-23
 - Supersedes: ADR-0083 §Decision (in part: §2, the panel's agent rows under each project); ADR-0048 §Decision (in part: §3, agent rows from operations, and plan m2d D30's "You" row); ADR-0088 §Decision (in part: §4, the chat id is never published)

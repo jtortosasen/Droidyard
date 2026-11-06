@@ -5,15 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
-	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // callIn runs a re-executed `droidyard call --no-autostart` in dir and returns its
@@ -23,13 +21,10 @@ func callIn(t *testing.T, state, dir string, args ...string) (capability.Respons
 	return droidyardIn(t, state, dir, append([]string{"call", "--no-autostart"}, args...)...).envelope(t)
 }
 
-func workspaceOf(t *testing.T, env capability.ResponseEnvelope) workspace.Info {
+// workspaceOf is the workspace a fixture.touch call answered.
+func workspaceOf(t *testing.T, env capability.ResponseEnvelope) touched {
 	t.Helper()
-	var info workspace.Info
-	if err := json.Unmarshal(env.Result, &info); err != nil {
-		t.Fatalf("workspace result %s: %v (%+v)", env.Result, err, env.Error)
-	}
-	return info
+	return touchedOf(t, env)
 }
 
 // gradleProject is a project root holding settings.gradle.kts, by its canonical path,
@@ -47,29 +42,16 @@ func gradleProject(t *testing.T) (root, sub string) {
 	return root, sub
 }
 
-func lastOpenedAt(t *testing.T, state, id string) time.Time {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(state, "workspaces.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var idx struct {
-		Workspaces map[string]struct {
-			LastOpenedAt time.Time `json:"lastOpenedAt"`
-		} `json:"workspaces"`
-	}
-	if err := json.Unmarshal(raw, &idx); err != nil {
-		t.Fatal(err)
-	}
-	return idx.Workspaces[id].LastOpenedAt
-}
-
-// TestCLIAddressesWorkspaces: the CLI names a workspace with --workspace, else with the
-// root of its cwd (ADR-0020 §Scope and workspace addressing; plan m1c, R3), and a
-// restarted daemon treats every workspace as closed until reopened, restoring its
-// durable state (workspace-state.md §Cleanup and crash recovery). Real processes: a
-// re-executed serve and re-executed CLIs.
-func TestCLIAddressesWorkspaces(t *testing.T) {
+// TestCLIProjectDefaultsToCwd holds ADR-0137 §5 with real processes (a re-executed serve and
+// re-executed CLIs): a CLI call of a project capability names its project with --project,
+// else it is the current directory, whatever folder of the project that is; a relative
+// --project is made absolute against the current directory; a capability that takes no
+// project is sent none, so a global call from a project folder is unchanged; --project on a
+// global call is the daemon's REQUEST_INVALID_PARAMS; the old --workspace is not a flag. A
+// restarted daemon holds nothing open until a call names it, and then the same id answers
+// (workspace-state.md §Cleanup and crash recovery; ADR-0137 §3). The derived command is the
+// same call as `call` (ADR-0122).
+func TestCLIProjectDefaultsToCwd(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
 	root, sub := gradleProject(t)
@@ -78,65 +60,73 @@ func TestCLIAddressesWorkspaces(t *testing.T) {
 	srv := droidyard(t, state, "serve")
 	srv.expect(t, "listening")
 
-	// From a subdirectory: the root resolver finds settings.gradle.kts two levels up.
-	opened, code := callIn(t, state, sub, "workspace.open")
+	// From a subdirectory: the project is the root that holds settings.gradle.kts, two
+	// levels up.
+	opened, code := callIn(t, state, sub, "fixture.touch")
 	if code != 0 {
-		t.Fatalf("open from %s exited %d: %+v", sub, code, opened.Error)
+		t.Fatalf("a call from %s exited %d: %+v", sub, code, opened.Error)
 	}
-	info := workspaceOf(t, opened)
-	if info.Root != root || info.ID != id || info.Name != filepath.Base(root) || info.State != workspace.Ready || info.Trusted {
-		t.Fatalf("open from a subdirectory = %+v; want root %s, id %s, ready, untrusted", info, root, id)
-	}
-	described, code := callIn(t, state, sub, "workspace.describe")
-	if code != 0 || !reflect.DeepEqual(workspaceOf(t, described), info) {
-		t.Fatalf("describe from %s exited %d: %+v", sub, code, described)
+	if got := workspaceOf(t, opened); got.Root != root || got.ID != id || got.GradleRoot != root {
+		t.Fatalf("a call from a subdirectory ran in %+v; want root %s, id %s", got, root, id)
 	}
 	if env, code := callIn(t, state, sub, "system.health"); code != 0 || env.Error != nil {
-		t.Errorf("a global call from a project directory: exit %d, %+v; the cwd's root is for workspace calls only", code, env.Error)
+		t.Errorf("a global call from a project directory: exit %d, %+v; the cwd is for project calls only", code, env.Error)
 	}
 
-	// From /, whose root is no project: --workspace names it.
-	byID, code := callIn(t, state, "/", "--workspace", id, "workspace.describe")
-	if code != 0 || string(byID.Result) != string(described.Result) {
-		t.Errorf("describe --workspace %s from / exited %d: %s; want %s", id, code, byID.Result, described.Result)
+	// --project names it from anywhere, absolute or relative to the cwd.
+	for name, tc := range map[string]struct {
+		dir  string
+		args []string
+	}{
+		"an absolute path from /":        {"/", []string{"--project", root, "fixture.touch"}},
+		"the = form":                     {"/", []string{"--project=" + sub, "fixture.touch"}},
+		"a relative path":                {filepath.Dir(root), []string{"--project", filepath.Base(root), "fixture.touch"}},
+		"the cwd beside a different one": {sub, []string{"--project", root, "fixture.touch"}},
+	} {
+		env, code := callIn(t, state, tc.dir, tc.args...)
+		if code != 0 || workspaceOf(t, env).ID != id {
+			t.Errorf("%s: exit %d, %+v; want workspace %s", name, code, env.Error, id)
+		}
 	}
-	unexpected, code := callIn(t, state, "/", "--workspace", root, "system.health")
-	if code == 0 || unexpected.Error == nil || unexpected.Error.Code != capability.ErrUnexpectedWorkspace || unexpected.Operation != nil {
-		t.Errorf("system.health with --workspace exited %d: %+v; want REQUEST_UNEXPECTED_WORKSPACE, no operation", code, unexpected)
+	// A project in --params is the project: the cwd does not stand in beside it, and a --project
+	// given too is two answers to one question, refused.
+	inParams, code := callIn(t, state, "/", "fixture.touch", "--params", `{"project":`+quote(sub)+`}`)
+	if code != 0 || workspaceOf(t, inParams).ID != id {
+		t.Errorf("a project in --params, from /: exit %d, %+v; want workspace %s", code, inParams.Error, id)
+	}
+	both := droidyardIn(t, state, "/", "call", "--no-autostart", "fixture.touch", "--project", root, "--params", `{"project":`+quote(root)+`}`)
+	if code := both.wait(t); code == 0 || !strings.Contains(both.stderr.String(), "use one") {
+		t.Errorf("a --project beside a project in --params: exit %d, stderr %q; want it refused", code, both.stderr.String())
+	}
+	// The derived command is the same call, with the same default.
+	derived := droidyardIn(t, state, sub, "fixture", "touch", "--json", "--no-autostart")
+	if env, code := derived.envelope(t); code != 0 || workspaceOf(t, env).ID != id {
+		t.Errorf("the derived command from %s: exit %d, %+v; want workspace %s", sub, code, env.Error, id)
 	}
 
-	if env, code := callIn(t, state, sub, "workspace.close"); code != 0 {
-		t.Fatalf("close exited %d: %+v", code, env.Error)
+	// Where there is no project: a capability that takes one is refused by the daemon's
+	// rules, naming the parameter, and a global one given --project is refused as well.
+	none, code := callIn(t, state, platform.Current().Canonical(t.TempDir()), "fixture.touch")
+	if code == 0 || none.Error == nil || none.Error.Code != capability.ErrProjectNoGradleRoot || none.Operation != nil {
+		t.Errorf("a call from a folder with no build exited %d: %+v; want PROJECT_NO_GRADLE_ROOT and no operation", code, none)
 	}
-	if env, code := callIn(t, state, sub, "workspace.describe"); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe after close exited %d: %+v; want WORKSPACE_NOT_OPEN", code, env)
+	unexpected, code := callIn(t, state, "/", "--project", root, "system.health")
+	if code == 0 || unexpected.Error == nil || unexpected.Error.Code != capability.ErrInvalidParams || unexpected.Operation != nil {
+		t.Errorf("system.health with --project exited %d: %+v; want REQUEST_INVALID_PARAMS, no operation", code, unexpected)
 	}
-	before := lastOpenedAt(t, state, id)
+	if code := droidyardIn(t, state, "/", "call", "--no-autostart", "--workspace", root, "fixture.touch").wait(t); code == 0 {
+		t.Error("the --workspace flag, which --project replaced, was accepted")
+	}
 
-	// A restart: closed until reopened, then the same id and createdAt.
+	// A restart: nothing is open until a call names the project, then the same id.
 	if code := droidyard(t, state, "stop").wait(t); code != 0 {
 		t.Fatalf("stop exited %d", code)
 	}
 	srv.wait(t)
 	srv = droidyard(t, state, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, sub, "workspace.describe"); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe after a restart exited %d: %+v; want WORKSPACE_NOT_OPEN", code, env)
-	}
-	reopened, code := callIn(t, state, sub, "workspace.open")
-	again := workspaceOf(t, reopened)
-	if code != 0 || again.ID != id || again.CreatedAt == nil || info.CreatedAt == nil || !again.CreatedAt.Equal(*info.CreatedAt) {
-		t.Errorf("reopened after a restart: exit %d, %+v; want id %s, createdAt %v", code, again, id, info.CreatedAt)
-	}
-	if after := lastOpenedAt(t, state, id); !after.After(before) {
-		t.Errorf("lastOpenedAt %v after reopening; want later than %v", after, before)
-	}
-
-	// ADR-0026: the operation exists and fails; it is not a Start rejection.
-	invalid, code := callIn(t, state, "/", "--workspace", "/nonexistent", "workspace.open")
-	if code == 0 || invalid.Operation == nil || invalid.Operation.State != capability.StateFailed ||
-		invalid.Error == nil || invalid.Error.Code != workspace.ErrRootInvalid {
-		t.Errorf("open --workspace /nonexistent exited %d: %+v %+v; want a failed operation, WORKSPACE_ROOT_INVALID", code, invalid.Operation, invalid.Error)
+	if env, code := callIn(t, state, sub, "fixture.touch"); code != 0 || workspaceOf(t, env).ID != id {
+		t.Errorf("a call after a restart exited %d: %+v; want the same workspace %s, opened by the call", code, env, id)
 	}
 
 	// A client of the previous API version is refused at the hello.
@@ -161,8 +151,9 @@ func sockFor(state string) string {
 }
 
 // TestCorruptIndexIsReportedNotFatal: a workspaces.json that does not parse is moved
-// aside, the daemon runs, open works, and system.health lists the problem (ADR-0021
-// §Format: "reported in system.health. Corrupt state never stops the daemon"; R9).
+// aside, the daemon runs, a call that names a project works, and system.health lists the
+// problem (ADR-0021 §Format: "reported in system.health. Corrupt state never stops the
+// daemon"; R9).
 func TestCorruptIndexIsReportedNotFatal(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
@@ -174,8 +165,8 @@ func TestCorruptIndexIsReportedNotFatal(t *testing.T) {
 
 	srv := droidyard(t, state, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, sub, "workspace.open"); code != 0 || workspaceOf(t, env).Root != root {
-		t.Fatalf("open with a corrupt index exited %d: %+v", code, env.Error)
+	if env, code := callIn(t, state, sub, "fixture.touch"); code != 0 || workspaceOf(t, env).Root != root {
+		t.Fatalf("a call with a corrupt index exited %d: %+v", code, env.Error)
 	}
 	env, code := callIn(t, state, sub, "system.health")
 	if code != 0 {

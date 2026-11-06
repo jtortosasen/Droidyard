@@ -76,22 +76,19 @@ func TestDerivedCommandIsTheCall(t *testing.T) {
 		}
 	})
 
-	t.Run("workspace describe from a project directory", func(t *testing.T) {
+	t.Run("a project call from a project directory", func(t *testing.T) {
 		p := startInProcess(t)
 		root, sub := gradleProject(t)
-		if _, code := callIn(t, p.state, sub, "workspace.open"); code != 0 {
-			t.Fatalf("workspace.open exited %d", code)
-		}
-		viaCall := droidyardIn(t, p.state, sub, "call", "--no-autostart", "workspace.describe")
+		viaCall := droidyardIn(t, p.state, sub, "call", "--no-autostart", "fixture.touch")
 		viaCall.wait(t)
-		derived := droidyardIn(t, p.state, sub, "workspace", "describe", "--json", "--no-autostart")
+		derived := droidyardIn(t, p.state, sub, "fixture", "touch", "--json", "--no-autostart")
 		if code := derived.wait(t); code != 0 {
-			t.Fatalf("workspace describe exited %d: %s %s", code, derived.stdout.String(), derived.stderr.String())
+			t.Fatalf("fixture touch exited %d: %s %s", code, derived.stdout.String(), derived.stderr.String())
 		}
 		a, sa := blankedEnvelope(t, viaCall.stdout.Bytes())
 		_, sb := blankedEnvelope(t, derived.stdout.Bytes())
-		if info := workspaceOf(t, a); info.Root != root {
-			t.Fatalf("describe addressed %q; want the project root %q", info.Root, root)
+		if got := workspaceOf(t, a); got.Root != root {
+			t.Fatalf("the call addressed %q; want the project root %q", got.Root, root)
 		}
 		if sa != sb {
 			t.Errorf("the envelopes differ:\n call    %s\n derived %s", sa, sb)
@@ -150,10 +147,10 @@ func TestHelpIndex(t *testing.T) {
 func TestOldSpellings(t *testing.T) {
 	t.Parallel()
 	ct := shippedTree(t)
-	names := []string{"caps", "schema", "version", "help", "serve", "call", "status", "stop", "mcp", "ui",
-		"trust", "id", "host", "remote", "device", "share", "unshare", "join", "init", "hook", "trash", "artifact"}
-	if len(names) != 22 {
-		t.Fatalf("the table holds %d names; want the 22 the binary had", len(names))
+	names := []string{"caps", "schema", "version", "help", "serve", "call", "status", "stop", "mcp",
+		"trust", "id", "host", "remote", "device", "share", "unshare", "join", "init", "hook", "artifact"}
+	if len(names) != 20 {
+		t.Fatalf("the table holds %d names; want the 20 the binary has", len(names))
 	}
 	for _, name := range names {
 		path := []string{name}
@@ -176,6 +173,45 @@ func TestOldSpellings(t *testing.T) {
 	// The verbs that used to be `device`'s own are still its.
 	if r, err := ct.Resolve([]string{"device", "disallow"}); err != nil || r.Hand == nil {
 		t.Errorf("device disallow does not resolve to a hand command: %+v, %v", r, err)
+	}
+}
+
+// Decision (ADR-0137 §1, plan m3j step 3): `trash` is gone with the hooks that handed it to
+// agents: it is an unknown command (exit 2, nothing on stdout), not a hand command, and the
+// help does not list it. `hook` is the one hook-era command that stays, as a pass-through
+// for one minor. Seen failing while `trash` still resolved: it ran, and exit was 1 with no
+// daemon.
+func TestTrashIsNotACommand(t *testing.T) {
+	t.Parallel()
+	p := droidyard(t, shortDir(t), "trash", "a.kt")
+	if code := p.wait(t); code != cli.ExitUsage || !strings.Contains(p.stderr.String(), "unknown command") || p.stdout.Len() != 0 {
+		t.Errorf("droidyard trash: exit %d, stdout %q, stderr %q; want 2 and an unknown command", code, p.stdout.String(), p.stderr.String())
+	}
+	if r, err := shippedTree(t).Resolve([]string{"trash"}); err == nil {
+		t.Errorf("trash resolves: %+v", r)
+	}
+	help := droidyard(t, shortDir(t), "help")
+	// file.trash is still a capability until step 4: only the hand command's line is gone.
+	if help.wait(t) != 0 || strings.Contains(help.stdout.String(), "\n  trash ") {
+		t.Errorf("the help still lists the trash command: %q", help.stdout.String())
+	}
+}
+
+// Decision (ADR-0137 §1): `ui` is gone with the web UI: it is an unknown command (exit 2,
+// nothing on stdout), not a hand command and not a capability's domain, and the help does
+// not list it. Seen failing while `ui` still resolved.
+func TestUIIsNotACommand(t *testing.T) {
+	t.Parallel()
+	p := droidyard(t, shortDir(t), "ui")
+	if code := p.wait(t); code != cli.ExitUsage || !strings.Contains(p.stderr.String(), "unknown command") || p.stdout.Len() != 0 {
+		t.Errorf("droidyard ui: exit %d, stdout %q, stderr %q; want 2 and an unknown command", code, p.stdout.String(), p.stderr.String())
+	}
+	if r, err := shippedTree(t).Resolve([]string{"ui"}); err == nil {
+		t.Errorf("ui resolves: %+v", r)
+	}
+	help := droidyard(t, shortDir(t), "help")
+	if help.wait(t) != 0 || strings.Contains(help.stdout.String(), "web UI") {
+		t.Errorf("the help still names the web UI: %q", help.stdout.String())
 	}
 }
 

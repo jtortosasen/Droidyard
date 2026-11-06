@@ -1,6 +1,6 @@
 # ADR-0083: `session.watch`, and the sessions panel grouped by project
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0127 (§Decision 2)
 - Superseded in part by: ADR-0134 (§Decision 2)

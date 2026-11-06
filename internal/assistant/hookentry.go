@@ -8,30 +8,27 @@ import (
 	"strings"
 )
 
-// The hook entries init writes (ADR-0061 §5, ADR-0063 §7, ADR-0095 §3): one before a shell
-// command, for the trash, and one after it, for the observation, and one before and one
-// after the client's edit tools, for the verdict and the record, each client's own event
-// names.
-// Claude Code's go into the settings file that already carries its allowlist; Cursor's
-// have a file of their own. All run the same `droidyard hook` command line, which
-// decides what an event is.
+// The hook entries an earlier init wrote (ADR-0061 §5, ADR-0063 §7, ADR-0095 §3), which
+// init now only removes (ADR-0137, plan m3j Q4): one before and one after a client's shell
+// command and its edit tools, each client's own event names, all running `droidyard hook
+// --client <c> [--root <abs>]`. Claude Code's went into the settings file that carries its
+// allowlist; Cursor's had a file of their own. An entry is recognised by shape alone
+// (ADR-0090 §1), so one a user wrote, or wrapped, stays.
 
-// HookCommand is the command line of one client's hook entry: the absolute binary, the
-// project root and, when init's own state root came from DROIDYARD_STATE_DIR, that
-// variable inline. A client's hook environment does not carry it [obs, m1o], and
-// without it the hook would dial the default state root's daemon and name it in its
-// replacement. A user-level run has no root (Options.Root is empty) and its command names
-// none: the hook finds the project from the client's event (ADR-0124).
-func HookCommand(o Options, c Client) string {
-	cmd := ""
-	if o.StateDir != "" {
-		cmd = "DROIDYARD_STATE_DIR=" + shellArg(o.StateDir) + " "
+// claudeEditMatcher is the matcher of Claude Code's edit entries an earlier init wrote.
+const claudeEditMatcher = "Write|Edit|NotebookEdit"
+
+// cursorEditMatcher is the tool name of cursor-agent's edit entries.
+const cursorEditMatcher = "Write"
+
+// PassOutput is what the client's hook prints to let the command through untouched:
+// nothing for Claude Code (exit 0), `{}` for Cursor [obs, m2j step 6]. The exit status
+// is 0 either way; the hook never exits 2, which Claude Code reads as a deny.
+func PassOutput(c Client) []byte {
+	if c == Cursor {
+		return []byte("{}\n")
 	}
-	cmd += shellArg(o.Command) + " hook --client " + string(c)
-	if o.Root != "" {
-		cmd += " --root " + shellArg(o.Root)
-	}
-	return cmd
+	return nil
 }
 
 // hookShape is a hook command line of the shape HookCommand writes, taken apart.
@@ -149,58 +146,4 @@ type claudeHookEntry struct {
 type cursorHookEntry struct {
 	Command string `json:"command"`
 	Matcher string `json:"matcher,omitempty"`
-}
-
-// claudeHookArrays are the array entries added to .claude/settings.json: a Bash command
-// before it runs, and after it (PostToolUse after an exit 0, PostToolUseFailure after a
-// non-zero exit), and the edit tools before and after a write (ADR-0095 §3).
-func claudeHookArrays(o Options) []arrayEntry {
-	cmd := []claudeHookCommand{{Type: "command", Command: HookCommand(o, Claude)}}
-	bash := rawJSON(claudeHookEntry{Matcher: "Bash", Hooks: cmd})
-	edit := rawJSON(claudeHookEntry{Matcher: claudeEditMatcher, Hooks: cmd})
-	var out []arrayEntry
-	for _, event := range []string{"PreToolUse", "PostToolUse", "PostToolUseFailure"} {
-		elems := []json.RawMessage{bash}
-		if event != "PostToolUseFailure" {
-			elems = append(elems, edit)
-		}
-		out = append(out, arrayEntry{path: []string{"hooks"}, key: event, elems: elems, stale: claudeStale(o.Root)})
-	}
-	return out
-}
-
-// cursorHookSpec is everything written into .cursor/hooks.json: a shell command before
-// it runs, Cursor's own Delete tool and its Write tool before it writes, and a shell
-// command after it (postToolUse, and postToolUseFailure for a non-zero exit) and a Write
-// after it (ADR-0095 §3). `version` is the file's format number; it is a sole key, so
-// --uninstall keeps a user's while their hooks remain.
-func cursorHookSpec(o Options) jsonSpec {
-	cmd := HookCommand(o, Cursor)
-	entry := func(matcher string) json.RawMessage { return rawJSON(cursorHookEntry{Command: cmd, Matcher: matcher}) }
-	hooks := []string{"hooks"}
-	return jsonSpec{
-		keys: []keyEntry{{key: "version", value: rawJSON(1), sole: true}},
-		arrays: []arrayEntry{
-			{path: hooks, key: "beforeShellExecution", elems: []json.RawMessage{entry("")}, stale: cursorStale(o.Root, "")},
-			{path: hooks, key: "preToolUse", elems: []json.RawMessage{entry("Delete"), entry(cursorEditMatcher)}, stale: cursorStale(o.Root, "Delete", cursorEditMatcher)},
-			{path: hooks, key: "postToolUse", elems: []json.RawMessage{entry("Shell"), entry(cursorEditMatcher)}, stale: cursorStale(o.Root, "Shell", cursorEditMatcher)},
-			{path: hooks, key: "postToolUseFailure", elems: []json.RawMessage{entry("Shell")}, stale: cursorStale(o.Root, "Shell")},
-		},
-	}
-}
-
-// shellArg quotes a string as one POSIX shell word, leaving a plain path as it is. A
-// single quote is closed, escaped and reopened, so any path survives.
-func shellArg(s string) string {
-	plain := s != ""
-	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_@%+=:,./-", c)) {
-			plain = false
-			break
-		}
-	}
-	if plain {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

@@ -69,9 +69,6 @@ func TestGradleRootBelowTheProjectRoot(t *testing.T) {
 
 	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, top, "workspace.open"); code != 0 {
-		t.Fatalf("open exited %d: %+v", code, env.Error)
-	}
 
 	env, code := callIn(t, state, top, "build.tasks")
 	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
@@ -149,27 +146,29 @@ func TestGradleRootBelowTheProjectRoot(t *testing.T) {
 	srv.wait(t)
 }
 
-// TestNoGradleRoot is ADR-0075 §3, §4: the six Gradle capabilities check the project
-// root's trust first, then fail PROJECT_NO_GRADLE_ROOT when it has none (here two
-// candidates), the nextStep naming the gradleRoot key and the candidates in the details,
-// with no sidecar started; build.lastResult reads history and answers BUILD_NOT_FOUND
-// whether or not there is a Gradle root. Writing the key takes effect on the next call
-// with no reopen.
+// TestNoGradleRoot is ADR-0137 §3, ADR-0075 §4: a call that names a project with no Gradle
+// root (here two candidates and none above) is refused at Start with PROJECT_NO_GRADLE_ROOT,
+// the candidates in the details and a nextStep, whether or not the root is trusted: the root
+// is resolved before the call is admitted, as the trust check needs it, and nothing is
+// recorded or spawned. Naming a candidate as the project runs. The project file's
+// gradleRoot key no longer chooses among the builds of a project (plan m3j Q2).
 //
-// Seen failing with the two checks swapped (a trusted-or-not top answering
-// PROJECT_NO_GRADLE_ROOT), with build.lastResult given the Gradle authorization, and with
-// the resolution cached at open (the key written afterwards ignored).
+// Seen failing with the resolution left to the operation (an operation recorded, and a
+// sidecar started for the top).
 func TestNoGradleRoot(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
 	cfg, events := fakeSidecar(t, gradleRootModel)
 	top := topWith(t, "dev/settings.gradle.kts", "tools/x/settings.gradle.kts")
+	if err := os.MkdirAll(filepath.Join(top, ".droidyard"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(top, ".droidyard", "project.json"), []byte(`{"schemaVersion":1,"gradleRoot":"tools/x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, top, "workspace.open"); code != 0 {
-		t.Fatalf("open exited %d: %+v", code, env.Error)
-	}
 
 	calls := [][]string{
 		{"project.modules"},
@@ -178,125 +177,46 @@ func TestNoGradleRoot(t *testing.T) {
 		{"build.run", "--params", `{"tasks":["assembleDebug"]}`},
 		{"build.assemble", "--params", `{"module":":app","variant":"debug"}`},
 		{"sdk.requirements"},
+		{"build.lastResult"},
 	}
-	for _, c := range calls {
-		env, code := callIn(t, state, top, c...)
-		if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
-			t.Errorf("untrusted %s = (%+v, %d); want WORKSPACE_UNTRUSTED before any Gradle root is looked for", c[0], env.Error, code)
+	refused := func(trusted string) {
+		t.Helper()
+		for _, c := range calls {
+			env, code := callIn(t, state, top, c...)
+			if code == 0 || env.Error == nil || env.Error.Code != capability.ErrProjectNoGradleRoot || env.Operation != nil {
+				t.Errorf("%s %s = (%+v, %d); want PROJECT_NO_GRADLE_ROOT at Start, no operation", trusted, c[0], env.Error, code)
+				continue
+			}
+			got, _ := env.Error.Details["candidates"].([]any)
+			if len(got) != 2 || got[0] != "dev" || got[1] != "tools/x" {
+				t.Errorf("%s %s: details.candidates = %v; want [dev tools/x]", trusted, c[0], env.Error.Details["candidates"])
+			}
+			if want := "pass the absolute path of one of the candidates (details.candidates, relative to the project) as the project"; env.Error.NextStep != want {
+				t.Errorf("%s %s: nextStep %q; want %q", trusted, c[0], env.Error.NextStep, want)
+			}
 		}
 	}
-
+	refused("untrusted")
 	if code := droidyard(t, state, "trust", top).wait(t); code != 0 {
 		t.Fatalf("droidyard trust %s exited %d", top, code)
 	}
-	for _, c := range calls {
-		env, code := callIn(t, state, top, c...)
-		if code == 0 || env.Error == nil || env.Error.Code != capability.ErrProjectNoGradleRoot {
-			t.Errorf("trusted %s = (%+v, %d); want PROJECT_NO_GRADLE_ROOT", c[0], env.Error, code)
-			continue
-		}
-		got, _ := env.Error.Details["candidates"].([]any)
-		if len(got) != 2 || got[0] != "dev" || got[1] != "tools/x" {
-			t.Errorf("%s: details.candidates = %v; want [dev tools/x]", c[0], env.Error.Details["candidates"])
-		}
-		if !strings.Contains(env.Error.NextStep, "gradleRoot") {
-			t.Errorf("%s: nextStep %q does not name the gradleRoot key", c[0], env.Error.NextStep)
-		}
-	}
+	refused("trusted")
 	if n := starts(t, events); n != 0 {
 		t.Errorf("a sidecar was spawned for a project with no Gradle root (%d starts); want none", n)
 	}
 
-	// build.lastResult reads the history, which has nothing to do with the Gradle root.
-	env, code := callIn(t, state, top, "build.lastResult")
-	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrBuildNotFound {
-		t.Errorf("build.lastResult = (%+v, %d); want BUILD_NOT_FOUND", env.Error, code)
+	// The candidate is the project: its own root, its own trust.
+	tools := filepath.Join(top, "tools", "x")
+	if code := droidyard(t, state, "trust", tools).wait(t); code != 0 {
+		t.Fatalf("droidyard trust %s exited %d", tools, code)
 	}
-
-	// The choice is written to the project file; the next call uses it, without a reopen.
-	if err := os.MkdirAll(filepath.Join(top, ".droidyard"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(top, ".droidyard", "project.json"), []byte(`{"schemaVersion":1,"gradleRoot":"tools/x"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	env, code = callIn(t, state, top, "build.tasks")
+	env, code := callIn(t, state, tools, "build.tasks")
 	if code != 0 || env.Error != nil {
-		t.Fatalf("build.tasks after the choice exited %d: %+v", code, env.Error)
+		t.Fatalf("build.tasks naming the candidate exited %d: %+v", code, env.Error)
 	}
-	want := []string{"opened " + filepath.Join(top, "tools", "x")}
-	var opened []string
-	for _, l := range eventLines(t, events) {
-		if strings.HasPrefix(l, "opened ") {
-			opened = append(opened, l)
-		}
-	}
-	if !reflect.DeepEqual(opened, want) {
+	want := []string{"opened " + tools}
+	if opened := linesWithPrefix(t, events, "opened "); !reflect.DeepEqual(opened, want) {
 		t.Errorf("the sidecar opened %q; want %q", opened, want)
-	}
-
-	if code := droidyard(t, state, "stop").wait(t); code != 0 {
-		t.Errorf("stop exited %d", code)
-	}
-	srv.wait(t)
-}
-
-// TestCloseClosesTheGradleRootConnection is ADR-0075 §8 on a real daemon over the fake
-// sidecar: closing the top's workspace after build.tasks releases the connection to the
-// Gradle root, <top>/dev, never to the top. With a second workspace open at <top>/dev
-// that also ran build.tasks, the connection is shared: closing the top writes no `closed`
-// line, and closing both writes one. Seen failing with the "no other open workspace"
-// test removed from Close (the top's close then closes the shared connection).
-func TestCloseClosesTheGradleRootConnection(t *testing.T) {
-	t.Parallel()
-	state := shortDir(t)
-	cfg, events := fakeSidecar(t, gradleRootModel)
-	top := topWith(t, ".cursor/", "dev/settings.gradle.kts")
-	dev := filepath.Join(top, "dev")
-
-	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
-	srv.expect(t, "listening")
-	for _, root := range []string{top, dev} {
-		if code := droidyard(t, state, "trust", root).wait(t); code != 0 {
-			t.Fatalf("droidyard trust %s exited %d", root, code)
-		}
-	}
-	call := func(root string, args ...string) {
-		t.Helper()
-		if env, code := callIn(t, state, root, args...); code != 0 {
-			t.Fatalf("%s in %s exited %d: %+v", args[0], root, code, env.Error)
-		}
-	}
-	closedLines := func() []string {
-		var out []string
-		for _, l := range eventLines(t, events) {
-			if strings.HasPrefix(l, "closed ") {
-				out = append(out, l)
-			}
-		}
-		return out
-	}
-
-	// The top alone: its close releases dev/.
-	call(top, "workspace.open")
-	call(top, "build.tasks")
-	call(top, "workspace.close")
-	if got, want := closedLines(), []string{"closed " + dev}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("after closing the top the sidecar closed %q; want %q", got, want)
-	}
-
-	// Two workspaces on one Gradle root: the top's close leaves the connection to the other.
-	call(top, "workspace.open")
-	call(dev, "workspace.open")
-	call(top, "build.tasks")
-	call(dev, "build.tasks")
-	call(top, "workspace.close")
-	if got := closedLines(); len(got) != 1 {
-		t.Fatalf("closing the top while the workspace at dev/ is open wrote the `closed` lines %q; want no new one", got)
-	}
-	call(dev, "workspace.close")
-	if got, want := closedLines(), []string{"closed " + dev, "closed " + dev}; !reflect.DeepEqual(got, want) {
-		t.Errorf("after closing both the sidecar closed %q; want %q", got, want)
 	}
 
 	if code := droidyard(t, state, "stop").wait(t); code != 0 {

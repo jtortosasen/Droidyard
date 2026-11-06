@@ -31,7 +31,7 @@ import (
 )
 
 // Usage is the call subcommand's synopsis.
-const Usage = "usage: droidyard call <capability> [--workspace <id|root>] [--params <json>] [--detach] [--no-autostart]"
+const Usage = "usage: droidyard call <capability> [--project <path>] [--params <json>] [--detach] [--no-autostart]"
 
 // Exit statuses beyond 0 and 1.
 const (
@@ -44,10 +44,11 @@ const (
 // Call is one parsed `droidyard call`.
 type Call struct {
 	Capability string
-	// Workspace is --workspace, sent verbatim in the envelope: a workspace id or an
-	// absolute root (ADR-0020 §Scope and workspace addressing). Empty: the daemon
-	// uses the root this CLI named in its hello, for a workspace-scoped capability.
-	Workspace   string
+	// Project is --project: the absolute path of the project a workspace-scoped capability
+	// acts on (ADR-0137 §3, §5), sent as the `project` parameter. The caller fills it with
+	// the current directory when the flag is absent and the capability takes a project;
+	// empty, nothing is added to the parameters.
+	Project     string
 	Params      json.RawMessage
 	Detach      bool
 	NoAutostart bool
@@ -71,6 +72,27 @@ func (c Call) who() string {
 	return strings.ReplaceAll(c.Capability, ".", " ")
 }
 
+// requestParams is the parameter object the request carries: Params, with Project added as
+// `project` when there is one. Parameters that are not an object are sent as they are, for
+// the daemon's strict decoding to refuse; a Project beside a `project` in them is a usage
+// error, since two values for one parameter would leave the daemon to pick.
+func (c Call) requestParams() (json.RawMessage, error) {
+	if c.Project == "" {
+		return c.Params, nil
+	}
+	fields := map[string]json.RawMessage{}
+	if len(bytes.TrimSpace(c.Params)) > 0 {
+		if err := json.Unmarshal(c.Params, &fields); err != nil || fields == nil {
+			return c.Params, nil
+		}
+	}
+	if _, dup := fields[capability.ProjectParam]; dup {
+		return nil, errors.New("project is set both by --params and by --project: use one")
+	}
+	fields[capability.ProjectParam], _ = json.Marshal(c.Project)
+	return json.Marshal(fields)
+}
+
 // Parse reads the arguments after `call`.
 func Parse(args []string) (Call, error) {
 	var c Call
@@ -81,19 +103,19 @@ func Parse(args []string) (Call, error) {
 			c.NoAutostart = true
 		case a == "--detach":
 			c.Detach = true
-		case a == "--workspace" || strings.HasPrefix(a, "--workspace="):
-			v, ok := strings.CutPrefix(a, "--workspace=")
+		case a == "--project" || strings.HasPrefix(a, "--project="):
+			v, ok := strings.CutPrefix(a, "--project=")
 			if !ok {
 				if i+1 == len(args) {
-					return c, errors.New("--workspace needs a workspace id or an absolute project root")
+					return c, errors.New("--project needs the path of a project folder")
 				}
 				i++
 				v = args[i]
 			}
 			if v == "" {
-				return c, errors.New("--workspace needs a workspace id or an absolute project root")
+				return c, errors.New("--project needs the path of a project folder")
 			}
-			c.Workspace = v
+			c.Project = v
 		case a == "--params" || strings.HasPrefix(a, "--params="):
 			v, ok := strings.CutPrefix(a, "--params=")
 			if !ok {
@@ -161,7 +183,11 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 	go read(r, responses)
 
 	if !startsOperation(c.Capability) {
-		if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Workspace: c.Workspace, Params: c.Params}); err != nil {
+		params, err := c.requestParams()
+		if err != nil {
+			return 1, err
+		}
+		if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Params: params}); err != nil {
 			return 1, err
 		}
 		// operation.wait and operation.cancel are not operations: Ctrl-C only stops
@@ -180,8 +206,12 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 		return code, err
 	}
 
+	startParams, err := c.requestParams()
+	if err != nil {
+		return 1, err
+	}
 	zero := int64(0)
-	if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Workspace: c.Workspace, Params: c.Params, WaitMs: &zero}); err != nil {
+	if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Params: startParams, WaitMs: &zero}); err != nil {
 		return 1, err
 	}
 	first, err := await(responses, startID)
@@ -225,8 +255,8 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 		progressSub = id
 	}
 
-	params, _ := json.Marshal(capability.WaitParams{OperationID: op.ID})
-	if err := send(w, capability.RequestEnvelope{ID: waitID, Capability: capability.OperationWait, Params: params}); err != nil {
+	waitParams, _ := json.Marshal(capability.WaitParams{OperationID: op.ID})
+	if err := send(w, capability.RequestEnvelope{ID: waitID, Capability: capability.OperationWait, Params: waitParams}); err != nil {
 		return 1, err
 	}
 	for {

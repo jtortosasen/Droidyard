@@ -1,6 +1,6 @@
 # ADR-0074: Pull is a fast-forward only, and a synchronised branch applies to the roots that have it
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-14
 - Supersedes: ADR-0071 §Decision (in part: item 1's list of commands, which left pull for later; item 6's default of the synchronise toggle)
 - Relates to: ADR-0071 §2, §3, §4, §5; ADR-0073; plan m2n part 3

@@ -273,60 +273,32 @@ func TestCLIStreamEndsWithItsConnection(t *testing.T) {
 }
 
 // TestCLIStreamsReleaseOnClose: every stream callable without a device is released by the
-// connection's end, however the CLI ends: after it is killed the bus holds no subscription,
-// and the file and git pollers a watch started hold none of its watches. Seen failing with
-// sess.Close() omitted: the subscriptions, and with them the pollers, remain.
+// connection's end, however the CLI ends: after it is killed the bus holds no subscription.
+// Seen failing with sess.Close() omitted: the subscriptions remain.
 func TestCLIStreamsReleaseOnClose(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, capability, params string
-		inProject                bool // the call runs in an open project: file.watch and git.watch
 	}{
-		{"operation.watch", "operation.watch", "", false},
-		{"session.watch", "session.watch", "", false},
-		{"workspace.watch", "workspace.watch", "", false},
-		{"events.subscribe", "events.subscribe", `{"topics":["operation.progress"]}`, false},
-		{"file.watch", "file.watch", `{"path":"."}`, true},
-		{"git.watch", "git.watch", `{}`, true},
+		{"operation.watch", "operation.watch", ""},
+		{"events.subscribe", "events.subscribe", `{"topics":["operation.progress"]}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			p := startInProcess(t)
-			dir := ""
-			if c.inProject {
-				root, _ := projectWith(t, "settings.gradle")
-				gitIn(t, root, "init", "-q", "-b", "main")
-				writeFile(t, root, "a.kt", "committed\n")
-				gitIn(t, root, "add", "-A")
-				gitIn(t, root, "commit", "-q", "-m", "c")
-				if env, code := callIn(t, p.state, root, "workspace.open"); code != 0 {
-					t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
-				}
-				dir = root
-			}
 			args := []string{c.capability}
 			if c.params != "" {
 				args = append(args, "--params", c.params)
 			}
-			f := p.followIn(t, dir, args...)
+			f := p.followIn(t, "", args...)
 			f.opened(t)
 			if n := p.bus.Subscriptions(); n != 1 {
 				t.Fatalf("while the call is connected the bus holds %d subscriptions; want its one", n)
 			}
-			switch c.capability {
-			case "file.watch":
-				if n := p.watchers.Live(); n != 1 {
-					t.Fatalf("%d file pollers while the watch is connected; want 1", n)
-				}
-			case "git.watch":
-				if n := p.gitWatchers.Live(); n != 1 {
-					t.Fatalf("%d git pollers while the watch is connected; want 1", n)
-				}
-			}
 
 			f.kill(t)
 			testtime.Eventually(t, testtime.Bound(20*time.Second), "the killed CLI's streams released", func() bool {
-				return p.bus.Subscriptions() == 0 && p.watchers.Live() == 0 && p.gitWatchers.Live() == 0
+				return p.bus.Subscriptions() == 0
 			})
 		})
 	}

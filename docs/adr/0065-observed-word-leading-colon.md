@@ -1,6 +1,6 @@
 # ADR-0065: A recorded word may start with one `:`
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Supersedes: ADR-0063 §Decision (in part: §4's word pattern)
 - Relates to: plan m2k step 5

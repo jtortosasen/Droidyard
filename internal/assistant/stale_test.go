@@ -6,86 +6,10 @@ import (
 	"testing"
 )
 
-// ADR-0090 §1 (superseding ADR-0037 §2 in part): an entry of init's shape written for
-// another binary path is init's, so --uninstall removes it, and the file init made
-// goes with it.
-func TestUninstallRemovesStaleEntries(t *testing.T) {
-	for _, c := range hookCases {
-		t.Run(string(c.client), func(t *testing.T) {
-			root := projectRoot(t)
-			old := opts(root, c.client)
-			old.Command = "/old/bin/droidyard"
-			mustRun(t, old)
-			res := mustRun(t, uninstall(opts(root, c.client)))
-			if exists(root, c.rel) {
-				t.Errorf("--uninstall left the stale entry in a file init made:\n%s", read(t, root, c.rel))
-			}
-			if n := notesOf(statusOf(t, res, c.rel)); !strings.Contains(n, "stale entr") {
-				t.Errorf("notes do not say stale entries were removed: %s", n)
-			}
-
-			// beside the user's own hook, only theirs remains
-			write(t, root, c.rel, c.only)
-			mustRun(t, old)
-			mustRun(t, uninstall(opts(root, c.client)))
-			if got := read(t, root, c.rel); strings.Contains(got, "droidyard") || !strings.Contains(got, `"command": "mine"`) {
-				t.Errorf("after --uninstall: %s; want the stale entry gone and the user's hook kept", got)
-			}
-		})
-	}
-}
-
-// ADR-0090 §1: a later init replaces an entry written for another binary path (or with
-// the state root inline) instead of appending a second beside it.
-func TestStaleHookEntryIsReplaced(t *testing.T) {
-	for _, c := range hookCases {
-		t.Run(string(c.client), func(t *testing.T) {
-			root := projectRoot(t)
-			write(t, root, c.rel, c.mine)
-			old := opts(root, c.client)
-			old.Command = "/old/droidyard"
-			mustRun(t, old)
-			withState := old
-			withState.StateDir = "/old/state"
-			mustRun(t, withState) // already replaces old's; the prefixed form is what is on disk now
-
-			now := opts(root, c.client)
-			res := mustRun(t, now)
-			if n := notesOf(statusOf(t, res, c.rel)); !strings.Contains(n, "replaced") {
-				t.Errorf("notes do not say an entry was replaced: %s", n)
-			}
-			got := read(t, root, c.rel)
-			if n := strings.Count(got, "hook --client "+string(c.client)); n != c.entries {
-				t.Errorf("%d droidyard entries after the replacing init; want %d:\n%s", n, c.entries, got)
-			}
-			if strings.Contains(got, "/old/") {
-				t.Errorf("a stale entry is left:\n%s", got)
-			}
-			if !strings.Contains(got, `"command": "mine"`) {
-				t.Errorf("the user's entry is gone:\n%s", got)
-			}
-			if st := statusOf(t, mustRun(t, now), c.rel).Status; st != Unchanged {
-				t.Errorf("a repeated init is %s; want unchanged", st)
-			}
-
-			// --dry-run reports the replacement and writes nothing
-			older := opts(root, c.client)
-			older.Command = "/older/droidyard"
-			mustRun(t, older)
-			before := snapshot(t, root)
-			dry := now
-			dry.DryRun = true
-			if n := notesOf(statusOf(t, mustRun(t, dry), c.rel)); !strings.Contains(n, "replaced") {
-				t.Errorf("--dry-run does not show the replacement: %s", n)
-			}
-			sameText(t, before, snapshot(t, root))
-		})
-	}
-}
-
 // ADR-0090 §1: the shape test matches only init's command. An entry for another root or
 // client, a wrapper, another base name or an extra word is the user's, and survives
-// both install and uninstall.
+// both install and uninstall (ADR-0137: init now removes the entries of init's shape, and
+// only those).
 func TestHookEntriesThatAreNotInitsAreKept(t *testing.T) {
 	root := projectRoot(t)
 	claude := func(cmd string) string {
@@ -131,9 +55,6 @@ func TestHookEntriesThatAreNotInitsAreKept(t *testing.T) {
 		}
 		return n
 	}
-	// init adds one element per entry it writes to an event: the Bash one, and the edit
-	// tools' where the event has one (ADR-0095 §3).
-	added := map[string]int{"PreToolUse": 2, "PostToolUse": 2, "PostToolUseFailure": 1, "beforeShellExecution": 1, "preToolUse": 2, "postToolUse": 2, "postToolUseFailure": 1}
 	for _, tc := range []struct {
 		c    Client
 		rel  string
@@ -145,8 +66,8 @@ func TestHookEntriesThatAreNotInitsAreKept(t *testing.T) {
 			o := opts(root, tc.c)
 			mustRun(t, o)
 			for ev, n := range count(t, tc.rel) {
-				if n != tc.n+added[ev] {
-					t.Errorf("%s holds %d elements after init; want the user's %d and init's %d", ev, n, tc.n, added[ev])
+				if n != tc.n {
+					t.Errorf("%s holds %d elements after init; want the user's %d, none removed and none added", ev, n, tc.n)
 				}
 			}
 			mustRun(t, uninstall(o))

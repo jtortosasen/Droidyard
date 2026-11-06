@@ -1,6 +1,6 @@
-// Package httpapi is the HTTP adapter for the web UI (docs/interfaces/http-websocket.md):
-// a loopback listener, the security baseline run on every request before any route,
-// the built UI at / and /assets/, POST /v1/call, GET /v1/ws and GET /v1/screen. Requests
+// Package httpapi is the HTTP adapter (docs/interfaces/http-websocket.md): a loopback
+// listener, the security baseline run on every request before any route, POST /v1/call,
+// GET /v1/ws, GET /v1/screen and GET /v1/artifacts/{id}; no page is served. Requests
 // identify their adapter as ui (ADR-0015 §6). It translates; it adds no domain logic.
 package httpapi
 
@@ -13,11 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"mime"
 	"net"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -63,8 +61,7 @@ func Listen(addr string) (net.Listener, error) {
 	return ln, err
 }
 
-// Server is the UI's HTTP side: the baseline, then GET / and GET /assets/ (the built UI,
-// ADR-0040), POST /v1/call, GET /v1/artifacts/{id} and, when it has a bus, GET /v1/ws.
+// Server is the HTTP side: the baseline, then POST /v1/call, GET /v1/artifacts/{id} and, when it has a bus, GET /v1/ws.
 // token is the per-launch token API requests must carry (the WebSocket carries it in its
 // first frame instead).
 type Server struct {
@@ -74,9 +71,9 @@ type Server struct {
 	art     *artifactRoute
 }
 
-// New builds the UI's HTTP side. A nil bus serves no WebSocket. ui is the built web
-// app rooted at its index.html (web.Assets); nil serves the placeholder instead.
-func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, token string, ui fs.FS) *Server {
+// New builds the HTTP side. A nil bus serves no WebSocket. It serves no page: a path
+// outside the API is a 404 (ADR-0137 §1).
+func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, token string) *Server {
 	c := &caller{reg: reg, ops: ops}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/call", c)
@@ -88,8 +85,6 @@ func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, t
 		s.ws = newWSHandler(c, bus, token)
 		mux.Handle(wsPath, s.ws)
 	}
-	mux.Handle("/assets/", &assets{ui})
-	mux.Handle("/", &page{ui})
 	s.handler = &fence{next: mux, token: []byte(token)}
 	return s
 }
@@ -158,98 +153,6 @@ func (f *fence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, MaxBody)
 	f.next.ServeHTTP(w, r)
-}
-
-// placeholder is GET / when the binary carries no UI build (ADR-0040 §2): one static
-// page with no script and no data (plan m1d, R6) that names the build command.
-const placeholder = `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Droidyard</title></head>
-<body>
-<h1>Droidyard</h1>
-<p>The daemon is running, but this binary carries no web UI.</p>
-<p>Build it with <code>pnpm -C web install --frozen-lockfile &amp;&amp; pnpm -C web build</code>,
-then rebuild and restart the daemon.</p>
-</body>
-</html>
-`
-
-// csp is the UI page's Content-Security-Policy (http-websocket.md rule 7). It is not
-// widened for the app: a violation is fixed in the app (plan m2a D6).
-const csp = "default-src 'self'; frame-ancestors 'none'"
-
-// page is GET and HEAD /: the app's index.html, or the placeholder without a build. It
-// needs no token (the page holds no data); the fence has already checked Host and Origin.
-type page struct{ ui fs.FS }
-
-func (p *page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	body := []byte(placeholder)
-	if p.ui != nil {
-		b, err := fs.ReadFile(p.ui, "index.html")
-		if err != nil {
-			http.Error(w, "the web UI is unreadable", http.StatusInternalServerError)
-			return
-		}
-		body = b
-	}
-	h := w.Header()
-	h.Set("Content-Security-Policy", csp)
-	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("Content-Length", strconv.Itoa(len(body)))
-	if r.Method == http.MethodGet {
-		w.Write(body)
-	}
-}
-
-// assetTypes are the files the app's /assets/ serves, by extension: the built app is
-// scripts and styles (assetsInlineLimit 0 and no source maps, plan m2a D1) and the app's
-// two typefaces, Geist and Geist Mono, as woff2 (ADR-0128 §2), so anything else in the
-// tree (a .map, an .svg, another font format, a stray file) is not reachable.
-var assetTypes = map[string]string{
-	".js":    "text/javascript; charset=utf-8",
-	".css":   "text/css; charset=utf-8",
-	".woff2": "font/woff2",
-}
-
-// assets is GET and HEAD /assets/<name>: one hashed script, style or font directly under the
-// app's assets directory, cached for a year because its name changes with its content
-// (plan m2a D6). No subdirectory, no other extension: any other path is 404.
-type assets struct{ ui fs.FS }
-
-func (a *assets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	name := strings.TrimPrefix(r.URL.Path, "/assets/")
-	typ, ok := assetTypes[path.Ext(name)]
-	if a.ui == nil || !ok || name == "" || strings.Contains(name, "/") || !fs.ValidPath("assets/"+name) {
-		http.NotFound(w, r)
-		return
-	}
-	body, err := fs.ReadFile(a.ui, "assets/"+name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	h := w.Header()
-	h.Set("Content-Type", typ)
-	h.Set("Cache-Control", "public, max-age=31536000, immutable")
-	h.Set("Content-Length", strconv.Itoa(len(body)))
-	if r.Method == http.MethodGet {
-		w.Write(body)
-	}
 }
 
 // caller is POST /v1/call: one request envelope in, one response envelope out, as
@@ -330,7 +233,7 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 			"the request is not a valid envelope").WithCause(err.Error())}, true
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
-	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: who.client, Session: session}
+	creq := capability.Request{Capability: req.Capability, Params: req.Params, Client: who.client, Session: session}
 	creq.Origin.Client = who.client
 	if session != nil {
 		// A WebSocket's calls name their session on operation.state (ADR-0048); a plain

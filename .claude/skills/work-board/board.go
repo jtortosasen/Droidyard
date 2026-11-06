@@ -40,7 +40,7 @@ const (
 
 // touchesKnown are the shared resources a lane declares. None is exclusive: they say
 // where two lanes will meet, at run time (devices) or at the close (the others).
-var touchesKnown = []string{"devices", "contract", "web", "docs", "git", "build", "release", "process"}
+var touchesKnown = []string{"devices", "contract", "docs", "build", "release", "process"}
 
 var (
 	milestoneRE = regexp.MustCompile(`^\d+[a-z]+$`)

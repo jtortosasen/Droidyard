@@ -1,6 +1,6 @@
 # ADR-0064: The `trash` replacement carries `--` only when the `rm` did
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Supersedes: ADR-0062 §Decision (in part: §4's `--` before the operands)
 - Relates to: ADR-0061 §2 (flags end at the first operand, BSD-style); plan m2k step 3, the verifier's N1

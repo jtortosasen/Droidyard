@@ -1,6 +1,6 @@
 # ADR-0050: The sessions panel is a column docked left of the tree, toggled from the toolbar
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0052 (§1)
 - Date: 2026-10-11
 - Supersedes: ADR-0047 §1 (in part: the left rail)

@@ -335,19 +335,23 @@ func TestLinkChecksCatchDrift(t *testing.T) {
 	})
 }
 
-// Decision (plan m2a step 1): the vendored third-party skills are not read by any
-// check. Their markdown cites documents that do not exist here, and a link or
-// section reference in them is not ours to check; the same text in a skill of ours is.
+// Decision (plan m2a step 1): a vendored third-party directory named in thirdPartyDirs is
+// not read by any check. Its markdown cites documents that do not exist here, and a link
+// or section reference in it is not ours to check; the same text in a skill of ours is.
+// The fixture names its own vendored directories: none is vendored in the repository.
 func TestThirdPartyDirectoriesAreSkipped(t *testing.T) {
+	saved := thirdPartyDirs
+	thirdPartyDirs = []string{".claude/skills/vendored-a", ".claude/skills/vendored-b"}
+	t.Cleanup(func() { thirdPartyDirs = saved })
 	text := "# Vendored\n\nSee [x](../nowhere.md) and `docs/missing.md` §Nothing.\n"
-	tr := linkFixture.with(t, ".claude/skills/svelte-core-bestpractices/references/x.md", "", text).
-		with(t, ".claude/skills/svelte-code-writer/SKILL.md", "", text)
+	tr := linkFixture.with(t, ".claude/skills/vendored-a/references/x.md", "", text).
+		with(t, ".claude/skills/vendored-b/SKILL.md", "", text)
 	files, err := markdownFiles(tr.fs())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range files {
-		if strings.HasPrefix(f, ".claude/skills/svelte-") {
+		if strings.HasPrefix(f, ".claude/skills/vendored-") {
 			t.Errorf("markdownFiles lists vendored %s", f)
 		}
 	}

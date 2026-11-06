@@ -17,16 +17,14 @@ import (
 )
 
 // TestDeathSignalPerKind: on Linux a child is asked for SIGTERM when the thread that
-// forked it exits (Pdeathsig), for every kind but shell-command and git-write. A shell.exec
-// command and a git write must survive the daemon so Reconcile, which keys on a live
-// leader, can reap their whole groups (Pdeathsig would kill the leader alone and leave the
-// ssh or uploadpack a fetch started); a device-stream client or a sidecar keeps the signal,
+// forked it exits (Pdeathsig), for every kind but sdk-tool. An avdmanager
+// run must survive the daemon so Reconcile, which keys on a live leader, can reap its whole
+// group (Pdeathsig would kill the leader alone and leave the JVM its script started); a device-stream client or a sidecar keeps the signal,
 // as before (plan m1k D5, plan m2n P2; process-lifecycle.md §Shutdown, layer 2). The
 // choice is a portable bool so it is tested here on any OS, not only under the Linux build
-// tag. An avdmanager run (sdk-tool, plan m3f step 6) is the third: its group holds the JVM.
-// Seen failing with shell-command, with git-write and with sdk-tool given the death signal.
+// tag. Seen failing with sdk-tool given the death signal.
 func TestDeathSignalPerKind(t *testing.T) {
-	for _, kind := range []Kind{ShellCommand, GitWrite, SDKTool} {
+	for _, kind := range []Kind{SDKTool} {
 		if deathSignal(kind) {
 			t.Errorf("%s asks for the death signal; its leader must outlive the daemon", kind)
 		}
@@ -38,20 +36,20 @@ func TestDeathSignalPerKind(t *testing.T) {
 	}
 }
 
-// TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails: a shell.exec
-// command whose record write fails has its group killed — not the pid alone, which
-// would leave a background child the command had already forked (plan m1k D5) — and no
-// record is left. The beforeRecord hook holds the write until the command has forked
-// and named its child, so the group-versus-pid decision is observed here.
-func TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails(t *testing.T) {
-	for _, kind := range []Kind{ShellCommand, GitWrite, SDKTool, FolderDialog} {
+// TestSpawnRecordedKillsTheGroupWhenTheRecordWriteFails: a command of a group-killed kind
+// whose record write fails has its group killed — not the pid alone, which would leave a
+// background child it had already forked (plan m1k D5) — and no record is left. The
+// beforeRecord hook holds the write until the command has forked and named its child, so
+// the group-versus-pid decision is observed here.
+func TestSpawnRecordedKillsTheGroupWhenTheRecordWriteFails(t *testing.T) {
+	for _, kind := range []Kind{SDKTool, FolderDialog} {
 		t.Run(string(kind), func(t *testing.T) { killsTheGroupWhenTheRecordWriteFails(t, kind) })
 	}
 }
 
 // killsTheGroupWhenTheRecordWriteFails is the body for the kinds whose whole group is
-// killed (shell-command, and git-write since plan m2n P2: a fetch's transport child is in
-// its group and would otherwise run unrecorded; folder-dialog since plan m2r step 2, whose
+// killed (sdk-tool, whose JVM child is in its group and would otherwise run unrecorded;
+// folder-dialog since plan m2r step 2, whose
 // group every other end kills). Seen failing with the kind's leader
 // killed by pid.
 func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
@@ -127,7 +125,7 @@ func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 }
 
 // TestSpawnRecordedSparesTheGroupOfOtherKindsWhenTheRecordWriteFails: for every kind but
-// shell-command a failed record write kills the client by its pid, never its group — a
+// sdk-tool and folder-dialog a failed record write kills the client by its pid, never its group — a
 // forked adb server shares that group and must survive (m1e R8). The command forks a
 // child, as adb forks its server, and the hook holds the write until it has. Seen
 // failing with every kind's group killed (m1k close review N2).

@@ -1,8 +1,12 @@
 package device
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,10 +23,12 @@ import (
 // build registry resolves it to one installable APK, and this package hands the path to
 // adb and publishes only the applicationId, versionCode and the APK's file name.
 //
-// device.install is the one workspace-scoped device capability, because its only input
-// is a build reference (adb-device.md §Install). It does not run project code, so it
-// carries no workspace trust re-check (ADR-0015 §5 gates `project.*`, `build.*` and
-// `sdk.requirements`); it runs the device preamble hook like every other device call.
+// device.install is the one workspace-scoped device capability, because a build reference
+// names a project (adb-device.md §Install); it takes `project` for a build only, and an `apk`
+// install (an APK file at an absolute path, ADR-0137 §4) names none (Descriptor.ProjectOptional).
+// It does not run project code, so it carries no workspace trust re-check (ADR-0015 §5
+// gates `project.*`, `build.*` and `sdk.requirements`); it runs the device preamble hook
+// like every other device call, whichever of the two it installs.
 
 // ErrInstallFailed is adb install's rejection, detected also on exit 0 (adb-device.md
 // §Install, §Failure modes; plan m1g R3, R7).
@@ -78,18 +84,20 @@ type BuildRef struct {
 	Variant string `json:"variant" jsonschema:"required,pattern=^[a-z][A-Za-z0-9]*$" jsonschema_description:"The variant whose APK to install, e.g. \"debug\", matching project.variants."`
 }
 
-// InstallParams is device.install's parameters.
+// InstallParams is device.install's parameters: exactly one of APK and Build. The `project`
+// that goes with Build is not a field: the core takes it off the call (ProjectOptional).
 type InstallParams struct {
-	Device string   `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
-	Build  BuildRef `json:"build" jsonschema:"required" jsonschema_description:"The build reference to install: a module and variant, and optionally a buildId."`
+	Device string    `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
+	APK    string    `json:"apk,omitempty" jsonschema_description:"The absolute path of an APK file to install, instead of a build; no project with it. Not split APKs or an .aab."`
+	Build  *BuildRef `json:"build,omitempty" jsonschema_description:"A build to install, instead of an apk: a module and variant, optionally a buildId. Needs project."`
 }
 
 // InstallResult is device.install's result. It carries applicationId (which launch,
 // uninstall and logs take), the output's versionCode and the installed APK's file name —
 // never a path (principle 14).
 type InstallResult struct {
-	ApplicationID string `json:"applicationId" jsonschema:"required"`
-	VersionCode   *int   `json:"versionCode,omitempty" jsonschema_description:"The output's versionCode, absent when the build's metadata named none."`
+	ApplicationID string `json:"applicationId" jsonschema:"required" jsonschema_description:"The installed application's id; empty for an apk install, whose manifest is not read."`
+	VersionCode   *int   `json:"versionCode,omitempty" jsonschema_description:"The output's versionCode, absent when the build's metadata named none, and for an apk install."`
 	APK           string `json:"apk" jsonschema:"required" jsonschema_description:"The installed APK's file name."`
 }
 
@@ -109,9 +117,36 @@ type UninstallResult struct {
 	Reason        string `json:"reason,omitempty" jsonschema_description:"Why uninstalled is false; \"notInstalled\" when the package was already absent."`
 }
 
-// validate rejects a module or variant that is not a project path or variant name,
-// before it reaches the build registry or anything else (plan m1g R6).
-func (p InstallParams) validate() error {
+// validate rejects what no call of device.install can be, before anything runs: both of apk
+// and build, or neither; a project with an apk, or none with a build (ADR-0137 §4; workspace
+// is the Call's, set by the core only when the call named a project); a module or variant
+// that is not project-shaped (plan m1g R6); an apk that is not an absolute path to a regular
+// APK file (openAPK).
+func (p InstallParams) validate(workspace string) error {
+	switch {
+	case p.APK != "" && p.Build != nil:
+		return capability.Errorf(capability.ErrInvalidParams, "device.install takes apk or build, not both").
+			WithNextStep("give apk to install an APK file, or build with project to install a build's output")
+	case p.APK == "" && p.Build == nil:
+		return capability.Errorf(capability.ErrInvalidParams, "device.install takes apk or build, and the call sends neither").
+			WithNextStep("give apk, the absolute path of an APK file, or build with project")
+	case p.Build != nil && workspace == "":
+		return capability.Errorf(capability.ErrInvalidParams, "device.install with build takes project, and the call sends none").
+			WithNextStep("pass project, the absolute path of the project that built it, or install an APK file with apk").
+			WithDetails(map[string]any{"parameter": capability.ProjectParam})
+	case p.APK != "" && workspace != "":
+		return capability.Errorf(capability.ErrInvalidParams, "device.install with apk takes no project").
+			WithNextStep("remove project: an APK file belongs to no project").
+			WithDetails(map[string]any{"parameter": capability.ProjectParam})
+	}
+	if p.Build == nil {
+		f, _, err := openAPK(p.APK)
+		if err != nil {
+			return err
+		}
+		f.Close()
+		return nil
+	}
 	if !moduleRE.MatchString(p.Build.Module) {
 		return capability.Errorf(capability.ErrInvalidParams, "module %q is not a Gradle project path: it must look like \":app\"", p.Build.Module)
 	}
@@ -119,6 +154,62 @@ func (p InstallParams) validate() error {
 		return capability.Errorf(capability.ErrInvalidParams, "variant %q is not a variant name", p.Build.Variant)
 	}
 	return nil
+}
+
+// zipMagic starts every APK, which is a zip archive; an empty or spanned archive has other
+// signatures and is no APK.
+var zipMagic = []byte("PK\x03\x04")
+
+// openAPK opens the APK file an apk install names and returns it, positioned at its start,
+// with the path it really is (symlinks resolved). Every check is of what a link leads to and
+// made on the open descriptor, which is the one an upload reads, so a link cannot stand in
+// for another host file and a file swapped afterwards is not the one sent. The path must be
+// absolute; the file a regular one named .apk, starting with the zip magic and of at most
+// capability.PeerMaxUpload bytes, the largest APK a host takes (ADR-0099 §3). The error
+// names the path the caller gave, never the one it led to.
+func openAPK(given string) (f *os.File, resolved string, err error) {
+	refuse := func(why string) (*os.File, string, error) {
+		return nil, "", capability.Errorf(capability.ErrInvalidParams, "apk %q %s", given, why).
+			WithNextStep("give the absolute path of a single .apk file, no larger than " + strconv.FormatInt(capability.PeerMaxUpload, 10) + " bytes").
+			WithDetails(map[string]any{"parameter": "apk"})
+	}
+	if !filepath.IsAbs(given) {
+		return refuse("is not an absolute path")
+	}
+	resolved, rerr := filepath.EvalSymlinks(given)
+	if rerr != nil {
+		return refuse("cannot be found")
+	}
+	if !strings.EqualFold(filepath.Ext(resolved), ".apk") {
+		return refuse("is not an .apk file")
+	}
+	// Checked before the open too: opening a FIFO would block until a writer came.
+	if fi, serr := os.Stat(resolved); serr != nil || !fi.Mode().IsRegular() {
+		return refuse("is not a regular file")
+	}
+	f, oerr := os.Open(resolved)
+	if oerr != nil {
+		return refuse("cannot be opened")
+	}
+	fi, serr := f.Stat()
+	if serr != nil || !fi.Mode().IsRegular() {
+		f.Close()
+		return refuse("is not a regular file")
+	}
+	if fi.Size() == 0 || fi.Size() > capability.PeerMaxUpload {
+		f.Close()
+		return refuse("is empty or larger than a host takes")
+	}
+	head := make([]byte, len(zipMagic))
+	if _, rerr := io.ReadFull(f, head); rerr != nil || !bytes.Equal(head, zipMagic) {
+		f.Close()
+		return refuse("is not an APK: it does not start as a zip archive")
+	}
+	if _, serr := f.Seek(0, io.SeekStart); serr != nil {
+		f.Close()
+		return refuse("cannot be read")
+	}
+	return f, resolved, nil
 }
 
 // validate rejects an applicationId that is not a package name, before it can reach a
@@ -151,21 +242,26 @@ var uninstallErrors = append(append([]capability.ErrorCode{}, ActingErrors...),
 // handler reports no build registry rather than panicking.
 func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 	reg.MustRegister(capability.Descriptor{
-		Name:         "device.install",
-		Kind:         capability.Command,
-		Scope:        capability.Workspace,
-		LongRunning:  true,
-		Since:        "0.6.0",
-		Availability: []capability.Requirement{capability.RequiresADB},
-		Params:       InstallParams{},
+		Name:  "device.install",
+		Kind:  capability.Command,
+		Scope: capability.Workspace,
+		// project goes with build only; an apk install names none (ADR-0137 §4).
+		ProjectOptional: true,
+		LongRunning:     true,
+		Since:           "0.6.0",
+		Availability:    []capability.Requirement{capability.RequiresADB},
+		Params:          InstallParams{},
 		Target: func(p any) *capability.OpTarget {
 			ip := p.(InstallParams)
+			if ip.Build == nil {
+				return deviceTarget(ip.Device)
+			}
 			return &capability.OpTarget{Device: ip.Device, Module: ip.Build.Module, Variant: ip.Build.Variant}
 		},
 		Result:      InstallResult{},
 		Occupies:    capability.OccupiesAct,
 		Errors:      installErrors,
-		Description: "Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. buildId absent means the newest finished build with an output for module and variant.",
+		Description: "Installs an APK on the device with adb install -r, which keeps the app's data: a build's output (build, with project; buildId absent means the newest finished build with an output for module and variant), which returns its applicationId and versionCode, or an APK file (apk, an absolute path; no project), which returns its file name. Exactly one of apk and build.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(InstallParams).Device; s != "" {
 				return writeKey(s)
@@ -178,9 +274,9 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InstallParams)
-			// Validate before the hook so a malformed module or variant runs no adb
-			// command at all (plan m1g R6).
-			if err := p.validate(); err != nil {
+			// Validate before the hook so a malformed module, variant or APK file runs no
+			// adb command at all (plan m1g R6), and nothing goes to a host.
+			if err := p.validate(call.Workspace); err != nil {
 				return nil, err
 			}
 			// A device a host lends is named <remote>/<serial>: the client's own policy
@@ -199,8 +295,11 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InstallParams)
-			if err := p.validate(); err != nil {
+			if err := p.validate(call.Workspace); err != nil {
 				return nil, err
+			}
+			if p.APK != "" {
+				return adb.installFile(ctx, call, p.APK)
 			}
 			if builds == nil {
 				return nil, capability.NewError(build.ErrBuildOutputNotFound, "this daemon has no build registry configured").
@@ -215,7 +314,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 				return adb.installRemote(ctx, call, rt, out)
 			}
 			t := call.Authorized.(*target)
-			return adb.install(ctx, t, p, out)
+			return adb.install(ctx, t, out)
 		},
 	})
 }
@@ -334,11 +433,28 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 // install runs `adb -s <serial> install -r <apk>` for a resolved output and maps its
 // result (adb-device.md §Install). A "Failure [INSTALL_FAILED_…]" is detected on exit 0
 // as well: the token alone is the cause (R3).
-func (a *ADB) install(ctx context.Context, t *target, p InstallParams, out build.ResolvedOutput) (InstallResult, error) {
+func (a *ADB) install(ctx context.Context, t *target, out build.ResolvedOutput) (InstallResult, error) {
 	if err := a.installAPK(ctx, t, out.Path, out.APK); err != nil {
 		return InstallResult{}, err
 	}
 	return InstallResult{ApplicationID: out.ApplicationID, VersionCode: out.VersionCode, APK: out.APK}, nil
+}
+
+// installFile is device.install with apk: the file is checked again, as the call's
+// authorization did (it may have changed since), and installed where the device is, with
+// adb here or, for a device a host lends, on the host as an upload (installRemote's way). The
+// result is its file name; its manifest is not read, so no applicationId.
+func (a *ADB) installFile(ctx context.Context, call *capability.Call, given string) (InstallResult, error) {
+	f, resolved, err := openAPK(given)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	defer f.Close()
+	out := build.ResolvedOutput{APK: filepath.Base(given), Path: resolved}
+	if rt, ok := call.Authorized.(*remoteTarget); ok {
+		return a.uploadInstall(ctx, call, rt, f, out)
+	}
+	return a.install(ctx, call.Authorized.(*target), out)
 }
 
 // installAPK is the install both a build and an upload go through: `adb install -r` of the

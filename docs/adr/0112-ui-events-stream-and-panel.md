@@ -3,6 +3,7 @@
 - Status: Accepted
 - Superseded in part by: ADR-0114 (§Decision 3)
 - Superseded in part by: ADR-0115 (§Decision 1)
+- Superseded in part by: ADR-0137 (§Decision, the panel)
 - Date: 2026-10-20
 - Relates to: ADR-0010; ADR-0015 §1; ADR-0041 §4, §6; ADR-0078; ADR-0111; plan m2w Q8, Q9
 - Decided by the owner, 2026-10-20: the web UI shows the screen's events live. The shape is Delegated (plan m2w Q8, reviewed in two rounds).

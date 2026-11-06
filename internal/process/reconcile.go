@@ -27,26 +27,18 @@ const (
 	// DeviceStream is a recorded process that streams a device's log for the life of one
 	// call (plan m1i D9): recorded like a sidecar, reaped by Reconcile, never supervised.
 	DeviceStream Kind = "device-stream"
-	// ShellCommand is a recorded process running one shell.exec command (plan m1k D5):
-	// recorded like a sidecar and reaped by Reconcile, but its own group is killed when
-	// the call ends, so nothing it left behind outlives it.
-	ShellCommand Kind = "shell-command"
-	// GitWrite is a recorded process running one git write of the UI (plan m2n P2; ADR-0071):
-	// treated as ShellCommand is. Its leader survives a killed daemon (no death signal), so
-	// Reconcile finds the pid record and kills the whole group, which holds the ssh or the
-	// uploadpack a fetch started; the group is killed when the record cannot be written and at
-	// every end of the call. It is its own session leader (Setsid), so it has no terminal.
-	GitWrite Kind = "git-write"
 	// SDKTool is a recorded `avdmanager` run (plan m3f step 6; ADR-0130 §5, ADR-0129 §6):
-	// treated as GitWrite is. Its leader survives a killed daemon (no death signal), so
+	// kept recorded while it runs. Its leader survives a killed daemon (no death signal), so
 	// Reconcile finds the pid record and kills the whole group, which holds the JVM the
 	// tool's script started; it is its own session leader (Setsid), and its group is
-	// killed when the record cannot be written and at every end of the call.
+	// killed when the record cannot be written and at every end of the call. A record of the
+	// shell-command or git-write kind that an older daemon left is reaped by the default
+	// branch like any other kind (ADR-0137 §1).
 	SDKTool Kind = "sdk-tool"
-	// FolderDialog is the osascript folder dialog of a workspace.chooseRoot call (plan m2r
-	// step 2; ADR-0021 §Pid records), recorded for as long as the dialog is up. It keeps
-	// the death signal and is reaped by Reconcile's default branch, group included, so a
-	// panel a killed daemon left on the screen is closed by the next start.
+	// FolderDialog was the osascript folder dialog of the workspace.chooseRoot call (plan m2r
+	// step 2; ADR-0021 §Pid records). Nothing produces it since m3j removed that call: it is
+	// reaped only as an old record, by Reconcile's default branch, group included, so a
+	// panel an older daemon left on the screen is closed by the next start.
 	FolderDialog Kind = "folder-dialog"
 	// EmulatorLaunch is an emulator launcher recorded from its spawn until its serial is
 	// resolved (plan m1p Q1; ADR-0021's 2026-10-08 line). Unlike every other kind, a

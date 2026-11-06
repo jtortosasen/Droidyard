@@ -1,6 +1,6 @@
 # ADR-0086: A recent project can be removed: `workspace.forget`
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-18
 - Supersedes: ADR-0045 §3 (in part: `workspace.state` gains the event type `forgotten`)
 - Relates to: ADR-0021 §Layout, ADR-0054, ADR-0084; plan m2q Q6

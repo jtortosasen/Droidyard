@@ -28,7 +28,7 @@ For the chosen work, list the open register rows it could close on the way: its 
 
 `board.go claim <id> <touches> "<what>"` creates branch `m<id>` (or the slug) from `main` and its worktree under `.claude/worktrees/`, and records the lane. Then switch the session into it with `EnterWorktree` (`path`: the worktree the tool printed), and follow `milestone-workflow` from there; every command and edit happens in the worktree. `board.go adr <id>` reserves the next ADR number whenever the work needs one; never take a number from `docs/adr/` alone. Republish the board (§5).
 
-The main tree stays on a clean `main` while any lane is open: it is where merges land, not where work happens. A worktree has no `web/node_modules`; run `pnpm -C web install --frozen-lockfile` there before the first web commit.
+The main tree stays on a clean `main` while any lane is open: it is where merges land, not where work happens.
 
 ## Touches
 
@@ -36,19 +36,18 @@ The main tree stays on a clean `main` while any lane is open: it is where merges
 | --- | --- | --- |
 | `devices` | adb, an emulator or a phone | shared (owner, 2026-10-17): each lane boots its own emulator and acts on its serial only, stops only what it started, never runs `adb kill-server` or `adb start-server` (the adb server is everyone's), and asks the owner before using a phone |
 | `contract` | `schema/capabilities.json` and the API version | the second to close merges `main`, regenerates the schema and bumps the version once more |
-| `web` | `web/` | conflicts are textual; merge `main` early when both touch one component |
 | `docs` | area documents and the README's status line | the second to close rewrites its status line over the first's |
-| `git`, `build`, `process` | those domains and the process layer | meeting is a warning, not a block |
+| `build`, `process` | those domains and the process layer | meeting is a warning, not a block |
 | `release` | CI, the release workflow, the installer | one at a time in practice |
 
-The register is touched by almost every close; its rows are ordered by Area, so two lanes in different Areas rarely conflict. Usual touches: C3 and C5 `devices,contract,web`; C2 `contract,web,process,git`; Git work `git,contract,web`; the UI review `web`; `v1-device` and `v1-sdk` `devices,contract`.
+The register is touched by almost every close; its rows are ordered by Area, so two lanes in different Areas rarely conflict. Usual touches: C3 and C5 `devices,contract`; `v1-device` and `v1-sdk` `devices,contract`; Gradle work `build`.
 
 **Each session runs its own daemon** for checks, through `verify-daemon`'s isolated launch, and its own fixtures under `~/Library/Caches/droidyard-dev/<id>/`. Never the owner's daemon, never another lane's.
 
 ## 4. Close, in turn
 
 1. `board.go closing <id>`: refused while another lane is closing; wait for it.
-2. In the worktree: `git merge main`, resolve, rerun `go test ./...` (and `pnpm -C web run verify` if `web/` changed), regenerate the schema when `contract` met another lane.
+2. In the worktree: `git merge main`, resolve, rerun `go test ./...`, regenerate the schema when `contract` met another lane.
 3. The close commit, as `milestone-workflow` step 6 says (a Direct change's slug lane has none: its own commit is enough).
 4. Merge from the main tree: `git -C <main tree> merge --no-ff <branch>`, push `main`, watch `main`'s CI.
 5. `ExitWorktree` with `action: "keep"`, then `board.go release <id>`: it removes the worktree, the branch and the lane, and refuses an unmerged branch.

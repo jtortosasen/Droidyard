@@ -28,8 +28,8 @@ type CancelParams struct {
 // operation.wait.
 type CancelResult struct{}
 
-// RegisterCapabilities adds operation.wait, operation.cancel and session.watch to the
-// store's registry. Operation ids are daemon-wide, so the first two are global; what a
+// RegisterCapabilities adds operation.wait and operation.cancel to the
+// store's registry. Operation ids are daemon-wide, so both are global; what a
 // caller reaches by id is its own operations, an MCP session's or a peer's, and any for the
 // UI and the CLI (ADR-0101). Their calls are not operations and leave no record, and a
 // peer may call them (Lendable).
@@ -73,7 +73,4 @@ func (o *Operations) RegisterCapabilities() {
 		},
 		unrecorded: true,
 	})
-
-	o.registerSessionWatch()
-	o.registerSessionRelease()
 }

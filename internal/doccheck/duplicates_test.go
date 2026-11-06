@@ -184,6 +184,34 @@ var plannedCodes = map[string]bool{
 	"BUILD_QUEUE_FULL": true,
 }
 
+// retiredCodes are error codes whose constants left the code with the capabilities that
+// returned them (ADR-0137 §1: the Git, file and shell domains went to a separate project;
+// §3: the workspace envelope field and its refusals)
+// and that a live document or the register still names: open register rows are closed
+// only at step 9 of plan m3j, and a closed row is not edited. An entry goes when the last
+// document naming it does.
+var retiredCodes = map[string]bool{
+	// The workspace is no longer a request field, and no call can find one closed
+	// (ADR-0137 §3, plan m3j step 6): a project call names its project and opens it, and a
+	// missing or misused `project` is REQUEST_INVALID_PARAMS.
+	"REQUEST_MISSING_WORKSPACE":    true,
+	"REQUEST_UNEXPECTED_WORKSPACE": true,
+	"WORKSPACE_NOT_OPEN":           true,
+	"POLICY_SHELL_DISABLED":        true,
+	"SHELL_EXEC_FAILED":            true,
+	"FILE_NOT_FOUND":               true,
+	"FILE_OUTSIDE_ROOT":            true,
+	"FILE_WRONG_TYPE":              true,
+	"FILE_IO_FAILED":               true,
+	"FILE_EXISTS":                  true,
+	"FILE_TOO_LARGE":               true,
+	"FILE_REVISION_CONFLICT":       true,
+	"FILE_NOT_IN_TRASH":            true,
+	"GIT_NOT_FOUND":                true,
+	"GIT_NOT_A_REPOSITORY":         true,
+	"GIT_FAILED":                   true,
+}
+
 var errorCodeConst = regexp.MustCompile(`ErrorCode = "([A-Z][A-Z0-9_]*)"`)
 
 // TestErrorCodesInDocsExist keeps the codes that documents mention honest: the
@@ -191,7 +219,29 @@ var errorCodeConst = regexp.MustCompile(`ErrorCode = "([A-Z][A-Z0-9_]*)"`)
 // descriptors, so a document that names a code (in the live documentation, the
 // register, AGENTS.md or .claude/) may name only one of those, or a planned one.
 func TestErrorCodesInDocsExist(t *testing.T) {
-	report(t, checkErrorCodes(repo(), plannedCodes))
+	allowed := map[string]bool{}
+	for c := range plannedCodes {
+		allowed[c] = true
+	}
+	for c := range retiredCodes {
+		allowed[c] = true
+	}
+	report(t, checkErrorCodes(repo(), allowed))
+}
+
+// TestRetiredCodesAreNoConstants: a code on the retired list has no constant under
+// internal/. One that came back is a live code, and the list would hide a document that
+// misspells it.
+func TestRetiredCodesAreNoConstants(t *testing.T) {
+	codes, err := errorCodes(repo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for c := range retiredCodes {
+		if codes[c] {
+			t.Errorf("%s is an ErrorCode constant again: drop it from retiredCodes", c)
+		}
+	}
 }
 
 func errorCodes(fsys fs.FS) (map[string]bool, error) {

@@ -27,7 +27,6 @@ import (
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
 	"github.com/jtortosasen/droidyard/internal/testtime"
-	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // The environment a re-executed daemon reads its test seams from.
@@ -35,9 +34,14 @@ const (
 	drainEnv    = "DROIDYARD_TEST_DRAIN"
 	shutdownEnv = "DROIDYARD_TEST_SHUTDOWN"
 	httpPortEnv = "DROIDYARD_TEST_HTTP_PORT"
-	// launcherEnv names the file a re-executed `ui` writes the URL it would have opened
-	// to: no test opens a browser.
-	launcherEnv = "DROIDYARD_TEST_LAUNCHER"
+	// sessionClockEnv names a file holding the seconds to add to the real time the session
+	// registry reads, and sessionSweepEnv the interval of its idle sweep (ADR-0094 §4).
+	sessionClockEnv = "DROIDYARD_TEST_SESSION_CLOCK"
+	sessionSweepEnv = "DROIDYARD_TEST_SESSION_SWEEP"
+	// workspaceClockEnv and workspaceSweepEnv are the same two seams for the workspace
+	// registry's idle release (ADR-0137 §3): the file holds the seconds added to the real time.
+	workspaceClockEnv = "DROIDYARD_TEST_WORKSPACE_CLOCK"
+	workspaceSweepEnv = "DROIDYARD_TEST_WORKSPACE_SWEEP"
 	// gradleFakeEnv names a gradletest configuration file: a re-executed daemon then
 	// runs that fake sidecar instead of a real JVM, and gradleJVMEnv names the fake JDK
 	// 17 it "runs on" (plan m1g step 5).
@@ -69,10 +73,6 @@ const (
 	// they share (plan m1i step 5, D20).
 	emulatorDirEnv = "DROIDYARD_TEST_EMULATOR_DIR"
 	emulatorADBEnv = "DROIDYARD_TEST_EMULATOR_ADB_DIR"
-	// dialogFakeEnv names a fake osascript (a script): a re-executed daemon then raises
-	// workspace.chooseRoot's folder dialog through it, as on macOS, through the
-	// supervisor's real spawner (ADR-0045 §4).
-	dialogFakeEnv = "DROIDYARD_TEST_DIALOG"
 	// logMaxEnv is the size, in bytes, past which a re-executed detached daemon rotates
 	// its log (plan m2c, step 8).
 	logMaxEnv = "DROIDYARD_TEST_LOG_MAX"
@@ -104,13 +104,6 @@ func adbFloorVar() string { return adbFloorEnv + "=" + adbFloorFor().String() }
 func installTestSeams() {
 	testCapabilities = registerSidecarFixture
 	testHosting = registerPeerProbe
-	openURL = func(url string) error {
-		path := os.Getenv(launcherEnv)
-		if path == "" {
-			return fmt.Errorf("the browser launcher was called, and the test set no %s", launcherEnv)
-		}
-		return os.WriteFile(path, []byte(url), 0o600)
-	}
 	// Test daemons bind an ephemeral port unless a test asks for one; so do their private
 	// peer listeners, which would otherwise all try 7318.
 	peerDefaultPort = 0
@@ -165,11 +158,6 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(progressEveryEnv)); err == nil {
 		progressEvery = d
-	}
-	// A re-executed `droidyard trash` gives up on a daemon that does not answer sooner
-	// (plan m2r step 3).
-	if d, err := time.ParseDuration(os.Getenv(trashDeadlineEnv)); err == nil {
-		trashDeadline = d
 	}
 	// A test may give the daemon a fake adb (plan m1i step 3): its clients are then this
 	// binary, which TestMain turns into the fake — as devicetest.Main, before the reexec
@@ -234,15 +222,15 @@ func installTestSeams() {
 	if d, err := time.ParseDuration(os.Getenv(sessionSweepEnv)); err == nil {
 		sessionSweep = d
 	}
-	// A test may set the file.watch pollers' tick, a long one to see what makes a poller walk
-	// before it.
-	if d, err := time.ParseDuration(os.Getenv(watchTickEnv)); err == nil {
-		watchTick = d
+	if path := os.Getenv(workspaceClockEnv); path != "" {
+		workspaceClock = func() time.Time {
+			raw, _ := os.ReadFile(path)
+			secs, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+			return time.Now().Add(time.Duration(secs) * time.Second)
+		}
 	}
-	// A test may give the daemon a fake osascript, so workspace.chooseRoot runs on any
-	// host without raising a window.
-	if bin := os.Getenv(dialogFakeEnv); bin != "" {
-		dialogSeam = func(d *workspace.Dialog) { d.GOOS, d.Binary = "darwin", bin }
+	if d, err := time.ParseDuration(os.Getenv(workspaceSweepEnv)); err == nil {
+		workspaceSweep = d
 	}
 	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar
 	// command runs the test binary again in the fake's mode, so reexec must not reach
@@ -292,6 +280,8 @@ func appendEvent(path, event string) {
 // "use refused" or "use <pid>" (ADR-0027: a cancelled operation cannot start a
 // sidecar again).
 func registerSidecarFixture(reg *capability.Registry, sup *proc.Supervisor) {
+	registerTouchFixture(reg)
+	registerTrustedFixture(reg, platform.Current())
 	// fixture.stray writes to standard error by the process's own handle, as a panic or
 	// a library's print would, bypassing the daemon's log writer.
 	reg.MustRegister(capability.Descriptor{
@@ -410,9 +400,6 @@ func newSidecarCase(t *testing.T, env map[string]string) *sidecarCase {
 	c.root, c.sub = gradleProject(t)
 	c.srv = droidyardEnv(t, c.state, "", daemonEnv, "serve")
 	c.srv.expect(t, "listening")
-	if env, code := callIn(t, c.state, c.sub, "workspace.open"); code != 0 {
-		t.Fatalf("open: %+v", env.Error)
-	}
 	return c
 }
 
@@ -476,15 +463,6 @@ func (c *sidecarCase) records() []int {
 	return pids
 }
 
-// close calls workspace.close and returns how long the daemon's operation took (opTook).
-func (c *sidecarCase) close() time.Duration {
-	c.t.Helper()
-	if env, code := callIn(c.t, c.state, c.sub, "workspace.close"); code != 0 {
-		c.t.Fatalf("close exited %d: %+v", code, env.Error)
-	}
-	return opTook(c.t, c.srv.stderr.String, "workspace.close")
-}
-
 func (c *sidecarCase) stop() {
 	c.t.Helper()
 	if code := droidyard(c.t, c.state, "stop").wait(c.t); code != 0 {
@@ -494,15 +472,19 @@ func (c *sidecarCase) stop() {
 
 func indexOf(events []string, e string) int { return slices.Index(events, e) }
 
-// TestSidecarStartsLazilyIdlesOutAndEndsWithClose: the Phase 0 acceptance. A
-// supervised dummy starts on first use, not on open; idles out with its record
-// removed; starts again as a new process; and when workspace.close returns, it and
-// the helper it forked are gone and unrecorded (ADR-0027 §Consequences).
-func TestSidecarStartsLazilyIdlesOutAndEndsWithClose(t *testing.T) {
+// TestSidecarStartsLazilyAndIdlesOut: the Phase 0 acceptance. A supervised dummy starts on
+// first use, not on the call that opens its project; idles out with its record removed; and
+// starts again as a new process (ADR-0027 §Consequences). That a workspace's release stops
+// its sidecars is the registry's, in the workspace package's tests: no capability closes a
+// workspace any more (ADR-0137 §1).
+func TestSidecarStartsLazilyAndIdlesOut(t *testing.T) {
 	t.Parallel()
 	c := newSidecarCase(t, nil)
+	if env, code := callIn(t, c.state, c.sub, "fixture.touch"); code != 0 {
+		t.Fatalf("fixture.touch: %+v", env.Error)
+	}
 	if len(c.records()) != 0 || len(c.eventList()) != 1 || c.eventList()[0] != "" {
-		t.Fatalf("after open: records %v, events %v; want none", c.records(), c.eventList())
+		t.Fatalf("after the call that opened the project: records %v, events %v; want none", c.records(), c.eventList())
 	}
 
 	first := c.sidecar(sidecarParams{IdleMs: 800, ShutdownMs: 300})
@@ -515,87 +497,6 @@ func TestSidecarStartsLazilyIdlesOutAndEndsWithClose(t *testing.T) {
 	second := c.sidecar(sidecarParams{Options: []string{"fork-helper"}, IdleMs: 60_000, ShutdownMs: 300})
 	if second == first {
 		t.Fatalf("the second use got pid %d again", second)
-	}
-	before := snap(t, second, c.helper())
-	c.close()
-	if left := before.survivors(); len(left) != 0 || len(c.records()) != 0 {
-		t.Errorf("when close returned: survivors %v, records %v; want none", left, c.records())
-	}
-	c.stop()
-}
-
-// TestCloseCancelsTheLeaseHolderBeforeTheSidecar: close cancels the operation that
-// holds the dummy's lease and waits for it to end before the dummy gets its signal;
-// the cancelled operation cannot start the dummy again (ADR-0027 §Decision).
-func TestCloseCancelsTheLeaseHolderBeforeTheSidecar(t *testing.T) {
-	t.Parallel()
-	c := newSidecarCase(t, map[string]string{drainEnv: "200ms"})
-	holder := c.held(sidecarParams{Options: []string{"ignore-eof"}, IdleMs: 60_000, ShutdownMs: 300,
-		ReleaseFile: filepath.Join(t.TempDir(), "never")})
-	before := snap(t, c.records()...)
-	c.close()
-	if left := before.survivors(); len(left) != 0 || len(c.records()) != 0 {
-		t.Errorf("when close returned: survivors %v, records %v", left, c.records())
-	}
-	env, _ := holder.envelope(t)
-	if env.Operation == nil || env.Operation.State != capability.StateCancelled || env.Error == nil || env.Error.Code != capability.ErrOperationCancelled {
-		t.Errorf("the lease holder: %+v %+v; want cancelled", env.Operation, env.Error)
-	}
-	ev := c.eventList()
-	t.Logf("events: %v", ev)
-	released, term := indexOf(ev, "lease released"), indexOf(ev, "SIGTERM")
-	if released < 0 || term < 0 || released > term || (indexOf(ev, "eof") >= 0 && released > indexOf(ev, "eof")) {
-		t.Errorf("events %v: the lease must be released before the dummy is told to stop", ev)
-	}
-	if !slices.Contains(ev, "use refused") {
-		t.Errorf("events %v: the cancelled operation's second Use was not refused", ev)
-	}
-	c.stop()
-}
-
-// TestCloseBoundsADrainALeaseHolderIgnores: a lease holder that ignores its
-// cancellation holds close for the drain bound only; close then stops the dummy, one
-// that ignores SIGTERM and EOF, by SIGKILL after its shutdown timeout, and returns
-// with nothing left. Released later, the holder ends cancelled and cannot start a new
-// dummy (ADR-0027 §Decision, §Consequences).
-func TestCloseBoundsADrainALeaseHolderIgnores(t *testing.T) {
-	t.Parallel()
-	c := newSidecarCase(t, map[string]string{drainEnv: "200ms"})
-	release := filepath.Join(t.TempDir(), "release")
-	holder := c.held(sidecarParams{Options: []string{"ignore-eof", "ignore-term"}, IdleMs: 60_000, ShutdownMs: 300,
-		ReleaseFile: release, IgnoreContext: true})
-	before := snap(t, c.records()...)
-	took := c.close()
-	if left := before.survivors(); len(left) != 0 || len(c.records()) != 0 {
-		t.Errorf("when close returned after %s: survivors %v, records %v", took, left, c.records())
-	}
-	// The claim is that close waits for the drain bound (200 ms here) and the dummy's shutdown
-	// timeout (300 ms), not for the holder, which never lets go before close returns, nor for
-	// the default drain of workspace.DefaultDrain (10 s) the seam replaces. The margin is
-	// scaled like a hang guard but the whole bound stays below that default, which it must
-	// stay apart from. The time is the daemon's (opTook), so a loaded host's spawn of the
-	// calling process is not in it. Seen failing with the seam ignored (the drain at 5 s).
-	if limit := min(200*time.Millisecond+300*time.Millisecond+testtime.Bound(1500*time.Millisecond), workspace.DefaultDrain-time.Second); took > limit {
-		t.Errorf("close took %s; want the drain bound plus the shutdown timeout and a margin, at most %s", took, limit)
-	}
-
-	os.WriteFile(release, nil, 0o600)
-	env, _ := holder.envelope(t)
-	if env.Operation == nil || env.Operation.State != capability.StateCancelled {
-		t.Errorf("the released lease holder: %+v %+v; want cancelled", env.Operation, env.Error)
-	}
-	ev := c.eventList()
-	if !slices.Contains(ev, "use refused") {
-		t.Errorf("events %v: the second Use was not refused", ev)
-	}
-	readies := 0
-	for _, e := range ev {
-		if e == "ready" {
-			readies++
-		}
-	}
-	if readies != 1 || len(c.records()) != 0 {
-		t.Errorf("events %v, records %v: a new dummy started", ev, c.records())
 	}
 	c.stop()
 }
@@ -684,9 +585,6 @@ func TestKilledDaemonsStubbornSidecarIsReapedByTheNext(t *testing.T) {
 	}
 	next.expect(t, "listening")
 	// The next daemon's supervisor starts from the reconciled, empty records.
-	if env, code := callIn(t, c.state, c.sub, "workspace.open"); code != 0 {
-		t.Fatalf("open: %+v", env.Error)
-	}
 	fresh := c.sidecar(sidecarParams{IdleMs: 60_000, ShutdownMs: 300})
 	if recs := c.records(); len(recs) != 1 || recs[0] != fresh {
 		t.Errorf("records %v; want only the new dummy %d", recs, fresh)

@@ -39,8 +39,8 @@ func TestWatchOutputNeedsASession(t *testing.T) {
 	want("POST /v1/call build.watchOutput", envelopeOf(t, resp))
 
 	root, _ := projectWith(t, "settings.gradle")
-	if env, code := callIn(t, p.state, root, "workspace.open"); code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
+	if env, code := callIn(t, p.state, root, "fixture.touch"); code != 0 {
+		t.Fatalf("fixture.touch exited %d: %+v", code, env.Error)
 	}
 	f := p.followIn(t, root, "build.watchOutput")
 	f.opened(t)
@@ -94,9 +94,9 @@ func TestWSWatchOutputSeesAnMCPBuild(t *testing.T) {
 		t.Fatalf("droidyard trust exited %d", code)
 	}
 	w := wsConnect(t, p)
-	w.send("open", "workspace.open", root, "{}", nil)
+	w.send("open", "fixture.touch", root, "", nil)
 	if _, f := w.collect("open"); f.Error != nil {
-		t.Fatalf("workspace.open: %+v", f.Error)
+		t.Fatalf("fixture.touch: %+v", f.Error)
 	}
 	w.send("wo", "build.watchOutput", root, `{}`, nil)
 	_, f := w.collect("wo")
@@ -111,7 +111,7 @@ func TestWSWatchOutputSeesAnMCPBuild(t *testing.T) {
 
 	c := startShimIn(t, p.state, root, "mcp-client", []string{"mcp", "--no-autostart"})
 	c.initialize("watch-output-test")
-	c.callTool(1, "build_assemble", `{"module":":app","variant":"debug"}`)
+	c.callTool(1, "build_assemble", `{"project":`+quote(root)+`,"module":":app","variant":"debug"}`)
 	built := decodeTool(t, c.recv(), 1)
 	if built.isError || built.view.State != capability.StateCompleted {
 		t.Fatalf("build_assemble answered %v (%s); want a completed build", built.raw, built.text)

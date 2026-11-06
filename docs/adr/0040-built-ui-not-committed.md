@@ -1,6 +1,6 @@
 # ADR-0040: The built UI is not committed; Go never needs Node
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-09
 - Relates to: ADR-0006, ADR-0039 §1, §3; plan m2a Q1
 - Delegated: the main session, under the owner's standing instruction to apply the

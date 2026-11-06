@@ -1,6 +1,6 @@
 # ADR-0072: Compare with current: `git.log` excludes, `git.show` takes a base, and the Diff tab compares two commits
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-13
 - Supersedes: ADR-0069 §Decision (in part: item 1's parameters of `git.log` and `git.show`)
 - Supersedes: ADR-0070 §Decision (in part: item 4's two sources of the Diff tab)

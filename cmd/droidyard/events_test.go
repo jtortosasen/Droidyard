@@ -33,7 +33,7 @@ func lifecycle(t *testing.T, sub *event.Subscription) (states []string, workspac
 
 // TestEventsThroughASession: on the shipped wiring, a session that can carry events
 // (here the event layer's own, the one the WebSocket will set) subscribes, receives
-// the workspace's transitions from a real workspace.open and workspace.close, and
+// the workspace's transitions from a real call that names a project, and
 // stops receiving once it unsubscribes; another session's subscription is untouched
 // by its unsubscribe; the session's end leaves the bus with none of its subscriptions
 // (plan m1d, step 6; ADR-0010 as amended; capability-api.md §Subscriptions).
@@ -41,9 +41,13 @@ func TestEventsThroughASession(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
 	a, b := event.NewSession(p.bus, "ses-a"), event.NewSession(p.bus, "ses-b")
-	run := func(s *event.Session, name, workspace, params string) (capability.Outcome, error) {
+	run := func(s *event.Session, name, project, params string) (capability.Outcome, error) {
+		raw := json.RawMessage(params)
+		if project != "" {
+			raw = withProject(params, project)
+		}
 		return p.ops.Invoke(context.Background(), capability.Request{
-			Capability: name, Workspace: workspace, Params: json.RawMessage(params), Client: capability.ClientUI, Session: s,
+			Capability: name, Params: raw, Client: capability.ClientUI, Session: s,
 		})
 	}
 	subscribe := func(s *event.Session) (string, *event.Subscription) {
@@ -69,8 +73,8 @@ func TestEventsThroughASession(t *testing.T) {
 
 	root, _ := gradleProject(t)
 	id, _ := platform.Current().WorkspaceID(root)
-	if out, err := run(a, "workspace.open", root, `{}`); err != nil || out.State != capability.StateCompleted {
-		t.Fatalf("workspace.open: (%+v, %v)", out, err)
+	if out, err := run(a, "fixture.touch", root, ``); err != nil || out.State != capability.StateCompleted {
+		t.Fatalf("fixture.touch: (%+v, %v)", out, err)
 	}
 	for name, sub := range map[string]*event.Subscription{"a": subA, "b": subB} {
 		states, workspaces := lifecycle(t, sub)
@@ -83,14 +87,15 @@ func TestEventsThroughASession(t *testing.T) {
 	if out, err := run(a, "events.unsubscribe", "", `{"subscriptionId":"`+idA+`"}`); err != nil || out.State != capability.StateCompleted || out.Result != (event.UnsubscribeResult{}) {
 		t.Fatalf("events.unsubscribe: (%+v, %v); want completed with {}", out, err)
 	}
-	if out, err := run(a, "workspace.close", root, `{}`); err != nil || out.State != capability.StateCompleted {
-		t.Fatalf("workspace.close: (%+v, %v)", out, err)
+	other, _ := gradleProject(t)
+	if out, err := run(a, "fixture.touch", other, ``); err != nil || out.State != capability.StateCompleted {
+		t.Fatalf("fixture.touch: (%+v, %v)", out, err)
 	}
 	if states, _ := lifecycle(t, subA); len(states) != 0 {
 		t.Errorf("a received %v after it unsubscribed", states)
 	}
-	if states, _ := lifecycle(t, subB); strings.Join(states, ",") != "closing,closed" {
-		t.Errorf("b received %v; want closing, closed", states)
+	if states, _ := lifecycle(t, subB); strings.Join(states, ",") != "opening,ready" {
+		t.Errorf("b received %v; want opening, ready", states)
 	}
 
 	// A call that names a topic nobody can deliver is rejected, with no operation.

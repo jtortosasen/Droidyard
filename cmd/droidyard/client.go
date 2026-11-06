@@ -3,18 +3,15 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -25,8 +22,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
-	"github.com/jtortosasen/droidyard/internal/workspace"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 // stopTimeout bounds how long `stop` waits for the daemon to release its lock.
@@ -150,13 +145,15 @@ func reportDialError(cmd, socket string, err error) {
 }
 
 // call runs `droidyard call`, starting a daemon if none answers, unless
-// --no-autostart.
-func call(args []string) int {
+// --no-autostart. A capability that takes a project gets --project, or the current
+// directory (ADR-0137 §5).
+func call(ct *cmdTree, args []string) int {
 	c, err := cli.Parse(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard call: %v\n%s\n", err, cli.Usage)
 		return cli.ExitUsage
 	}
+	ct.defaultProject(&c)
 	return runCapability("call", c)
 }
 
@@ -179,8 +176,8 @@ var stderrTerminal = func() bool {
 
 // runCapability makes one capability call as `droidyard call` does, and a derived command
 // (`droidyard device list`) the same way: it starts a daemon when none answers, unless the
-// call says NoAutostart, sends the current directory's project root in the hello, and prints
-// the response envelope. who names the command in its own messages.
+// call says NoAutostart, and prints the response envelope. who names the command in its own
+// messages.
 func runCapability(who string, c cli.Call) int {
 	// Installed before the request goes out, so a Ctrl-C is never lost to the default
 	// action. The first one asks the adapter to cancel; a second one, if cancelling
@@ -194,13 +191,9 @@ func runCapability(who string, c cli.Call) int {
 		close(interrupt)
 	}()
 
-	// The cwd's root goes in the hello; the daemon uses it for a workspace-scoped call
-	// without --workspace (plan m1c, R3).
-	cwd, _ := os.Getwd()
+	// The hello names no project: a call that takes one carries it as `project`, which the
+	// command line defaults to the current directory (ADR-0137 §5).
 	hello := daemon.Hello{Client: capability.ClientCLI}
-	if cwd != "" {
-		hello.Root = resolveRoot("", cwd)
-	}
 	conn, r, socket, err := connectOrStart(hello, !c.NoAutostart, interrupt)
 	if errors.Is(err, errInterrupted) {
 		fmt.Fprintln(os.Stderr, "droidyard "+who+":", err)
@@ -226,40 +219,26 @@ func runCapability(who string, c cli.Call) int {
 // stderr (ADR-0019 §Lifetime). It starts a daemon if none answers, unless
 // --no-autostart.
 //
-// The session's project is --root, else the project of --from or the cwd (projectOf,
-// the rule `ui` and `init` use). With none, the shim dials and starts nothing: it
-// serves a session with no tools itself (ADR-0124 §2).
+// The server is the machine's: every tool that acts on a project takes it per call, so
+// the shim binds nothing and one tool list is served wherever it starts (ADR-0137 §2).
+// --root and --from are accepted and ignored, with one line on stderr per shim start.
 func mcpShim(args []string) int {
-	const usage = "usage: droidyard mcp [--root <path>] [--from <dir>] [--wait <duration>] [--tools core|all] [--no-autostart]"
+	const usage = "usage: droidyard mcp [--wait <duration>] [--tools core|all] [--no-autostart]"
 	hello := daemon.Hello{Client: capability.ClientMCP}
 	autostart := true
-	explicitRoot := ""
-	from, fromGiven := "", false
+	var ignored []string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--no-autostart":
 			autostart = false
-		case a == "--root" || strings.HasPrefix(a, "--root="):
-			v, ok := strings.CutPrefix(a, "--root=")
-			if !ok && i+1 < len(args) {
+		case a == "--root" || strings.HasPrefix(a, "--root=") || a == "--from" || strings.HasPrefix(a, "--from="):
+			// Entries an earlier init wrote carry them. A bare flag takes the next argument
+			// as its value, as it did; neither is read.
+			flag := strings.SplitN(a, "=", 2)[0]
+			if !strings.Contains(a, "=") && i+1 < len(args) {
 				i++
-				v = args[i]
 			}
-			if v == "" {
-				fmt.Fprintf(os.Stderr, "droidyard mcp: --root needs a project directory\n%s\n", usage)
-				return 2
-			}
-			explicitRoot = v
-		case a == "--from" || strings.HasPrefix(a, "--from="):
-			v, ok := strings.CutPrefix(a, "--from=")
-			if !ok && i+1 < len(args) {
-				i++
-				v = args[i]
-			}
-			// An empty value is what a client expands a window with no folder to, and
-			// one that still holds ${ is a client variable it did not expand: neither
-			// names a folder, so both leave the cwd to name it (ADR-0124 §2).
-			from, fromGiven = v, true
+			ignored = append(ignored, flag)
 		case a == "--wait" || strings.HasPrefix(a, "--wait="):
 			v, ok := strings.CutPrefix(a, "--wait=")
 			if !ok && i+1 < len(args) {
@@ -301,37 +280,8 @@ func mcpShim(args []string) int {
 	if v := os.Getenv(chatEnv); daemon.ChatPattern.MatchString(v) {
 		hello.Chat = v
 	}
-	if fromGiven && explicitRoot != "" {
-		fmt.Fprintf(os.Stderr, "droidyard mcp: --from and --root exclude each other\n%s\n", usage)
-		return 2
-	}
-	// The session's binding (ADR-0019 §Sessions, as ADR-0124 §2 changes it): --root,
-	// made absolute against the cwd; else the project of --from or the cwd. The daemon
-	// opens it and canonicalises it.
-	cwd, cwdErr := os.Getwd()
-	switch {
-	case explicitRoot != "" && cwdErr == nil:
-		hello.Root = resolveRoot(explicitRoot, cwd)
-	case explicitRoot != "":
-		if filepath.IsAbs(explicitRoot) {
-			hello.Root = filepath.Clean(explicitRoot)
-		}
-	default:
-		dir := cwd
-		if from != "" && !strings.Contains(from, "${") {
-			dir = from
-			if !filepath.IsAbs(dir) {
-				dir = filepath.Join(cwd, dir)
-			}
-		}
-		root, ok := "", false
-		if dir != "" {
-			root, ok = projectOf(filepath.Clean(dir))
-		}
-		if !ok {
-			return serveNoTools(dir)
-		}
-		hello.Root = root
+	if len(ignored) > 0 {
+		fmt.Fprintf(os.Stderr, "droidyard mcp: %s ignored: the server is the machine's and every tool takes its project; a later version will refuse them, so run `droidyard init` again or remove them from the entry\n", strings.Join(ignored, " and "))
 	}
 	conn, r, socket, err := connectOrStart(hello, autostart, nil)
 	if err != nil {
@@ -373,32 +323,6 @@ func mcpShim(args []string) int {
 	}
 }
 
-// noToolsInstructions is the one line a session with no project gives its client.
-func noToolsInstructions(dir string) string {
-	where := "No Android project at " + dir
-	if dir == "" {
-		where = "No Android project here"
-	}
-	return where + ": droidyard has no tools in this session. " +
-		"Start the assistant in the project's folder or one of its worktrees."
-}
-
-// serveNoTools is the session `mcp` serves when it finds no project (ADR-0124 §2): the
-// tools capability declared and an empty list, answered by mcp-go itself, so the session
-// is the same whether or not a daemon runs. It dials nothing, starts nothing and writes
-// nothing, on stderr or on disk; it exits 0 when stdin ends.
-func serveNoTools(dir string) int {
-	srv := server.NewMCPServer("droidyard", system.Version,
-		server.WithToolCapabilities(false),
-		server.WithInstructions(noToolsInstructions(dir)),
-	)
-	stdio := server.NewStdioServer(srv)
-	// mcp-go logs to stderr by default; this session writes nothing there.
-	stdio.SetErrorLogger(log.New(io.Discard, "", 0))
-	_ = stdio.Listen(context.Background(), os.Stdin, os.Stdout)
-	return 0
-}
-
 // status names the lock holder and says whether the socket answers. It exits 0 iff a
 // daemon answers.
 func status() int {
@@ -428,11 +352,10 @@ func status() int {
 	}
 	conn.Close()
 	fmt.Printf("socket %s answers\n", socket)
-	// The address and the URL come from the lock and run/http-token, which the daemon
-	// writes before it binds the socket (plan m1d, step 5). The lock is read again here,
-	// after the socket answered: the record read at the top may predate the daemon's
-	// rewrite that added "http". The token is printed here, on a terminal the user
-	// asked, and nowhere else (http-websocket.md §Bootstrapping).
+	// The API address comes from the lock, which the daemon writes before it binds the
+	// socket (plan m1d, step 5). The lock is read again here, after the socket answered:
+	// the record read at the top may predate the daemon's rewrite that added "http". The
+	// token is not printed: there is no page to open with it (ADR-0137 §1).
 	httpInfo, err := daemon.ReadLock(state)
 	if err != nil {
 		fmt.Printf("http: %v\n", err)
@@ -443,163 +366,17 @@ func status() int {
 		fmt.Printf("http: %v\n", err)
 	default:
 		fmt.Printf("http %s\n", addr)
-		token, err := daemon.ReadToken(state)
-		if err != nil {
-			fmt.Printf("http token: %v\n", err)
-			return 0
-		}
-		fmt.Println(uiURL(addr, token, ""))
 	}
 	return 0
 }
 
-// httpAddr is the UI's address the lock names. A lock that names none is a daemon
-// without an HTTP listener: one that cannot serve `ui`, and has to be restarted.
+// httpAddr is the API address the lock names. A lock that names none is a daemon
+// without an HTTP listener, and has to be restarted.
 func httpAddr(state string, info daemon.LockInfo) (string, error) {
 	if info.HTTP == nil || *info.HTTP == "" {
-		return "", fmt.Errorf("%s names no HTTP address: this daemon serves no web UI; run `droidyard stop` and start it again", filepath.Join(state, daemon.LockFile))
+		return "", fmt.Errorf("%s names no HTTP address: this daemon serves no HTTP API; run `droidyard stop` and start it again", filepath.Join(state, daemon.LockFile))
 	}
 	return *info.HTTP, nil
-}
-
-// uiURL is the tokenised URL that bootstraps the web UI: the token is in the
-// fragment, which a browser never sends to a server (http-websocket.md §Bootstrapping).
-// A workspace id adds `&w=<id>`, the project the tab shows; without one the page shows the
-// newest open project, else the projects panel (ADR-0047 §2).
-func uiURL(addr, token, workspace string) string {
-	u := "http://" + addr + "/#token=" + token
-	if workspace != "" {
-		u += "&w=" + workspace
-	}
-	return u
-}
-
-// openURL opens a URL in the default browser. A variable only so that this package's
-// tests can replace it in a re-executed binary, as they do testCapabilities.
-var openURL = openBrowser
-
-// openBrowser runs the platform's launcher (plan m1d, R4).
-func openBrowser(url string) error {
-	cmd := openCommand(runtime.GOOS, url)
-	// None of exec's errors quotes the argument list, so the token stays out of them.
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("running %s: %w", filepath.Base(cmd.Path), err)
-	}
-	return nil
-}
-
-// osascript is the macOS script runner, by its fixed path, as workspace's folder dialog
-// runs it: never found through PATH.
-const osascript = "/usr/bin/osascript"
-
-// openCommand is the command that opens url in the default browser on goos. The URL holds
-// the UI's token, which a command line shows to every process of the machine (`ps`), so on
-// macOS it goes to osascript as an AppleScript on its standard input, which a process list
-// does not show (ADR-0102 §3). Linux's xdg-open takes it as an argument: the row stays open
-// there.
-func openCommand(goos, url string) *exec.Cmd {
-	if goos != "darwin" {
-		return exec.Command("xdg-open", url)
-	}
-	cmd := exec.Command(osascript)
-	cmd.Stdin = strings.NewReader(`open location "` + appleScriptString(url) + "\"\n")
-	return cmd
-}
-
-// appleScriptString escapes s for a double-quoted AppleScript string.
-func appleScriptString(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
-}
-
-// ui runs `droidyard ui`, and `droidyard` alone: it connects as `call` does, starting a
-// daemon when none answers unless --no-autostart, opens the project of the working
-// directory when there is one (ADR-0045 §1), then asks the open tab, if there is one, to
-// show it (workspace.show, ADR-0084) and otherwise opens the browser at the tokenised URL
-// the lock and run/http-token give (ADR-0019 §3, §4). It does not print the token.
-func ui(args []string) int {
-	autostart := true
-	for _, a := range args {
-		if a != "--no-autostart" {
-			fmt.Fprintf(os.Stderr, "droidyard ui: unexpected argument %q\nusage: droidyard ui [--no-autostart]\n", a)
-			return 2
-		}
-		autostart = false
-	}
-	conn, r, socket, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, autostart, nil)
-	if err != nil {
-		reportDialError("ui", socket, err)
-		return 1
-	}
-	// The project is found by the MCP binding's rule. Opening it runs no project code
-	// and grants no trust (ADR-0015 §5); when it cannot be opened the browser still
-	// opens, on the projects panel, with the reason said here.
-	var id, name string
-	if cwd, err := os.Getwd(); err == nil {
-		if root, ok := projectOf(cwd); ok {
-			if id, err = openProject(conn, r, root); err != nil {
-				fmt.Fprintf(os.Stderr, "droidyard ui: opening %s: %v\nThe browser opens on the projects panel instead.\n", root, err)
-			}
-			name = filepath.Base(root)
-		}
-	}
-	conn.Close()
-	// One tab in all (ADR-0084 §2): a tab that answers selects the project and no browser
-	// opens; none, or a call that failed, falls through to opening one.
-	if showInOpenTab(id) > 0 {
-		if id == "" {
-			fmt.Println("a Droidyard tab is already open")
-		} else {
-			fmt.Printf("switched the open Droidyard tab to %s\n", name)
-		}
-		return 0
-	}
-	state, err := platform.Current().StateDir()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
-		return 1
-	}
-	info, err := daemon.ReadLock(state)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
-		return 1
-	}
-	addr, err := httpAddr(state, info)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
-		return 1
-	}
-	token, err := daemon.ReadToken(state)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "droidyard ui: reading the token: %v\n", err)
-		return 1
-	}
-	if err := openURL(uiURL(addr, token, id)); err != nil {
-		fmt.Fprintf(os.Stderr, "droidyard ui: opening the browser: %v\nOpen the address `droidyard status` prints instead.\n", err)
-		return 1
-	}
-	fmt.Printf("opened http://%s/ in the browser\n", addr)
-	return 0
-}
-
-// showInOpenTab calls workspace.show for id on a connection of its own (a cli.Call reads
-// its connection through a goroutine that outlives it) and returns how many tabs it told:
-// 0 when none was, and when the call failed, since either way a browser has to open.
-func showInOpenTab(id string) int {
-	conn, r, _, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, false, nil)
-	if err != nil {
-		return 0
-	}
-	defer conn.Close()
-	params, _ := json.Marshal(workspace.ShowParams{Workspace: id})
-	env, err := runCall(conn, r, cli.Call{Capability: workspace.CapShow, Params: params})
-	if err != nil || env.Error != nil {
-		return 0
-	}
-	var res workspace.ShowResult
-	if json.Unmarshal(env.Result, &res) != nil {
-		return 0
-	}
-	return res.Tabs
 }
 
 // runCall runs call over the connection and returns the response envelope; an error the
@@ -614,23 +391,6 @@ func runCall(conn net.Conn, r *bufio.Reader, call cli.Call) (capability.Response
 		return env, fmt.Errorf("the daemon's answer is not an envelope: %w", err)
 	}
 	return env, nil
-}
-
-// openProject calls workspace.open on root over the connection and returns the
-// workspace's id.
-func openProject(conn net.Conn, r *bufio.Reader, root string) (string, error) {
-	env, err := runCall(conn, r, cli.Call{Capability: workspace.CapOpen, Workspace: root})
-	if err != nil {
-		return "", err
-	}
-	if env.Error != nil {
-		return "", fmt.Errorf("%s: %s", env.Error.Code, env.Error.Message)
-	}
-	var info workspace.Info
-	if err := json.Unmarshal(env.Result, &info); err != nil || info.ID == "" {
-		return "", fmt.Errorf("workspace.open answered no workspace id")
-	}
-	return info.ID, nil
 }
 
 // stop sends SIGTERM to the daemon that holds the lock and waits for the lock's

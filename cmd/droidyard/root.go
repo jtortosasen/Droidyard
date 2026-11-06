@@ -28,7 +28,7 @@ func resolveRoot(explicit, cwd string) string {
 // projectOf is the project `ui` opens and `init` writes into when the user names none
 // (ADR-0075 §6): the nearest ancestor of cwd, cwd included, with a settings.gradle(.kts)
 // (unchanged); else cwd itself when it is the top of a repository, that is when its
-// Gradle root resolves (a valid gradleRoot key, or exactly one build one or two levels
+// Gradle root resolves (exactly one build one or two levels
 // below). Otherwise there is none. The home directory and `/` never resolve, so they
 // are never a project. resolveRoot is not this: it never fails, and `mcp`, `call` and
 // `trash` name the daemon's workspace by it.
@@ -36,7 +36,7 @@ func projectOf(cwd string) (string, bool) {
 	if dir, ok := platform.GradleRoot(cwd); ok {
 		return dir, true
 	}
-	if workspace.ResolveGradleRoot(cwd, false).Err == nil {
+	if workspace.ResolveGradleRoot(cwd).Err == nil {
 		return filepath.Clean(cwd), true
 	}
 	return "", false

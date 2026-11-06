@@ -1,6 +1,7 @@
 # ADR-0075: The project root and the Gradle root
 
 - Status: Accepted
+- Superseded in part by: ADR-0137 (§2 (a), §4, §7)
 - Date: 2026-10-15
 - Superseded in part by: ADR-0092 (§Decision)
 - Superseded in part by: ADR-0124 (§Decision)

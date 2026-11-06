@@ -20,7 +20,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
-// syncBuffer is a log the close goroutine writes while the test reads.
+// syncBuffer is a log the release goroutine writes while the test reads.
 type syncBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -39,8 +39,9 @@ func (s *syncBuffer) String() string {
 }
 
 // harness is the shipped workspace registry and operation store, in process, with
-// test-only workspace-scoped fixtures. Every fixture returns nil, never an error, so
-// an operation that ends cancelled was cancelled by the store, not by its handler:
+// test-only workspace-scoped fixtures, which name their project as every project capability
+// does (`project`, ADR-0137 §3). Every fixture returns nil, never an error, so an operation
+// that ends cancelled was cancelled by the store, not by its handler:
 //
 //	fixture.honours  sends its operation id on started, then returns nil once its
 //	                 context is cancelled
@@ -48,6 +49,7 @@ func (s *syncBuffer) String() string {
 //	                 is closed, whatever its context
 //	fixture.scoped   returns nil at once, recording the Call.Workspace it saw
 type harness struct {
+	reg     *capability.Registry
 	ws      *Registry
 	ops     *capability.Operations
 	st      *store.Store
@@ -55,8 +57,8 @@ type harness struct {
 	started chan string
 	release chan struct{}
 	ran     atomic.Int32
-	saw     atomic.Value // string
-	// stopped is when the stop-sidecars hook last ran: the end of a close's work.
+	saw     atomic.Value // capability.Call: what the last fixture.scoped ran with
+	// stopped is when the stop-sidecars hook last ran: the end of a release's work.
 	stopped atomic.Value // time.Time
 	events  *recorder
 }
@@ -100,11 +102,11 @@ func newHarnessOn(t *testing.T, st *store.Store, drain time.Duration) *harness {
 	t.Helper()
 	h := &harness{st: st, log: &syncBuffer{}, started: make(chan string, 8), release: make(chan struct{}), events: &recorder{}}
 	reg := capability.NewRegistry()
+	h.reg = reg
 	h.ops = capability.NewOperations(reg)
 	h.ops.RegisterCapabilities()
 	h.ws = New(Options{Store: st, Ops: h.ops, Drain: drain, Log: h.log, Publisher: h.events,
 		StopSidecars: func(string) { h.stopped.Store(time.Now()) }})
-	Register(reg, h.ws)
 	type none struct{}
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.honours", Kind: capability.Command, Scope: capability.Workspace,
@@ -129,7 +131,7 @@ func newHarnessOn(t *testing.T, st *store.Store, drain time.Duration) *harness {
 		Description: "Reads a workspace.", Params: none{}, Result: none{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			h.ran.Add(1)
-			h.saw.Store(call.Workspace)
+			h.saw.Store(*call)
 			return none{}, nil
 		},
 	})
@@ -146,29 +148,81 @@ func newHarnessOn(t *testing.T, st *store.Store, drain time.Duration) *harness {
 	return h
 }
 
+// projectParams is the parameter object of a call that names project.
+func projectParams(project string) json.RawMessage {
+	raw, err := json.Marshal(map[string]string{capability.ProjectParam: project})
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+// sawWorkspace is the workspace id the last fixture.scoped ran with.
+func (h *harness) sawWorkspace() string {
+	c, _ := h.saw.Load().(capability.Call)
+	return c.Workspace
+}
+
 func (h *harness) invoke(t *testing.T, capName, target string) capability.Outcome {
 	t.Helper()
-	out, err := h.ops.Invoke(context.Background(), capability.Request{Capability: capName, Workspace: target})
+	out, err := h.ops.Invoke(context.Background(), capability.Request{Capability: capName, Params: projectParams(target)})
 	if err != nil {
 		t.Fatalf("%s %s: rejected at Start: %v", capName, target, err)
 	}
 	return out
 }
 
-func (h *harness) open(t *testing.T, target string) Info {
+// open makes a call that names root, which opens it, and returns the workspace as the
+// registry holds it.
+func (h *harness) open(t *testing.T, root string) Info {
 	t.Helper()
-	out := h.invoke(t, CapOpen, target)
+	out := h.invoke(t, "fixture.scoped", root)
 	if out.State != capability.StateCompleted {
-		t.Fatalf("open %s: %s %v", target, out.State, out.Error)
+		t.Fatalf("a call on %s: %s %v", root, out.State, out.Error)
 	}
-	return out.Result.(Info)
+	return h.infoOf(t, root)
+}
+
+// infoOf is the registry's workspace for the project root, as it stands.
+func (h *harness) infoOf(t *testing.T, root string) Info {
+	t.Helper()
+	id, _ := platform.Current().WorkspaceID(root)
+	w := h.ws.lookup(id)
+	if w == nil {
+		t.Fatalf("the registry holds no workspace for %s", root)
+	}
+	h.ws.mu.Lock()
+	defer h.ws.mu.Unlock()
+	return w.info
+}
+
+// closeWS releases root as the idle sweep does once it has been idle for longer than
+// IdleAfter, by moving the registry's clock past it for that one round.
+func (h *harness) closeWS(t *testing.T, root string) {
+	t.Helper()
+	id, _ := platform.Current().WorkspaceID(root)
+	w := h.ws.lookup(id)
+	if w == nil {
+		t.Fatalf("the registry holds no workspace for %s", root)
+	}
+	h.ws.mu.Lock()
+	real := h.ws.now
+	h.ws.now = func() time.Time { return real().Add(2 * IdleAfter) }
+	h.ws.mu.Unlock()
+	h.ws.releaseOne(w)
+	h.ws.mu.Lock()
+	h.ws.now = real
+	h.ws.mu.Unlock()
+	if s := h.ws.State(root); s != Closed {
+		t.Fatalf("releasing %s left it %s", root, s)
+	}
 }
 
 // start starts a fixture in the workspace and returns its operation id once its
 // handler runs.
 func (h *harness) start(t *testing.T, fixture, target string) string {
 	t.Helper()
-	id, err := h.ops.Start(context.Background(), capability.Request{Capability: fixture, Workspace: target})
+	id, err := h.ops.Start(context.Background(), capability.Request{Capability: fixture, Params: projectParams(target)})
 	if err != nil {
 		t.Fatalf("%s in %s: %v", fixture, target, err)
 	}
@@ -214,6 +268,17 @@ func project(t *testing.T) string {
 	return platform.Current().Canonical(t.TempDir())
 }
 
+// gradleProject is project with a settings.gradle: a call naming it is admitted (Enter
+// resolves a project by its Gradle build).
+func gradleProject(t *testing.T) string {
+	t.Helper()
+	root := project(t)
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func schemaVersionOf(t *testing.T, path string) int {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -229,18 +294,21 @@ func schemaVersionOf(t *testing.T, path string) int {
 	return v.SchemaVersion
 }
 
-// TestOpenRegistersARoot: open answers ready and untrusted (ADR-0015 §5: nothing grants
-// trust in 1c), names the workspace by the id rule, persists workspace.json and the
-// index at schemaVersion 1, is a no-op on an open workspace, keeps createdAt across a
-// close, and after a restart opens by an indexed id (ADR-0021 §Layout;
-// workspace-state.md §Identity and reuse).
-func TestOpenRegistersARoot(t *testing.T) {
+// TestEnterRegistersARoot: the first call that names a project opens it: ready, named by
+// the id rule, with workspace.json and the index written at schemaVersion 1; a second call
+// changes nothing; a release (the idle one) closes it and the next call reopens it with the
+// same createdAt (ADR-0021 §Layout; workspace-state.md §Identity and reuse). The handler runs
+// with the workspace's id, its project root and its Gradle root.
+func TestEnterRegistersARoot(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	info := h.open(t, root)
 	wantID, _ := platform.Current().WorkspaceID(root)
-	if info.ID != wantID || info.Root != root || info.Name != filepath.Base(root) || info.State != Ready || info.Trusted || info.CreatedAt == nil || info.CreatedAt.IsZero() || info.DegradedBy != nil {
-		t.Fatalf("open = %+v; want ready, untrusted, id %s", info, wantID)
+	if info.ID != wantID || info.Root != root || info.Name != filepath.Base(root) || info.State != Ready || info.CreatedAt == nil || info.CreatedAt.IsZero() || info.DegradedBy != nil {
+		t.Fatalf("the workspace after a call = %+v; want ready, id %s", info, wantID)
+	}
+	if saw, _ := h.saw.Load().(capability.Call); saw.Workspace != wantID || saw.Root != root || saw.GradleRoot != root {
+		t.Errorf("the handler ran with id %q, root %q, Gradle root %q; want %s, %s, %s", saw.Workspace, saw.Root, saw.GradleRoot, wantID, root, root)
 	}
 	for _, f := range []string{filepath.Join(h.st.Root(), "ws", wantID, "workspace.json"), filepath.Join(h.st.Root(), "workspaces.json")} {
 		if v := schemaVersionOf(t, f); v != 1 {
@@ -248,20 +316,14 @@ func TestOpenRegistersARoot(t *testing.T) {
 		}
 	}
 	if again := h.open(t, root); !reflect.DeepEqual(again, info) {
-		t.Errorf("a second open = %+v; want the same state %+v", again, info)
+		t.Errorf("a second call left %+v; want the same state %+v", again, info)
 	}
-	if out := h.invoke(t, CapClose, root); out.State != capability.StateCompleted {
-		t.Fatalf("close: %+v", out)
+	h.closeWS(t, root)
+	if stopped, _ := h.stopped.Load().(time.Time); stopped.IsZero() {
+		t.Error("a release did not stop the workspace's sidecars")
 	}
 	if reopened := h.open(t, root); reopened.CreatedAt == nil || !reopened.CreatedAt.Equal(*info.CreatedAt) {
 		t.Errorf("reopening changed createdAt: %v → %v", info.CreatedAt, reopened.CreatedAt)
-	}
-
-	// A new daemon on the same state: the id resolves through the index.
-	restarted := newHarnessOn(t, mustStore(t, h.st.Root()), 200*time.Millisecond)
-	byID := restarted.open(t, wantID)
-	if byID.Root != root || byID.CreatedAt == nil || !byID.CreatedAt.Equal(*info.CreatedAt) {
-		t.Errorf("open by id after a restart = %+v", byID)
 	}
 }
 
@@ -274,12 +336,12 @@ func mustStore(t *testing.T, root string) *store.Store {
 	return st
 }
 
-// TestOpenRunsNoProjectCode: a root whose gradlew would leave a marker is opened and
+// TestEnterRunsNoProjectCode: a root whose gradlew would leave a marker is opened and
 // the marker never appears (ADR-0015 §5; workspace-state.md §Lifecycle); run
 // directly, the same script does leave it, so the check can see project code run.
-func TestOpenRunsNoProjectCode(t *testing.T) {
+func TestEnterRunsNoProjectCode(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	marker := filepath.Join(root, "ran")
 	script := "#!/bin/sh\ntouch '" + marker + "'\n"
 	for _, f := range []string{"gradlew", "settings.gradle.kts"} {
@@ -288,7 +350,6 @@ func TestOpenRunsNoProjectCode(t *testing.T) {
 		}
 	}
 	h.open(t, root)
-	h.invoke(t, CapDescribe, root)
 	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("opening ran project code: %v", err)
@@ -301,44 +362,12 @@ func TestOpenRunsNoProjectCode(t *testing.T) {
 	}
 }
 
-// TestOpenOfAnInvalidTargetFails: a missing path, a regular file, an unreadable
-// directory and an id no index holds each create an operation that ends failed with
-// WORKSPACE_ROOT_INVALID, details.target as given, and ADR-0026's nextStep; never a
-// Start rejection, never REQUEST_INVALID_PARAMS.
-func TestOpenOfAnInvalidTargetFails(t *testing.T) {
-	h := newHarness(t, 200*time.Millisecond)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "file")
-	os.WriteFile(file, []byte("x"), 0o600)
-	locked := filepath.Join(dir, "locked")
-	os.Mkdir(locked, 0o700)
-	os.Chmod(locked, 0)
-	t.Cleanup(func() { os.Chmod(locked, 0o700) })
-	targets := map[string]string{
-		"missing path":         filepath.Join(dir, "missing"),
-		"regular file":         file,
-		"id no index holds":    "nothing-0123456789ab",
-		"relative path, an id": "some/dir",
-	}
-	if os.Getuid() != 0 {
-		targets["unreadable directory"] = locked
-	}
-	for name, target := range targets {
-		out := h.invoke(t, CapOpen, target)
-		e := out.Error
-		if out.OperationID == "" || out.State != capability.StateFailed || e == nil || e.Code != ErrRootInvalid ||
-			e.Details["target"] != target || e.NextStep != "call `workspace.open` with the absolute path of a readable project directory" {
-			t.Errorf("%s: %+v (%+v)", name, out, e)
-		}
-	}
-}
-
 // TestNewerWorkspaceFileDegrades: a workspace.json of schemaVersion 2 is never
-// overwritten; the workspace opens degraded, and open and describe carry
-// WORKSPACE_STATE_NEWER in degradedBy (ADR-0026; ADR-0021 §Format).
+// overwritten; the workspace opens degraded, and carries WORKSPACE_STATE_NEWER in
+// degradedBy; a call on a degraded workspace is still admitted (ADR-0026; ADR-0021 §Format).
 func TestNewerWorkspaceFileDegrades(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	id, _ := platform.Current().WorkspaceID(root)
 	file := filepath.Join(h.st.Root(), "ws", id, "workspace.json")
 	os.MkdirAll(filepath.Dir(file), 0o700)
@@ -348,18 +377,14 @@ func TestNewerWorkspaceFileDegrades(t *testing.T) {
 	os.Chtimes(file, old, old)
 
 	wantNext := "upgrade droidyard, or delete `" + filepath.Join(h.st.Root(), "ws", id) + "/` to reset this workspace"
-	opened := h.open(t, root)
-	described := h.invoke(t, CapDescribe, root)
-	for name, info := range map[string]any{"open": opened, "describe": described.Result.(Described).Info} {
-		i, ok := info.(Info)
-		if !ok || i.State != Degraded || i.DegradedBy == nil || i.DegradedBy.Code != ErrStateNewer || i.DegradedBy.NextStep != wantNext {
-			t.Errorf("%s: %+v", name, info)
-		}
-		// The unread file's creation time is not known: no createdAt, rather than a
-		// zero time that reads as a date.
-		if raw, _ := json.Marshal(info); i.CreatedAt != nil || strings.Contains(string(raw), "createdAt") {
-			t.Errorf("%s of a degraded workspace carries createdAt: %s", name, raw)
-		}
+	info := h.open(t, root)
+	if info.State != Degraded || info.DegradedBy == nil || info.DegradedBy.Code != ErrStateNewer || info.DegradedBy.NextStep != wantNext {
+		t.Errorf("the workspace of a newer file: %+v", info)
+	}
+	// The unread file's creation time is not known: no createdAt, rather than a zero time
+	// that reads as a date.
+	if raw, _ := json.Marshal(info); info.CreatedAt != nil || strings.Contains(string(raw), "createdAt") {
+		t.Errorf("a degraded workspace carries createdAt: %s", raw)
 	}
 	raw, _ := os.ReadFile(file)
 	fi, _ := os.Stat(file)
@@ -368,11 +393,120 @@ func TestNewerWorkspaceFileDegrades(t *testing.T) {
 	}
 }
 
-// TestStartAdmitsOnlyAnOpenWorkspace: a workspace-scoped call on a target that is not
-// open is rejected at Start with WORKSPACE_NOT_OPEN, nextStep naming workspace.open,
-// no operation and no handler run (ADR-0020 §Core primitives); once it is open, the
-// call runs with the canonical id, whatever spelling named it.
-func TestStartAdmitsOnlyAnOpenWorkspace(t *testing.T) {
+// TestProjectIsRequiredAndAbsolute holds ADR-0137 §3: a project capability's call names its
+// project, by an absolute path to an existing folder, and one that does not is refused at
+// Start, before anything is opened or recorded, in words that say what to pass. A call with
+// no project, a relative path, `~/x`, a folder that does not exist and a file are each
+// REQUEST_INVALID_PARAMS naming `project`; a folder with two builds below it and none above
+// is PROJECT_NO_GRADLE_ROOT with the candidates and the nextStep that tells the caller to
+// pass one of them; the home directory and `/` are a project only by a settings file of their
+// own (ADR-0075 §2). No operation is recorded, no handler runs, nothing is registered.
+func TestProjectIsRequiredAndAbsolute(t *testing.T) {
+	h := newHarness(t, 200*time.Millisecond)
+	dir := project(t)
+	file := filepath.Join(dir, "settings.gradle.txt")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	two := filepath.Join(dir, "two")
+	for _, b := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(two, b), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(two, b, "settings.gradle"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := project(t)
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "only"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "only", "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	const pickStep = "pass the absolute path of one of the candidates (details.candidates, relative to the project) as the project"
+	const folderStep = "pass the absolute path of the project's folder"
+	type projectCase struct {
+		name   string
+		params json.RawMessage
+		code   capability.ErrorCode
+		step   string // the nextStep begins with this
+		msg    string // the message contains this
+	}
+	const takes = "takes `project`"
+	cases := []projectCase{
+		{"no parameters at all", nil, capability.ErrInvalidParams, folderStep, takes},
+		{"parameters with no project", json.RawMessage(`{}`), capability.ErrInvalidParams, folderStep, takes},
+		{"an empty project", projectParams(""), capability.ErrInvalidParams, folderStep, takes},
+		{"a project that is not a string", json.RawMessage(`{"project":["/a"]}`), capability.ErrInvalidParams, folderStep, takes},
+		{"a relative path", projectParams("app/src"), capability.ErrInvalidParams, folderStep, ""},
+		// Folders that exist from this test's own directory, so only the absolute-path rule
+		// refuses them: resolved against the working directory they would be a project, or a
+		// PROJECT_NO_GRADLE_ROOT, never this refusal.
+		{"a relative path that exists", projectParams("."), capability.ErrInvalidParams, folderStep, ""},
+		{"a relative path to a parent that exists", projectParams(".."), capability.ErrInvalidParams, folderStep, ""},
+		{"a path from the home directory", projectParams("~/x"), capability.ErrInvalidParams, folderStep, ""},
+		{"a folder that does not exist", projectParams(filepath.Join(dir, "missing")), capability.ErrInvalidParams, folderStep, ""},
+		{"a file", projectParams(file), capability.ErrInvalidParams, folderStep, ""},
+		{"a folder with two builds below it", projectParams(two), capability.ErrProjectNoGradleRoot, pickStep, ""},
+		{"the home directory, which holds no settings file", projectParams(home), capability.ErrProjectNoGradleRoot, "", ""},
+		{"the filesystem root, which holds none either", projectParams("/"), capability.ErrProjectNoGradleRoot, "", ""},
+	}
+	if os.Getuid() != 0 {
+		locked := filepath.Join(dir, "locked")
+		if err := os.Mkdir(locked, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(locked, 0o700) })
+		cases = append(cases, projectCase{"a folder that cannot be listed", projectParams(locked), capability.ErrInvalidParams, folderStep, ""})
+	}
+	for _, c := range cases {
+		id, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: c.params})
+		e, _ := err.(*capability.Error)
+		if id != "" || e == nil || e.Code != c.code || !strings.HasPrefix(e.NextStep, c.step) || e.NextStep == "" {
+			t.Errorf("%s: Start = %q, %v; want %s with a nextStep beginning %q", c.name, id, err, c.code, c.step)
+			continue
+		}
+		if c.code == capability.ErrInvalidParams && !strings.Contains(e.Message, "project") {
+			t.Errorf("%s: the message %q does not name the parameter", c.name, e.Message)
+		}
+		if !strings.Contains(e.Message, c.msg) {
+			t.Errorf("%s: the message %q does not say %q", c.name, e.Message, c.msg)
+		}
+	}
+	// Two builds below and none above: the candidates are the two folders.
+	_, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(two)})
+	if cand, _ := err.(*capability.Error).Details["candidates"].([]string); !reflect.DeepEqual(cand, []string{"a", "b"}) {
+		t.Errorf("candidates = %v; want [a b]", cand)
+	}
+	h.ws.allMu.RLock()
+	entries := len(h.ws.all)
+	h.ws.allMu.RUnlock()
+	if h.ran.Load() != 0 || h.ops.Running() != 0 || len(h.ops.Active()) != 0 || entries != 0 {
+		t.Fatalf("refused calls ran %d handlers, left %d operations and %d registered workspaces; want none", h.ran.Load(), h.ops.Running(), entries)
+	}
+
+	// The home directory with a settings file of its own is a project, and so is a folder
+	// inside it that holds none of its own: the nearest ancestor decides.
+	if err := os.WriteFile(filepath.Join(home, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.invoke(t, "fixture.scoped", home); out.State != capability.StateCompleted {
+		t.Errorf("the home directory with a settings file: %+v", out)
+	}
+}
+
+// TestStartOpensTheRootItNames: a workspace-scoped call on a root that is not open opens
+// it at Start and runs with the canonical id, whatever spelling named it (ADR-0137 §3). A
+// project that cannot be opened is refused at Start with the code that says why, no
+// operation recorded and no handler run: a path that does not exist and a relative one are
+// REQUEST_INVALID_PARAMS, a folder with no Gradle build PROJECT_NO_GRADLE_ROOT.
+func TestStartOpensTheRootItNames(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
 	dir, err := os.MkdirTemp("/tmp", "wsadmit")
 	if err != nil {
@@ -380,130 +514,232 @@ func TestStartAdmitsOnlyAnOpenWorkspace(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	id, _ := platform.Current().WorkspaceID(dir)
-	for _, target := range []string{dir, id} {
-		opID, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: target})
+	for target, want := range map[string]capability.ErrorCode{
+		filepath.Join(dir, "missing"): capability.ErrInvalidParams,
+		"relative/path":               capability.ErrInvalidParams,
+		id:                            capability.ErrInvalidParams, // an id is no project: ids name no call
+		dir:                           capability.ErrProjectNoGradleRoot,
+	} {
+		opID, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(target)})
 		e, _ := err.(*capability.Error)
-		if opID != "" || codeOf(err) != capability.ErrWorkspaceNotOpen || !strings.Contains(e.NextStep, "workspace.open") {
-			t.Errorf("%s: Start = %q, %v", target, opID, err)
+		if opID != "" || e == nil || e.Code != want || e.NextStep == "" {
+			t.Errorf("%s: Start = %q, %v; want %s with a nextStep", target, opID, err, want)
 		}
 	}
-	if h.ran.Load() != 0 || h.ops.Running() != 0 {
-		t.Fatalf("a rejected call ran (%d) or left an operation (%d)", h.ran.Load(), h.ops.Running())
+	if h.ran.Load() != 0 || h.ops.Running() != 0 || h.ws.State(dir) != "" {
+		t.Fatalf("a refused call ran (%d), left an operation (%d) or opened its root (%q)", h.ran.Load(), h.ops.Running(), h.ws.State(dir))
 	}
 
-	h.open(t, dir)
-	for _, spelling := range []string{dir, platform.Current().Canonical(dir), id} {
+	if err := os.WriteFile(filepath.Join(dir, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "app", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.invoke(t, "fixture.scoped", dir); out.State != capability.StateCompleted || h.ws.State(dir) != Ready {
+		t.Fatalf("a call on a root never opened: %+v, state %q; want completed and ready", out, h.ws.State(dir))
+	}
+	canonical := platform.Current().Canonical(dir)
+	for _, spelling := range []string{dir, dir + "/", canonical, filepath.Join(dir, "app", "src"), filepath.Join(dir, "app", "..")} {
 		out := h.invoke(t, "fixture.scoped", spelling)
-		if out.State != capability.StateCompleted || h.saw.Load() != id {
-			t.Errorf("%s: %+v, the handler saw workspace %v; want %s", spelling, out, h.saw.Load(), id)
+		saw, _ := h.saw.Load().(capability.Call)
+		// Trust, the id and every published path are the resolved root's, never the path passed:
+		// the handler's Root is the project root, whatever folder inside it named the call.
+		if out.State != capability.StateCompleted || saw.Workspace != id || saw.Root != canonical || saw.GradleRoot != canonical {
+			t.Errorf("%s: %+v, the handler saw workspace %q at %q (Gradle root %q); want %s at %s", spelling, out, saw.Workspace, saw.Root, saw.GradleRoot, id, canonical)
 		}
 	}
 }
 
-// TestCloseWithNothingRunningIsImmediate: no operation to drain, no wait.
-func TestCloseWithNothingRunningIsImmediate(t *testing.T) {
+// TestNewerIndexIsNeitherReadNorWritten: with a workspaces.json of schemaVersion 2, a call
+// by root works and skips the index, the file is untouched and recorded (plan m1c, R16;
+// ADR-0021 §Format).
+func TestNewerIndexIsNeitherReadNorWritten(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
-	h.open(t, root)
-	began := time.Now()
-	out := h.invoke(t, CapClose, root)
-	if took := time.Since(began); out.State != capability.StateCompleted || took >= 50*time.Millisecond {
-		t.Errorf("close: %s in %s; want completed in under 50 ms", out.State, took)
+	file := filepath.Join(h.st.Root(), "workspaces.json")
+	newer := []byte(`{"schemaVersion":2,"workspaces":{"x-0123456789ab":{"root":"/nowhere"}}}`)
+	os.WriteFile(file, newer, 0o600)
+
+	root := gradleProject(t)
+	if info := h.open(t, root); info.State != Ready {
+		t.Errorf("a call by root: %+v", info)
 	}
-	if s := h.ws.State(root); s != Closed {
-		t.Errorf("state %s after close", s)
+	if raw, _ := os.ReadFile(file); !bytes.Equal(raw, newer) {
+		t.Errorf("the newer index changed: %q", raw)
 	}
-	if _, err := h.ops.Start(context.Background(), capability.Request{Capability: CapDescribe, Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe after close: %v; want WORKSPACE_NOT_OPEN", err)
+	found := false
+	for _, p := range h.st.Problems() {
+		found = found || (p.File == "workspaces.json" && p.Problem == store.ProblemNewerVersion)
 	}
-	if out := h.invoke(t, CapClose, root); out.State != capability.StateCompleted {
-		t.Errorf("close of a closed workspace: %+v", out)
+	if !found {
+		t.Errorf("problems: %+v", h.st.Problems())
 	}
-	if out := h.invoke(t, CapClose, project(t)); out.State != capability.StateCompleted {
-		t.Errorf("close of a root never opened: %+v", out)
+	if again := h.invoke(t, "fixture.scoped", root); again.State != capability.StateCompleted {
+		t.Errorf("a second call: %+v", again.Error)
 	}
 }
 
-// TestCloseCancelsItsWorkspacesOperations: close returns only after an operation that
-// honours cancellation has ended cancelled, and leaves another workspace's running
-// (ADR-0027).
-func TestCloseCancelsItsWorkspacesOperations(t *testing.T) {
+// TestProductionDrainIs10s: the bound wired when none is given is ADR-0027's.
+func TestProductionDrainIs10s(t *testing.T) {
+	if d := New(Options{}).Drain(); d != 10*time.Second {
+		t.Errorf("drain %s", d)
+	}
+}
+
+// TestUnreadableStateFailsTheCall: when droidyard's own state cannot be read or written, for
+// a reason other than a corrupt file or a newer version, the call that would open the
+// workspace is refused at Start with WORKSPACE_STATE_UNREADABLE, details.target the root,
+// ADR-0026's nextStep, and never REQUEST_INVALID_PARAMS (ADR-0026, second amendment); no
+// operation is recorded and the workspace stays closed.
+func TestUnreadableStateFailsTheCall(t *testing.T) {
+	cases := map[string]func(t *testing.T, state, id string){
+		"workspace.json is a directory": func(t *testing.T, state, id string) {
+			os.MkdirAll(filepath.Join(state, "ws", id, "workspace.json", "x"), 0o700)
+		},
+		"workspaces.json is a directory": func(t *testing.T, state, id string) {
+			os.MkdirAll(filepath.Join(state, "workspaces.json", "x"), 0o700)
+		},
+		"the state directory is read-only": func(t *testing.T, state, id string) {
+			if os.Getuid() == 0 {
+				t.Skip("root writes through permissions")
+			}
+			os.Chmod(state, 0o500)
+			t.Cleanup(func() { os.Chmod(state, 0o700) })
+		},
+	}
+	for name, breakIt := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, 200*time.Millisecond)
+			root := gradleProject(t)
+			id, _ := platform.Current().WorkspaceID(root)
+			breakIt(t, h.st.Root(), id)
+			opID, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(root)})
+			e, _ := err.(*capability.Error)
+			if opID != "" || e == nil || e.Code != ErrStateUnreadable || e.Details["target"] != root ||
+				e.NextStep != "check the permissions and free space of the state directory" || e.Cause == "" || h.ops.Running() != 0 {
+				t.Fatalf("a call on unreadable state: %q, %v; want WORKSPACE_STATE_UNREADABLE and no operation", opID, err)
+			}
+			if s := h.ws.State(root); s == Ready || s == Degraded || s == Opening {
+				t.Errorf("state %s after a failed open", s)
+			}
+		})
+	}
+}
+
+// TestRefusedCallsLeaveNoEntry: a project that cannot be opened is not registered, so a
+// client trying many bad ones does not grow the registry: a missing path, a file, a
+// relative path and a real folder with no Gradle build, each at Start.
+func TestRefusedCallsLeaveNoEntry(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	a, b := project(t), project(t)
-	h.open(t, a)
-	h.open(t, b)
-	inA := h.start(t, "fixture.honours", a)
-	inB := h.start(t, "fixture.honours", b)
-
-	if out := h.invoke(t, CapClose, a); out.State != capability.StateCompleted {
-		t.Fatalf("close: %+v", out)
+	dir := project(t)
+	file := filepath.Join(dir, "file")
+	os.WriteFile(file, nil, 0o600)
+	size := func() int {
+		h.ws.allMu.RLock()
+		defer h.ws.allMu.RUnlock()
+		return len(h.ws.all)
 	}
-	got := h.snapshot(t, inA)
-	if got.State != capability.StateCancelled || got.Error == nil || got.Error.Code != capability.ErrOperationCancelled {
-		t.Errorf("when close returned, its workspace's operation was %+v; want cancelled", got)
+	unopened := project(t)
+	for i := 0; i < 100; i++ {
+		for target, want := range map[string]capability.ErrorCode{
+			filepath.Join(dir, "missing-"+strconv.Itoa(i)): capability.ErrInvalidParams,
+			file + "/" + strconv.Itoa(i):                   capability.ErrInvalidParams,
+			"nothing-" + strconv.Itoa(i):                   capability.ErrInvalidParams,
+			unopened:                                       capability.ErrProjectNoGradleRoot,
+		} {
+			id, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(target)})
+			if id != "" || codeOf(err) != want {
+				t.Fatalf("Start on %s: %q, %v; want %s", target, id, err, want)
+			}
+		}
 	}
-	if other := h.snapshot(t, inB); other.State != capability.StateRunning {
-		t.Errorf("another workspace's operation: %s; want running", other.State)
+	if n := size(); n != 0 {
+		t.Errorf("400 calls rejected at Start left %d registry entries; want 0", n)
 	}
-}
-
-// TestCloseBoundsItsDrain: an operation that ignores cancellation holds close for the
-// drain bound only; close completes with the workspace closed and the operation
-// logged, still running; released, it ends cancelled although its handler returned
-// nil. operation.cancel on the close itself does not stop it: it ends completed
-// (ADR-0027; plan m1c, R15).
-func TestCloseBoundsItsDrain(t *testing.T) {
-	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
-	h.open(t, root)
-	stuck := h.start(t, "fixture.ignores", root)
-
-	began := time.Now()
-	closeID, err := h.ops.Start(context.Background(), capability.Request{Capability: CapClose, Workspace: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitState(t, h.ws, root, Closing)
-	if _, err := h.ops.Invoke(context.Background(), capability.Request{Capability: capability.OperationCancel,
-		Params: json.RawMessage(`{"operationId":"` + closeID + `"}`)}); err != nil {
-		t.Fatal(err)
-	}
-	closed := h.waitEnd(t, closeID)
-	took := time.Since(began)
-	if closed.State != capability.StateCompleted || took < 200*time.Millisecond || took > time.Second {
-		t.Fatalf("close: %s after %s; want completed between 200 ms and 1 s", closed.State, took)
-	}
-	if s := h.ws.State(root); s != Closed {
-		t.Errorf("state %s when close returned", s)
-	}
-	if stopped, _ := h.stopped.Load().(time.Time); stopped.Sub(began) < 200*time.Millisecond {
-		t.Errorf("the stop-sidecars hook ran %s after close began, before the drain ended", stopped.Sub(began))
-	}
-	if !strings.Contains(h.log.String(), stuck) {
-		t.Errorf("no log line names %s: %q", stuck, h.log.String())
-	}
-	if s := h.snapshot(t, stuck); s.State != capability.StateRunning {
-		t.Errorf("the ignoring operation is %s when close returned; want still running", s.State)
-	}
-	close(h.release)
-	if end := h.waitEnd(t, stuck); end.State != capability.StateCancelled || end.Error.Code != capability.ErrOperationCancelled {
-		t.Errorf("released, the operation ended %+v; want cancelled", end)
+	h.open(t, gradleProject(t))
+	if n := size(); n != 1 {
+		t.Errorf("one valid call left %d entries; want 1", n)
 	}
 }
 
-// closing starts a close of root behind an operation that ignores cancellation, and
-// returns once the workspace is closing, with a channel for the close's end.
-func (h *harness) closing(t *testing.T, root string) chan ended {
-	t.Helper()
-	h.start(t, "fixture.ignores", root)
-	first := h.run(CapClose, root)
-	waitState(t, h.ws, root, Closing)
-	return first
-}
+// TestTransitionsArePublished: every workspace transition is published on
+// workspace.lifecycle with the workspace id, the new state as its type and
+// {state, root, degradedBy?} as its payload; root is the canonical project root the id
+// stands for, the one way a client maps an event's workspace to a project (ADR-0137 §3); a
+// second call publishes nothing (workspace-state.md §Observability; plan m1d, D4).
+func TestTransitionsArePublished(t *testing.T) {
+	expect := func(t *testing.T, h *harness, what, id, root string, states ...State) []published {
+		t.Helper()
+		got := h.events.take()
+		var types []string
+		for _, e := range got {
+			types = append(types, e.typ)
+			l, ok := e.payload.(Lifecycle)
+			if e.topic != LifecycleTopic || e.workspace != id || e.operation != "" || !ok || string(l.State) != e.typ || l.Root != root {
+				t.Errorf("%s: published %+v; want %s for %s, type the payload's state, root %s", what, e, LifecycleTopic, id, root)
+			}
+		}
+		var want []string
+		for _, s := range states {
+			want = append(want, string(s))
+		}
+		if !reflect.DeepEqual(types, want) {
+			t.Errorf("%s published %v; want %v", what, types, want)
+		}
+		return got
+	}
 
-type ended struct {
-	out capability.Outcome
-	at  time.Time
+	t.Run("a first call, a second call, a release", func(t *testing.T) {
+		h := newHarness(t, 200*time.Millisecond)
+		root := gradleProject(t)
+		id, _ := platform.Current().WorkspaceID(root)
+		h.open(t, root)
+		expect(t, h, "the first call", id, root, Opening, Ready)
+		h.open(t, root)
+		expect(t, h, "a second call", id, root)
+		h.closeWS(t, root)
+		expect(t, h, "a release", id, root, Closing, Closed)
+	})
+
+	t.Run("the payload carries the root", func(t *testing.T) {
+		h := newHarness(t, 200*time.Millisecond)
+		root := gradleProject(t)
+		h.open(t, root)
+		got := h.events.take()
+		raw, _ := json.Marshal(got[0].payload)
+		if want := `{"state":"opening","root":` + strconv.Quote(root) + `}`; string(raw) != want {
+			t.Errorf("opening's payload encodes as %s; want %s", raw, want)
+		}
+	})
+
+	t.Run("a newer workspace.json", func(t *testing.T) {
+		h := newHarness(t, 200*time.Millisecond)
+		root := gradleProject(t)
+		id, _ := platform.Current().WorkspaceID(root)
+		file := filepath.Join(h.st.Root(), "ws", id, "workspace.json")
+		os.MkdirAll(filepath.Dir(file), 0o700)
+		os.WriteFile(file, []byte(`{"schemaVersion":2}`), 0o600)
+		h.open(t, root)
+		got := expect(t, h, "the first call", id, root, Opening, Degraded)
+		if l, _ := got[len(got)-1].payload.(Lifecycle); l.DegradedBy == nil || l.DegradedBy.Code != ErrStateNewer {
+			t.Errorf("degraded carries %+v; want degradedBy WORKSPACE_STATE_NEWER", l)
+		}
+	})
+
+	t.Run("an unreadable state directory", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("root writes through permissions")
+		}
+		h := newHarness(t, 200*time.Millisecond)
+		root := gradleProject(t)
+		id, _ := platform.Current().WorkspaceID(root)
+		os.Chmod(h.st.Root(), 0o500)
+		t.Cleanup(func() { os.Chmod(h.st.Root(), 0o700) })
+		if _, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(root)}); err == nil {
+			t.Fatal("a call on an unwritable state directory was admitted")
+		}
+		expect(t, h, "a failed open", id, root, Opening, Closed)
+	})
 }
 
 // recv bounds every wait on a channel, so a reversed decision fails the test rather
@@ -520,69 +756,6 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 	return zero
 }
 
-func (h *harness) run(capName, target string) chan ended {
-	ch := make(chan ended, 1)
-	go func() {
-		out, _ := h.ops.Invoke(context.Background(), capability.Request{Capability: capName, Workspace: target})
-		ch <- ended{out, time.Now()}
-	}()
-	return ch
-}
-
-// TestOpenDuringCloseWaitsThenOpens: while a close drains, other workspace-scoped
-// calls are rejected at Start, and an open waits for closed, then opens (ADR-0027).
-func TestOpenDuringCloseWaitsThenOpens(t *testing.T) {
-	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
-	h.open(t, root)
-	first := h.closing(t, root)
-	if _, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
-		t.Errorf("a call during closing: %v; want WORKSPACE_NOT_OPEN", err)
-	}
-	reopen := h.run(CapOpen, root)
-	time.Sleep(100 * time.Millisecond)
-	select {
-	case e := <-reopen:
-		t.Fatalf("open returned during the drain: %+v", e.out)
-	default:
-	}
-	c, o := recv(t, first, "close"), recv(t, reopen, "open")
-	if c.out.State != capability.StateCompleted {
-		t.Errorf("close: %s", c.out.State)
-	}
-	stopped := h.stopped.Load().(time.Time)
-	if o.out.State != capability.StateCompleted || o.out.Result.(Info).State != Ready || o.at.Before(stopped) {
-		t.Errorf("open: %+v at %v; want ready, after the close finished at %v", o.out, o.at, stopped)
-	}
-}
-
-// TestSecondCloseWaitsAndCompletes: a close during a close waits for the first and
-// completes as a no-op (ADR-0027).
-func TestSecondCloseWaitsAndCompletes(t *testing.T) {
-	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
-	h.open(t, root)
-	first := h.closing(t, root)
-	second := h.run(CapClose, root)
-	time.Sleep(100 * time.Millisecond)
-	select {
-	case e := <-second:
-		t.Fatalf("the second close returned during the drain: %+v", e.out)
-	default:
-	}
-	c1, c2 := recv(t, first, "first close"), recv(t, second, "second close")
-	stopped := h.stopped.Load().(time.Time)
-	if c1.out.State != capability.StateCompleted || c2.out.State != capability.StateCompleted || c2.at.Before(stopped) {
-		t.Errorf("closes: %s, %s at %v; want both completed, the second after the first finished at %v", c1.out.State, c2.out.State, c2.at, stopped)
-	}
-	if took := c2.at.Sub(c1.at); took > 50*time.Millisecond {
-		t.Errorf("the second close drained again (%s after the first): it was not a no-op", took)
-	}
-	if s := h.ws.State(root); s != Closed {
-		t.Errorf("state %s", s)
-	}
-}
-
 func waitState(t *testing.T, ws *Registry, target string, want State) {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); ws.State(target) != want; time.Sleep(time.Millisecond) {
@@ -590,270 +763,4 @@ func waitState(t *testing.T, ws *Registry, target string, want State) {
 			t.Fatalf("state %s, want %s", ws.State(target), want)
 		}
 	}
-}
-
-// heldAdmit is the test hook between Start's open check and its recording: it calls
-// the real Admit, whose record it holds until release.
-type heldAdmit struct {
-	real          *Registry
-	held, release chan struct{}
-}
-
-func (h heldAdmit) Admit(target string, record func(id string)) bool {
-	return h.real.Admit(target, func(id string) {
-		close(h.held)
-		<-h.release
-		record(id)
-	})
-}
-
-// TestStartsCheckAndRecordShareCloseLock: an operation admitted by Start's open check
-// is always one the close cancels, because the check, the recording and close's entry
-// into closing share one lock (plan m1c, B1). Start is held after its check and before
-// its recording; close cannot enter closing meanwhile; released, the operation is
-// recorded, close cancels it, and close returns after it has ended cancelled.
-func TestStartsCheckAndRecordShareCloseLock(t *testing.T) {
-	h := newHarness(t, 2*time.Second)
-	root := project(t)
-	h.open(t, root)
-	hook := heldAdmit{real: h.ws, held: make(chan struct{}), release: make(chan struct{})}
-	h.ops.UseWorkspaces(hook)
-
-	started := make(chan string, 1)
-	go func() {
-		id, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.honours", Workspace: root})
-		if err != nil {
-			t.Errorf("Start: %v", err)
-		}
-		started <- id
-	}()
-	recv(t, hook.held, "Start at the hook")
-	closed := make(chan time.Time, 1)
-	go func() {
-		h.ops.Invoke(context.Background(), capability.Request{Capability: CapClose, Workspace: root})
-		closed <- time.Now()
-	}()
-	for until := time.Now().Add(200 * time.Millisecond); time.Now().Before(until); time.Sleep(5 * time.Millisecond) {
-		if s := h.ws.State(root); s == Closing || s == Closed {
-			t.Fatalf("close entered %s while Start held the admission lock", s)
-		}
-		select {
-		case <-closed:
-			t.Fatal("close returned while Start held the admission lock")
-		default:
-		}
-	}
-	close(hook.release)
-	id := recv(t, started, "Start")
-	at := recv(t, closed, "close")
-	out := h.snapshot(t, id)
-	if out.State != capability.StateCancelled || out.Error == nil || out.Error.Code != capability.ErrOperationCancelled {
-		t.Errorf("the admitted operation, when close returned at %v: %+v; want cancelled", at, out)
-	}
-}
-
-// TestNewerIndexIsNeitherReadNorWritten: with a workspaces.json of schemaVersion 2,
-// open by root works and skips the index, open by an id this daemon has not opened
-// fails WORKSPACE_ROOT_INVALID, the file is untouched and recorded, and no call gets
-// REQUEST_INVALID_PARAMS (plan m1c, R16; ADR-0021 §Format).
-func TestNewerIndexIsNeitherReadNorWritten(t *testing.T) {
-	h := newHarness(t, 200*time.Millisecond)
-	file := filepath.Join(h.st.Root(), "workspaces.json")
-	newer := []byte(`{"schemaVersion":2,"workspaces":{"x-0123456789ab":{"root":"/nowhere"}}}`)
-	os.WriteFile(file, newer, 0o600)
-
-	root := project(t)
-	byRoot := h.invoke(t, CapOpen, root)
-	byID := h.invoke(t, CapOpen, "x-0123456789ab")
-	if byRoot.State != capability.StateCompleted || byRoot.Result.(Info).State != Ready {
-		t.Errorf("open by root: %+v %+v", byRoot, byRoot.Error)
-	}
-	if byID.State != capability.StateFailed || byID.Error.Code != ErrRootInvalid {
-		t.Errorf("open by an id only the newer index holds: %+v %+v", byID, byID.Error)
-	}
-	if raw, _ := os.ReadFile(file); !bytes.Equal(raw, newer) {
-		t.Errorf("the newer index changed: %q", raw)
-	}
-	found := false
-	for _, p := range h.st.Problems() {
-		found = found || (p.File == "workspaces.json" && p.Problem == store.ProblemNewerVersion)
-	}
-	if !found {
-		t.Errorf("problems: %+v", h.st.Problems())
-	}
-	id, _ := platform.Current().WorkspaceID(root)
-	if again := h.invoke(t, CapOpen, id); again.State != capability.StateCompleted {
-		t.Errorf("open by the id of a workspace this daemon opened: %+v", again.Error)
-	}
-}
-
-// TestProductionDrainIs10s: the bound wired when none is given is ADR-0027's.
-func TestProductionDrainIs10s(t *testing.T) {
-	if d := New(Options{}).Drain(); d != 10*time.Second {
-		t.Errorf("drain %s", d)
-	}
-}
-
-// TestUnreadableStateFailsTheOpen: when droidyard's own state cannot be read or
-// written, for a reason other than a corrupt file or a newer version, open ends failed
-// with WORKSPACE_STATE_UNREADABLE, details.target as given, ADR-0026's nextStep, and
-// never REQUEST_INVALID_PARAMS (ADR-0026, second amendment).
-func TestUnreadableStateFailsTheOpen(t *testing.T) {
-	cases := map[string]func(t *testing.T, state, id string){
-		"workspace.json is a directory": func(t *testing.T, state, id string) {
-			os.MkdirAll(filepath.Join(state, "ws", id, "workspace.json", "x"), 0o700)
-		},
-		"workspaces.json is a directory": func(t *testing.T, state, id string) {
-			os.MkdirAll(filepath.Join(state, "workspaces.json", "x"), 0o700)
-		},
-		"workspaces.json is a directory, open by id": func(t *testing.T, state, id string) {
-			os.MkdirAll(filepath.Join(state, "workspaces.json", "x"), 0o700)
-		},
-		"the state directory is read-only": func(t *testing.T, state, id string) {
-			if os.Getuid() == 0 {
-				t.Skip("root writes through permissions")
-			}
-			os.Chmod(state, 0o500)
-			t.Cleanup(func() { os.Chmod(state, 0o700) })
-		},
-	}
-	for name, breakIt := range cases {
-		t.Run(name, func(t *testing.T) {
-			h := newHarness(t, 200*time.Millisecond)
-			root := project(t)
-			id, _ := platform.Current().WorkspaceID(root)
-			breakIt(t, h.st.Root(), id)
-			target := root
-			if strings.HasSuffix(name, "by id") {
-				target = id
-			}
-			out := h.invoke(t, CapOpen, target)
-			e := out.Error
-			if out.State != capability.StateFailed || e == nil || e.Code != ErrStateUnreadable || e.Details["target"] != target ||
-				e.NextStep != "check the permissions and free space of the state directory" || e.Cause == "" {
-				t.Fatalf("open: %+v (%+v); want failed with WORKSPACE_STATE_UNREADABLE", out, e)
-			}
-			if s := h.ws.State(root); s == Ready || s == Degraded || s == Opening {
-				t.Errorf("state %s after a failed open", s)
-			}
-			if _, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
-				t.Errorf("a call after the failed open: %v; want WORKSPACE_NOT_OPEN", err)
-			}
-		})
-	}
-}
-
-// TestInvalidOpensLeaveNoEntry: a target that cannot be opened is not registered, so
-// a client trying many bad roots or ids does not grow the registry; nor does a
-// workspace-scoped call at Start, which Admit rejects, on a target that is not open,
-// whether it names a missing path, a file, an unknown id or a real directory.
-func TestInvalidOpensLeaveNoEntry(t *testing.T) {
-	h := newHarness(t, 200*time.Millisecond)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "file")
-	os.WriteFile(file, nil, 0o600)
-	size := func() int {
-		h.ws.allMu.RLock()
-		defer h.ws.allMu.RUnlock()
-		return len(h.ws.all)
-	}
-	for i := 0; i < 100; i++ {
-		for _, target := range []string{filepath.Join(dir, "missing-"+strconv.Itoa(i)), file + "/" + strconv.Itoa(i), "nothing-" + strconv.Itoa(i)} {
-			if out := h.invoke(t, CapOpen, target); out.State != capability.StateFailed || out.Error.Code != ErrRootInvalid {
-				t.Fatalf("open %s: %+v", target, out)
-			}
-		}
-	}
-	if n := size(); n != 0 {
-		t.Errorf("300 invalid opens left %d registry entries; want 0", n)
-	}
-	unopened := t.TempDir()
-	for i := 0; i < 100; i++ {
-		for _, target := range []string{filepath.Join(dir, "missing-"+strconv.Itoa(i)), file + "/" + strconv.Itoa(i), "nothing-" + strconv.Itoa(i), unopened} {
-			for _, capName := range []string{"fixture.scoped", CapDescribe} {
-				id, err := h.ops.Start(context.Background(), capability.Request{Capability: capName, Workspace: target})
-				if id != "" || codeOf(err) != capability.ErrWorkspaceNotOpen {
-					t.Fatalf("Start %s on %s: %q, %v; want WORKSPACE_NOT_OPEN", capName, target, id, err)
-				}
-			}
-		}
-	}
-	if n := size(); n != 0 {
-		t.Errorf("800 calls rejected at Start left %d registry entries; want 0", n)
-	}
-	h.open(t, project(t))
-	if n := size(); n != 1 {
-		t.Errorf("one valid open left %d entries; want 1", n)
-	}
-}
-
-// TestTransitionsArePublished: every workspace transition is published on
-// workspace.lifecycle with the workspace id, the new state as its type and
-// {state, degradedBy?} as its payload; a no-op open publishes nothing
-// (workspace-state.md §Observability; plan m1d, D4).
-func TestTransitionsArePublished(t *testing.T) {
-	expect := func(t *testing.T, h *harness, what, id string, states ...State) []published {
-		t.Helper()
-		got := h.events.take()
-		var types []string
-		for _, e := range got {
-			types = append(types, e.typ)
-			l, ok := e.payload.(Lifecycle)
-			if e.topic != LifecycleTopic || e.workspace != id || e.operation != "" || !ok || string(l.State) != e.typ {
-				t.Errorf("%s: published %+v; want %s for %s, type the payload's state", what, e, LifecycleTopic, id)
-			}
-		}
-		var want []string
-		for _, s := range states {
-			want = append(want, string(s))
-		}
-		if !reflect.DeepEqual(types, want) {
-			t.Errorf("%s published %v; want %v", what, types, want)
-		}
-		return got
-	}
-
-	t.Run("open, a second open, close", func(t *testing.T) {
-		h := newHarness(t, 200*time.Millisecond)
-		root := project(t)
-		id, _ := platform.Current().WorkspaceID(root)
-		h.open(t, root)
-		expect(t, h, "open", id, Opening, Ready)
-		h.open(t, root)
-		expect(t, h, "a second open", id)
-		h.invoke(t, CapClose, root)
-		expect(t, h, "close", id, Closing, Closed)
-	})
-
-	t.Run("a newer workspace.json", func(t *testing.T) {
-		h := newHarness(t, 200*time.Millisecond)
-		root := project(t)
-		id, _ := platform.Current().WorkspaceID(root)
-		file := filepath.Join(h.st.Root(), "ws", id, "workspace.json")
-		os.MkdirAll(filepath.Dir(file), 0o700)
-		os.WriteFile(file, []byte(`{"schemaVersion":2}`), 0o600)
-		h.open(t, root)
-		got := expect(t, h, "open", id, Opening, Degraded)
-		if l, _ := got[len(got)-1].payload.(Lifecycle); l.DegradedBy == nil || l.DegradedBy.Code != ErrStateNewer {
-			t.Errorf("degraded carries %+v; want degradedBy WORKSPACE_STATE_NEWER", l)
-		}
-		if raw, _ := json.Marshal(got[0].payload); string(raw) != `{"state":"opening"}` {
-			t.Errorf("opening's payload encodes as %s; want no degradedBy", raw)
-		}
-	})
-
-	t.Run("an unreadable state directory", func(t *testing.T) {
-		if os.Getuid() == 0 {
-			t.Skip("root writes through permissions")
-		}
-		h := newHarness(t, 200*time.Millisecond)
-		root := project(t)
-		id, _ := platform.Current().WorkspaceID(root)
-		os.Chmod(h.st.Root(), 0o500)
-		t.Cleanup(func() { os.Chmod(h.st.Root(), 0o700) })
-		if out := h.invoke(t, CapOpen, root); out.State != capability.StateFailed {
-			t.Fatalf("open: %+v; want failed", out)
-		}
-		expect(t, h, "a failed open", id, Opening, Closed)
-	})
 }

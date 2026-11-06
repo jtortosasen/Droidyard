@@ -71,16 +71,26 @@ func (r *Registry) Register(d Descriptor) error {
 			return err
 		}
 	}
-	if d.Binding && (d.Statefulness != Stateless || d.Audience != AudienceAll) {
-		// The binding belongs to an MCP session, so only a tool can move it: a stateful
-		// or human-only capability is never one, and the flag would promise a call no
-		// connection can make (ADR-0082 §4).
-		return fmt.Errorf("capability %q: Binding is for a stateless capability of every audience, the MCP tool that moves a session's binding", d.Name)
-	}
-	if d.Lendable && (d.Scope != Global || d.RawTarget || d.Binding) {
+	if d.Lendable && d.Scope != Global {
 		// A peer is another person's daemon: a workspace capability would let it name the
-		// host's workspaces, and a binding belongs to a local MCP session (ADR-0099 §2).
-		return fmt.Errorf("capability %q: Lendable is for a global capability that is neither RawTarget nor Binding", d.Name)
+		// host's projects (ADR-0099 §2).
+		return fmt.Errorf("capability %q: Lendable is for a global capability", d.Name)
+	}
+	if d.ProjectOptional && d.Scope != Workspace {
+		return fmt.Errorf("capability %q: ProjectOptional is for a workspace-scoped capability", d.Name)
+	}
+	if d.Scope == Workspace {
+		// The schema package adds `project` to the input schema, so the parameters must be
+		// an object that has no property of that name: a descriptor that declared one would
+		// publish it twice, or make the core take off a value the handler meant to read.
+		if !isStructType(d.Params) {
+			return fmt.Errorf("capability %q: a workspace-scoped capability takes `%s` beside its parameters, so Params must be a struct", d.Name, ProjectParam)
+		}
+		// Case-insensitively, as encoding/json matches a key to a field: a `Project` field
+		// would receive the value the core takes off.
+		if slices.ContainsFunc(paramNames(d.Params), func(n string) bool { return strings.EqualFold(n, ProjectParam) }) {
+			return fmt.Errorf("capability %q: a workspace-scoped capability must not declare a parameter named `%s`: the schema adds it", d.Name, ProjectParam)
+		}
 	}
 	if d.Occupies != "" && d.Occupies != OccupiesAct && d.Occupies != OccupiesBoot {
 		return fmt.Errorf("capability %q: Occupies %q is neither %q nor %q", d.Name, d.Occupies, OccupiesAct, OccupiesBoot)
@@ -211,4 +221,16 @@ func (d Descriptor) ResolveAnnotations() ResolvedAnnotations {
 		OpenWorld:   openWorld,
 		Reason:      d.Annotations.Reason,
 	}
+}
+
+// isStructType reports whether v is a struct or a pointer to one.
+func isStructType(v any) bool {
+	t := reflect.TypeOf(v)
+	if t == nil {
+		return false
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t.Kind() == reflect.Struct
 }

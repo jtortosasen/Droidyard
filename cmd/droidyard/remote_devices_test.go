@@ -224,7 +224,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 		// 3 s limits, which no test of a lab with processes claims.
 		hostSeam.floor = adbFloorFor()
 	}
-	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, 0, hostConfig)
+	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, hostConfig)
 	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.store, lab.host.adb, lab.host.log)
 	var once sync.Once
 	lab.stopHost = func() { once.Do(stop) }

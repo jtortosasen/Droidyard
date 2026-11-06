@@ -1,5 +1,10 @@
 # MVP
 
+> Scope since 3j ([ADR-0137](../adr/0137-machine-level-android-tool.md)): Droidyard is a
+> machine-level Android tool. The web UI, Git, files, sessions, the assistant hooks and
+> `shell.exec` left, and a project is named per call. The tables below stay the MVP's
+> record, and still name what has left.
+
 The first version: the smallest end-to-end system that can validate the core
 hypothesis, and nothing else. Anything not listed under **In scope** is a non-goal for
 the MVP. Where a milestone stands is in [`../plans/README.md`](../plans/README.md); this

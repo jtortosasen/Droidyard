@@ -5,27 +5,22 @@ import (
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
 // TestOperationStateCarriesTheSession is the promise of ADR-0048: the operation.state
 // events and operation.watch's rows name the session that made a call, so the UI can tell
 // two agents of the same client kind apart. Two real MCP shims, named "agent-a" and
-// "agent-b" in initialize and bound to two project roots, a WebSocket session, a plain
-// POST /v1/call and a CLI call, all through one daemon. Each shim's workspace.describe and
-// system.health events carry its own session id, its own name and the workspace of its
-// bound root; its bound workspace.open, which runs before initialize, carries the id and
-// no name; the WebSocket's carry its id and no name; the plain HTTP call carries no
-// session at all. A name is bounded and cleaned by the store (TestSessionNameIsBounded).
+// "agent-b" in initialize, started in two project folders, a WebSocket session, a plain
+// POST /v1/call and a CLI call, all through one daemon. Each shim's fixture_touch (a call
+// that names a project, which opens it) and system_health events carry its own session id
+// and its own name, and no workspace: a session is bound to nothing (ADR-0137 §2); the
+// WebSocket's carry its id and no name; the plain HTTP call carries no session at all. A
+// name is bounded and cleaned by the store (TestSessionNameIsBounded).
 func TestOperationStateCarriesTheSession(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
 	rootA, _ := projectWith(t, "settings.gradle")
 	rootB, _ := projectWith(t, "settings.gradle.kts")
-	idOf := func(root string) string {
-		id, _ := platform.Current().WorkspaceID(root)
-		return id
-	}
 
 	w := wsConnect(t, p)
 	w.send("watch", "operation.watch", "", `{}`, nil)
@@ -48,8 +43,8 @@ func TestOperationStateCarriesTheSession(t *testing.T) {
 			wsSession = op.Session
 		}
 	}
-	if wsSession == nil || wsSession.ID == "" || wsSession.Name != "" || wsSession.Workspace != "" {
-		t.Fatalf("the WebSocket's own row carries %+v; want an id and no name or workspace", wsSession)
+	if wsSession == nil || wsSession.ID == "" || wsSession.Name != "" {
+		t.Fatalf("the WebSocket's own row carries %+v; want an id and no name", wsSession)
 	}
 
 	a := startShimIn(t, p.state, rootA, "a", []string{"mcp", "--no-autostart"})
@@ -57,9 +52,10 @@ func TestOperationStateCarriesTheSession(t *testing.T) {
 	b := startShimIn(t, p.state, rootB, "b", []string{"mcp", "--no-autostart"})
 	b.initialize("agent-b")
 	for i, s := range []*shim{a, b} {
-		s.callTool(10+i, "workspace_describe", `{}`)
+		root := []string{rootA, rootB}[i]
+		s.callTool(10+i, "fixture_touch", `{"project":`+quote(root)+`}`)
 		if v := response(t, s.recv(), 10+i); v == nil {
-			t.Fatalf("%s: workspace_describe answered nothing", s.name)
+			t.Fatalf("%s: fixture_touch answered nothing", s.name)
 		}
 		s.callTool(20+i, "system_health", `{}`)
 		if v := response(t, s.recv(), 20+i); v == nil {
@@ -117,9 +113,6 @@ func TestOperationStateCarriesTheSession(t *testing.T) {
 			if s.ID != aID {
 				t.Errorf("agent-a is session %s and %s", aID, s.ID)
 			}
-			if s.Workspace != idOf(rootA) {
-				t.Errorf("agent-a's %s event names workspace %q; want its bound root's %q", e.payload.Capability, s.Workspace, idOf(rootA))
-			}
 		case s.Name == "agent-b":
 			if bID == "" {
 				bID = s.ID
@@ -127,14 +120,10 @@ func TestOperationStateCarriesTheSession(t *testing.T) {
 			if s.ID != bID {
 				t.Errorf("agent-b is session %s and %s", bID, s.ID)
 			}
-			if s.Workspace != idOf(rootB) {
-				t.Errorf("agent-b's %s event names workspace %q; want its bound root's %q", e.payload.Capability, s.Workspace, idOf(rootB))
-			}
 		case e.payload.Client == capability.ClientMCP:
-			// The bound open, made before initialize: the session's id, no name.
-			if e.payload.Capability != "workspace.open" {
-				t.Errorf("an MCP %s event has no session name; only the bound workspace.open runs before initialize", e.payload.Capability)
-			}
+			// An MCP session calls nothing before initialize: every one of its events has its
+			// client's name.
+			t.Errorf("an MCP %s event has no session name", e.payload.Capability)
 		case e.payload.Client == capability.ClientUI:
 			if s.ID != wsSession.ID || s.Name != "" {
 				t.Errorf("a WebSocket %s event carries %+v; want id %s and no name", e.payload.Capability, s, wsSession.ID)
@@ -146,21 +135,6 @@ func TestOperationStateCarriesTheSession(t *testing.T) {
 	}
 	if len(byClient[capability.ClientMCP]) != 2 {
 		t.Errorf("the MCP events came from sessions %v; want exactly agent-a's and agent-b's", byClient[capability.ClientMCP])
-	}
-	// The bound opens: each carries its shim's id, no name, and no workspace, which was not
-	// open when the call was recorded.
-	opens := map[string]bool{}
-	for _, e := range events {
-		if e.payload.Capability == "workspace.open" && e.payload.Client == capability.ClientMCP {
-			if s := e.payload.Session; s == nil || s.Name != "" || s.Workspace != "" || (s.ID != aID && s.ID != bID) {
-				t.Errorf("a bound workspace.open event carries %+v; want agent-a's or agent-b's id, no name and no workspace", s)
-			} else {
-				opens[s.ID] = true
-			}
-		}
-	}
-	if !opens[aID] || !opens[bID] {
-		t.Errorf("the bound opens seen were of sessions %v; want both shims'", opens)
 	}
 	// The CLI call: a session of its own, with no name.
 	for _, e := range events {
@@ -179,7 +153,7 @@ type sessionEvent struct {
 }
 
 // sessionEventsDone reports whether every call of the scenario has completed: the two
-// workspace.describe calls, the five system.health calls (two shims, the WebSocket, the plain HTTP
+// fixture.touch calls, the five system.health calls (two shims, the WebSocket, the plain HTTP
 // call and the CLI), the last two named by operation id.
 func sessionEventsDone(events []sessionEvent, httpOp, cliOp string) bool {
 	completed := map[string]bool{}
@@ -190,5 +164,5 @@ func sessionEventsDone(events []sessionEvent, httpOp, cliOp string) bool {
 			byCap[e.payload.Capability]++
 		}
 	}
-	return completed[httpOp] && completed[cliOp] && byCap["workspace.describe"] >= 2 && byCap["system.health"] >= 5
+	return completed[httpOp] && completed[cliOp] && byCap["fixture.touch"] >= 2 && byCap["system.health"] >= 5
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -34,7 +35,6 @@ func specs(reg *capability.Registry) []cli.Spec {
 			Scope:           d.Scope,
 			Statefulness:    d.Statefulness,
 			LongRunning:     d.LongRunning,
-			Binding:         d.Binding,
 			Audience:        d.Audience,
 			Annotations:     d.ResolveAnnotations(),
 			Description:     d.Description,
@@ -137,6 +137,7 @@ func (ct *cmdTree) dispatch(args []string, out, errOut io.Writer) int {
 // else the generic one. `droidyard call` stays the envelope.
 func (ct *cmdTree) runDerived(d cli.Derived) int {
 	c := d.Call
+	ct.defaultProject(&c)
 	if !d.JSON {
 		c.Human = true
 		c.Who = strings.ReplaceAll(c.Capability, ".", " ")
@@ -146,6 +147,68 @@ func (ct *cmdTree) runDerived(d cli.Derived) int {
 		}
 	}
 	return runCapability(strings.ReplaceAll(d.Call.Capability, ".", " "), c)
+}
+
+// absoluteAPK makes a relative `apk` of a device.install call absolute against this
+// process's current directory, as a person writes it (`--apk app.apk`); the daemon has no
+// cwd of this process and refuses a relative path, as MCP's calls still do.
+func absoluteAPK(c *cli.Call) {
+	if c.Capability != "device.install" {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(c.Params, &fields) != nil {
+		return
+	}
+	var apk string
+	if json.Unmarshal(fields["apk"], &apk) != nil || apk == "" || filepath.IsAbs(apk) {
+		return
+	}
+	abs, err := filepath.Abs(apk)
+	if err != nil {
+		return
+	}
+	fields["apk"], _ = json.Marshal(abs)
+	if out, err := json.Marshal(fields); err == nil {
+		c.Params = out
+	}
+}
+
+// defaultProject gives a call that takes a project the one the command line names, as an
+// absolute path, or the current directory when it names none (ADR-0137 §5): the daemon has
+// no cwd of this process, so the path goes in the call. A capability that takes none, and
+// one the registry does not know (the daemon answers it), are left as they are.
+func (ct *cmdTree) defaultProject(c *cli.Call) {
+	if ct == nil || ct.reg == nil {
+		return
+	}
+	absoluteAPK(c)
+	d, ok := ct.reg.Lookup(c.Capability)
+	if !ok || d.Scope != capability.Workspace {
+		return
+	}
+	if c.Project == "" && d.ProjectOptional && !callNames(c.Params, "build") {
+		// device.install takes a project for a build only (ADR-0137 §4): an apk install is
+		// not given the current directory, which need not be a project.
+		return
+	}
+	if c.Project == "" {
+		// A project in --params is the call's project: the current directory does not stand in
+		// beside it, and a --project given too is refused by the adapter.
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(c.Params, &fields) == nil {
+			if _, ok := fields[capability.ProjectParam]; ok {
+				return
+			}
+		}
+		if cwd, err := os.Getwd(); err == nil {
+			c.Project = cwd
+		}
+		return
+	}
+	if abs, err := filepath.Abs(c.Project); err == nil {
+		c.Project = abs
+	}
 }
 
 // help prints the help for a path: the index, a domain, a verb or a hand command.
@@ -200,15 +263,13 @@ func handCommands(ct *cmdTree) []handCommand {
 		{name: "serve", summary: "Run the core daemon in the foreground, until SIGTERM or SIGINT.", help: serveHelp,
 			run: serve},
 		{name: "call", summary: "Call one capability by its name and print its response envelope.", help: callHelp,
-			run: call},
-		{name: "status", summary: "Report on the running daemon: its socket and the web UI's address.", help: statusHelp,
+			run: func(args []string) int { return call(ct, args) }},
+		{name: "status", summary: "Report on the running daemon: its socket and the HTTP API's address.", help: statusHelp,
 			run: func([]string) int { return status() }},
 		{name: "stop", summary: "Stop the running daemon.", help: stopHelp,
 			run: func([]string) int { return stop() }},
 		{name: "mcp", summary: "Attach an MCP stdio session to the daemon.", help: mcpHelp,
 			run: mcpShim},
-		{name: "ui", summary: "Open the web UI in the default browser, at the tokenised URL.", help: uiHelp,
-			run: ui},
 		{name: "trust", summary: "Grant a project root trust, so capabilities that run its code may.", help: trustHelp,
 			run: trust},
 		{name: "id", summary: "Print this daemon's fingerprint, what a host pins to admit it.", help: idHelp,
@@ -233,10 +294,8 @@ func handCommands(ct *cmdTree) []handCommand {
 			run: stdio(joinCmd)},
 		{name: "init", summary: "Set a project up for coding assistants (optional).", help: initHelp,
 			run: stdio(initCmd)},
-		{name: "hook", summary: "Answer one coding assistant's hook event (run by an assistant's hook entry).", help: hookHelp, ownHelp: true,
+		{name: "hook", summary: "Pass one coding assistant's hook event (kept one minor for old init entries).", help: hookHelp, ownHelp: true,
 			run: func(args []string) int { return hook(args, os.Stdin, os.Stdout, os.Stderr) }},
-		{name: "trash", summary: "Move files to the project's trash, where they can be restored.", help: trashHelp, ownHelp: true,
-			run: stdio(trashCmd)},
 		{name: "artifact cat", summary: "Write a text artifact's bytes to standard output, unchanged.", help: artifactCatHelp,
 			run: func(args []string) int {
 				return artifactCmd(append([]string{"cat"}, args...), os.Stdout, os.Stderr)
@@ -276,15 +335,25 @@ func sections() (before, after []cli.Section) {
 Usage:
   droidyard [<command>]
 
-With no command, droidyard runs ui.
+With no command, droidyard prints this help.
 droidyard help <command> shows a command's own help; droidyard <domain> --help lists
 a domain's verbs.`}}
 	after = []cli.Section{
-		{Title: "Project", Body: list("ui", "trust", "init", "trash")},
+		{Title: "Project", Body: list("trust", "init")},
 		{Title: "The daemon", Body: list("serve", "status", "stop", "id", "version")},
 		{Title: "Assistants", Body: list("mcp", "hook")},
 		{Title: "Sharing devices", Body: list("share", "unshare", "join", "host", "remote", "device allow", "device disallow")},
 		{Title: "The raw door", Body: list("call", "caps", "schema", "help", "artifact cat")},
 	}
 	return before, after
+}
+
+// callNames reports whether the parameter object params carries a field called name.
+func callNames(params json.RawMessage, name string) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(params, &fields) != nil {
+		return false
+	}
+	_, ok := fields[name]
+	return ok
 }

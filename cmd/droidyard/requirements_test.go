@@ -64,26 +64,6 @@ func TestRequirementsAskTheSidecarClientAboutGradle(t *testing.T) {
 	}
 }
 
-// TestRequirementsAskThePathAboutGit pins that the git requirement is a lookup of the
-// executable at every question (ADR-0066 §1), not a constant and not cached at startup:
-// with no git on the PATH it is missing with a reason, and once a git is there it is
-// available without a restart, which is what system.capabilities shows and what git.read
-// answers GIT_NOT_FOUND by.
-func TestRequirementsAskThePathAboutGit(t *testing.T) {
-	bin := t.TempDir()
-	t.Setenv("PATH", bin)
-	reason, missing := (requirements{}).Missing(capability.RequiresGit)
-	if !missing || !strings.Contains(reason, "git") || !strings.Contains(reason, "PATH") {
-		t.Errorf("with no git on PATH: missing %v, reason %q; want missing and naming the PATH", missing, reason)
-	}
-	if err := writeExecutable(filepath.Join(bin, "git")); err != nil {
-		t.Fatal(err)
-	}
-	if reason, missing := (requirements{}).Missing(capability.RequiresGit); missing {
-		t.Errorf("with git on PATH: missing, %q", reason)
-	}
-}
-
 func writeExecutable(path string) error {
 	return os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755)
 }

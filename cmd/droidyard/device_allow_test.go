@@ -27,7 +27,7 @@ func deviceVerb(pol *policy.Policy, args ...string) (code int, out, errs string)
 func TestDeviceAllowCLI(t *testing.T) {
 	t.Run("each verb's devices section", func(t *testing.T) {
 		pol, _ := hostingPolicy(t)
-		if _, err := pol.Update(context.Background(), updateOf(t, `{"shell":{"enabled":true}}`)); err != nil {
+		if _, err := pol.Update(context.Background(), updateOf(t, `{"hosting":{"on":"lan"}}`)); err != nil {
 			t.Fatal(err)
 		}
 		if code, _, errs := deviceVerb(pol, "allow", "R58M"); code != 0 {
@@ -39,8 +39,8 @@ func TestDeviceAllowCLI(t *testing.T) {
 		if got := pol.Get().Devices; !got.AllowPhysical || !reflect.DeepEqual(got.Allowlist, []string{"R58M", "qa-lab/R99"}) {
 			t.Fatalf("devices after two allows = %+v", got)
 		}
-		if !pol.Get().Shell.Enabled {
-			t.Error("allow lost the shell section")
+		if pol.Get().Hosting.On != "lan" {
+			t.Error("allow lost the hosting section")
 		}
 		if code, _, errs := deviceVerb(pol, "disallow", "R58M"); code != 0 {
 			t.Fatalf("disallow exited %d: %s", code, errs)

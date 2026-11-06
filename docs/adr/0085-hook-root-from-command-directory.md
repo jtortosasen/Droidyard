@@ -1,6 +1,6 @@
 # ADR-0085: The hook records where the command ran
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0095 (§Decision)
 - Superseded in part by: ADR-0124 (§Decision)
 - Date: 2026-10-18

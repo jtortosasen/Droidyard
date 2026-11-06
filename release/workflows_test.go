@@ -2,6 +2,7 @@ package release
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -61,10 +62,8 @@ func nonLinux(fs files) (bad []string) {
 	return bad
 }
 
-// The six commands .githooks/pre-commit runs over the tree (ADR-0068 §3).
+// The four commands .githooks/pre-commit runs over the tree (ADR-0068 §3).
 var hookChecks = []string{
-	"pnpm -C web install --frozen-lockfile",
-	"pnpm -C web run verify",
 	"go build ./...",
 	`test -z "$(gofmt -l .)"`,
 	"go vet ./...",
@@ -572,5 +571,57 @@ func TestNoExpressionInRun(t *testing.T) {
 	noEnv := mutateIn(t, r, "publish", "    env:\n      TAG: ${{ github.ref_name }}\n", "")
 	if len(runProblems(files{"release.yml": noEnv})) == 0 {
 		t.Error("publish using $TAG without declaring it passes")
+	}
+}
+
+// releaseTagRules reads what release.yml says about a tag: the glob of its `push: tags:`
+// trigger and the extended regular expression of its "Tag shape" step.
+func releaseTagRules(t *testing.T, text string) (glob string, shape *regexp.Regexp) {
+	t.Helper()
+	g := regexp.MustCompile(`(?m)^\s*tags:\s*\['([^']+)'\]`).FindStringSubmatch(text)
+	s := regexp.MustCompile(`grep -Eq '([^']+)'`).FindStringSubmatch(text)
+	if g == nil || s == nil {
+		t.Fatalf("release.yml has no tag trigger or no tag-shape check I can read: %v %v", g, s)
+	}
+	re, err := regexp.Compile(s[1])
+	if err != nil {
+		t.Fatalf("the tag-shape expression %q: %v", s[1], err)
+	}
+	return g[1], re
+}
+
+// tagReleases says whether a pushed tag starts the release workflow and passes its shape
+// check: the glob matches (a `*` does not cross a `/`, as GitHub's), and the shape is
+// vMAJOR.MINOR.PATCH.
+func tagReleases(glob string, shape *regexp.Regexp, tag string) bool {
+	ok, err := path.Match(glob, tag)
+	return err == nil && ok && shape.MatchString(tag)
+}
+
+// TestReleaseAcceptsTheFirstMajor holds ADR-0137 §8's version through the release workflow:
+// the API goes from 0.x to 1.0.0 (plan m3j step 6), and a tag of v1.0.0 is released as v0.41.0
+// was, while a tag that is not vMAJOR.MINOR.PATCH still is not (v1.0.0-rc.1 matches the glob
+// and stops at the shape check). The rule is read from release.yml, and proven on a copy whose
+// shape check is pinned to 0.x, which must reject the tag it is meant to accept.
+func TestReleaseAcceptsTheFirstMajor(t *testing.T) {
+	text := workflows(t)["release.yml"]
+	glob, shape := releaseTagRules(t, text)
+	for _, tag := range []string{"v1.0.0", "v0.41.0", "v10.20.30"} {
+		if !tagReleases(glob, shape, tag) {
+			t.Errorf("the release workflow does not take the tag %s (glob %q, shape %s)", tag, glob, shape)
+		}
+	}
+	for _, tag := range []string{"v1.0.0-rc.1", "1.0.0", "v1.0", "v1.0.0/x", "v1.0.0 "} {
+		if tagReleases(glob, shape, tag) {
+			t.Errorf("the release workflow takes the tag %q, which is not vMAJOR.MINOR.PATCH", tag)
+		}
+	}
+	pinned := strings.Replace(text, `'^v[0-9]+\.[0-9]+\.[0-9]+$'`, `'^v0\.[0-9]+\.[0-9]+$'`, 1)
+	if pinned == text {
+		t.Fatal("the mutated copy changed nothing: the tag-shape line moved")
+	}
+	g2, s2 := releaseTagRules(t, pinned)
+	if tagReleases(g2, s2, "v1.0.0") {
+		t.Error("a shape check pinned to 0.x accepted v1.0.0: the check above cannot fail")
 	}
 }

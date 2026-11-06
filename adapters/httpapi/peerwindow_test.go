@@ -169,7 +169,7 @@ func TestPeerAckFloodAndBadAckCloseTheSocket(t *testing.T) {
 // the local socket too: the frame never reached the viewer.
 func TestLocalSocketHandsTypeFourToTheViewer(t *testing.T) {
 	v := &fakeViewer{data: []byte{1}, closed: make(chan struct{}), inputs: make(chan []byte, 8), inputErr: ErrInputMalformed}
-	srv := New(nil, nil, nil, "tok", nil)
+	srv := New(nil, nil, nil, "tok")
 	srv.UseScreens(func(id string) (ScreenViewer, error) { return v, nil })
 	ts := httptest.NewServer(srv)
 	defer ts.Close()

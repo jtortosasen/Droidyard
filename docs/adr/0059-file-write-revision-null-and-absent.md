@@ -1,6 +1,6 @@
 # ADR-0059: `ifRevision` null is refused, and `absent` is settled by existence
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-12
 - Supersedes: ADR-0058 §Decision (in part: item 2's "a target over 8 MiB is
   `FILE_TOO_LARGE`" and its silence on null; item 4's mutex scope as stated in §Consequences)

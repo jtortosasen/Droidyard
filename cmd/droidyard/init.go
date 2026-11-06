@@ -18,7 +18,6 @@ import (
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 	"github.com/jtortosasen/droidyard/skills"
@@ -134,7 +133,7 @@ func initCmd(args []string, out, errw io.Writer) int {
 		return initUser(cwd, clients, *dryRun, *uninstall, out, errw)
 	}
 	// init writes into the user's project, so it does not guess one: without --root the
-	// project is the one `droidyard ui` opens (ADR-0075 §6): found by a settings.gradle
+	// project is the one a call from here names (ADR-0075 §6): found by a settings.gradle
 	// at or above the working directory, or the top of a repository whose Gradle build
 	// is one or two folders below. The home directory is never a project (its .cursor
 	// and .claude are the user's global configuration).
@@ -143,10 +142,10 @@ func initCmd(args []string, out, errw io.Writer) int {
 		p, ok := projectOf(cwd)
 		if !ok {
 			cause := "no Gradle root"
-			if g := workspace.ResolveGradleRoot(cwd, false); g.Err != nil {
+			if g := workspace.ResolveGradleRoot(cwd); g.Err != nil {
 				cause = g.Err.Cause
 			}
-			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, and %s; choose one with \"gradleRoot\" in its .droidyard/project.json, or name the project with --root\n%s\n", cwd, cause, initUsage)
+			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, and %s; name the project with --root\n%s\n", cwd, cause, initUsage)
 			return 2
 		}
 		root = p
@@ -196,7 +195,7 @@ func initCmd(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "droidyard init: the ignore block:", ignoreErr)
 		return 1
 	}
-	if g := workspace.ResolveGradleRoot(root, true); g.Err == nil {
+	if g := workspace.ResolveGradleRoot(root); g.Err == nil {
 		fmt.Fprintf(out, "Gradle root: %s\n", g.Abs)
 	} else {
 		fmt.Fprintf(out, "Gradle root: none (%s). %s\n", g.Err.Cause, g.Err.NextStep)
@@ -229,8 +228,8 @@ func flagClash(user, root, exclude, gitignore bool) string {
 	return ""
 }
 
-// initInputs are what every run of init writes: the binary entries run, the state root a
-// client's hook environment lacks, and the read-only tools. A non-zero code is the exit.
+// initInputs are what every run of init writes: the binary entries run, the state root
+// Cursor's server entry carries, and the read-only tools. A non-zero code is the exit.
 func initInputs(errw io.Writer) (command, stateDir string, tools []string, code int) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -242,8 +241,8 @@ func initInputs(errw io.Writer) (command, stateDir string, tools []string, code 
 		fmt.Fprintln(errw, "droidyard init:", err)
 		return "", "", nil, 1
 	}
-	// A client's hook environment lacks DROIDYARD_STATE_DIR, so a custom state root is
-	// written into the hook command (ADR-0061 §3).
+	// Cursor rebuilds the server's environment, so a custom state root is written into its
+	// entry.
 	if env := platform.Current(); env.Getenv("DROIDYARD_STATE_DIR") != "" {
 		if stateDir, err = env.StateDir(); err != nil {
 			fmt.Fprintln(errw, "droidyard init:", err)
@@ -342,7 +341,7 @@ func startInGroup(cmd *exec.Cmd) error {
 }
 
 // ignoreStep keeps (or on uninstall takes out) the block of the run's untracked files in
-// each target (ADR-0124 §4). The repository is read through the git package's runner,
+// each target (ADR-0124 §4). The repository is read through the assistant package's hardened runner,
 // untrusted. A root outside a repository, or no git, is not an error: an install is
 // refused by Ignore with its reason, an uninstall has no block to remove.
 func ignoreStep(root string, changes []assistant.Change, targets []assistant.IgnoreTarget, dry, uninstall bool) ([]assistant.Change, error) {
@@ -351,9 +350,9 @@ func ignoreStep(root string, changes []assistant.Change, targets []assistant.Ign
 		paths = assistant.IgnoreCandidates(changes)
 	}
 	gitPath, _ := exec.LookPath("git")
-	repo, err := git.Tracked(context.Background(), startInGroup, gitPath, os.Environ(), root, paths)
-	inRepo, noGit := err == nil, errors.Is(err, git.ErrNotFound)
-	if err != nil && !noGit && !errors.Is(err, git.ErrNotRepository) {
+	repo, err := assistant.Tracked(context.Background(), startInGroup, gitPath, os.Environ(), root, paths)
+	inRepo, noGit := err == nil, errors.Is(err, assistant.ErrGitNotFound)
+	if err != nil && !noGit && !errors.Is(err, assistant.ErrNotRepository) {
 		return nil, err
 	}
 	var out []assistant.Change
@@ -423,11 +422,6 @@ func printInit(w io.Writer, target, command string, res assistant.Result, tools 
 	}
 	if uninstall {
 		return
-	}
-	for _, c := range assistant.Clients() {
-		if cmd, ok := res.Hooks[c]; ok {
-			fmt.Fprintf(w, "The %s hook, which, when a daemon runs, sends an agent's simple rm inside the project to droidyard's trash and records the agent's Android commands in Activity, and hints at the droidyard tool for them, runs: %s\n", c, cmd)
-		}
 	}
 	if len(res.Allowed) == 0 {
 		return

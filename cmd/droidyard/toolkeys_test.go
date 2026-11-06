@@ -20,14 +20,14 @@ import (
 // adb is found, and the shared server on 5037 is never reached.
 func startInProcessConfigFile(t *testing.T, configBody string) *inProcess {
 	t.Helper()
-	return startInProcessConfig(t, "127.0.0.1:0", nil, nil, 0, configBody)
+	return startInProcessConfig(t, "127.0.0.1:0", nil, nil, configBody)
 }
 
 // startInProcessConfigADB is startInProcessConfigFile with a fake adb the daemon is
 // given too, so a configured `tools.adb` can be resolved and reported.
 func startInProcessConfigADB(t *testing.T, configBody string, adb *adbSeam) *inProcess {
 	t.Helper()
-	return startInProcessConfig(t, "127.0.0.1:0", nil, adb, 0, configBody)
+	return startInProcessConfig(t, "127.0.0.1:0", nil, adb, configBody)
 }
 
 // adbRejected reports whether rejected lists candidate with source and a reason
@@ -104,9 +104,6 @@ func TestAnInvalidConfigurationAtStartIsReportedByEveryResolution(t *testing.T) 
 	// (ADR-0032 §6).
 	root, _ := gradleProject(t)
 	writeConfig(t, p, `{"schemaVersion":1,"trust":{"roots":["`+root+`"]}}`)
-	if env, code := callIn(t, p.state, root, "workspace.open"); code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
-	}
 	env, code = callIn(t, p.state, root, "build.tasks")
 	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrBuildSidecarUnavailable {
 		t.Fatalf("build.tasks exited %d with %+v; want BUILD_SIDECAR_UNAVAILABLE", code, env)

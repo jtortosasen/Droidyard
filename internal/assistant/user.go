@@ -25,8 +25,9 @@ import (
 //   - Claude's MCP entry lives in .claude.json, which Claude rewrites while it runs and
 //     which is often over 1 MiB, so it is never written here: it is read, and Claude's own
 //     CLI changes it through Options.ClaudeMCP.
-//   - A hook entry of the rootless shape is init's, replaced when stale and removed on
-//     uninstall. One that names a root (`hook --client claude --root /p`) is the user's.
+//   - No hook is written. A hook entry of the rootless shape is init's, an earlier run's,
+//     and is removed. One that names a root (`hook --client claude --root /p`) is the
+//     user's.
 //   - Change.Path is the absolute path, slash-separated.
 
 // UserDirs are the directories and the file a user-level run reads and writes. The caller
@@ -222,12 +223,12 @@ func runUser(o Options) (Result, error) {
 	}
 
 	if cursorRoot != nil {
-		server := stdioServer{Command: o.Command, Args: []string{"mcp", "--from", "${workspaceFolder}"}}
+		server := stdioServer{Command: o.Command, Args: []string{"mcp"}}
 		if o.StateDir != "" {
 			// Cursor rebuilds the server's environment (row 199), as in a project.
 			server.Env = map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}
 		}
-		file(cursorRoot, jsonJob("mcp.json", jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: rawJSON(server)}}}), "")
+		file(cursorRoot, jsonJob("mcp.json", jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: rawJSON(server), stale: staleStdioServer(server.Env)}}}), "")
 		spec, err := allowlistSpec(Cursor, tools, allowed)
 		if err != nil {
 			return Result{}, err
@@ -235,7 +236,9 @@ func runUser(o Options) (Result, error) {
 		// No deny array, unlike a project's cli.json: step 1 saw no evidence that
 		// cursor-agent needs one in cli-config.json (plan m3a P3).
 		file(cursorRoot, jsonJob("cli-config.json", spec), cursorConfigNote)
-		file(cursorRoot, jsonJob("hooks.json", cursorHookSpec(o)), "")
+		if !cursorRoot.fs.absent("hooks.json") {
+			file(cursorRoot, cursorHooksFile("hooks.json", ""), "")
+		}
 	}
 
 	if claudeRoot != nil {
@@ -243,25 +246,19 @@ func runUser(o Options) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		spec.arrays = append(spec.arrays, claudeHookArrays(o)...)
-		file(claudeRoot, jsonJob("settings.json", spec), "")
+		file(claudeRoot, withHookCleanup(jsonJob("settings.json", spec), claudeHookCleanup("")), "")
 		steps = append(steps, func() Change { return claudeMCPChange(o) })
 	}
 
 	if openCodeRoot != nil {
 		entry := rawJSON(openCodeServer{Type: "local", Command: []string{o.Command, "mcp"}, Codemode: false})
-		spec := jsonSpec{keys: []keyEntry{{path: openCodeServers, key: ServerName, value: entry}}}
+		spec := jsonSpec{keys: []keyEntry{{path: openCodeServers, key: ServerName, value: entry, stale: staleOpenCodeServer}}}
 		for _, j := range openCodeJobs(openCodeRoot.fs, spec, o.Uninstall) {
 			file(openCodeRoot, j, "")
 		}
 	}
 
-	res := Result{Allowed: allowed, Hooks: map[Client]string{}}
-	for _, c := range o.Clients {
-		if hasHook(c) {
-			res.Hooks[c] = HookCommand(o, c)
-		}
-	}
+	res := Result{Allowed: allowed}
 	for _, step := range steps {
 		res.Changes = append(res.Changes, step())
 	}

@@ -43,7 +43,7 @@ func textServer(t *testing.T, mediaType string, growing, untrusted bool, body st
 		},
 	})
 	ops.RegisterCapabilities()
-	h := New(reg, ops, nil, "tok", nil)
+	h := New(reg, ops, nil, "tok")
 	h.UseTextArtifacts(func(id string) (TextFile, error) {
 		// The bytes served must be the artifact the read authorized: the path's id.
 		if id != "r.20261021T100000Z-0123abcd" && id != "e.x.1.aaaaaaaaaaaa" && id != "b.1" {

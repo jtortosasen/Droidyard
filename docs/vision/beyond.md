@@ -6,6 +6,11 @@ and no milestone. Each capability becomes milestones, each with its plan and ADR
 the owner picks it. [`vision.md`](vision.md) stays the statement of what exists; where
 this document departs from it, the departure is named under §Decisions it reopens.
 
+Since 3j ([ADR-0137](../adr/0137-machine-level-android-tool.md)) the UI, Git, files, sessions
+and worktree ownership are not Droidyard's: they went to a separate project, and what this
+vision says of "the UI", of the Sessions column and of C2 is that project's to decide.
+Droidyard keeps the Android part: devices, emulators, the SDK, builds and the API a UI calls.
+
 ## The vision
 
 Droidyard started as an MCP surface that abstracts Android, and grew into a runtime with

@@ -63,47 +63,48 @@ func TestUpdateAppliesARestrictedMergePatch(t *testing.T) {
   "schemaVersion": 1,
   "future": {"x": 1},
   "trust":   {"roots": ["/kept"], "prefixes": ["/p"], "unknown": true},
-  "devices": {"allowPhysical": false, "allowlist": ["SER"]},
+  "devices": {"allowPhysical": false, "allowlist": ["SER"], "extra": 1},
   "shell":   {"enabled": false, "roots": ["/s"], "extra": 1},
   "gradle":  {"sidecarJavaHome": null, "allowBelowFloor": true},
   "tools":   {"adb": "/usr/bin/adb", "emulator": null}
 }`)
 	before := read(t, path)
 
-	got, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`))
+	got, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"devices": {"allowPhysical": true}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	after := read(t, path)
 
-	// Only shell.enabled differs, JSON-equal otherwise.
-	for _, key := range []string{"future", "trust", "devices", "gradle", "tools"} {
+	// Only devices.allowPhysical differs, JSON-equal otherwise; the `shell` section an older
+	// droidyard wrote is an unknown key now (ADR-0137 §1), and is kept like any other.
+	for _, key := range []string{"future", "trust", "shell", "gradle", "tools"} {
 		if !reflect.DeepEqual(after[key], before[key]) {
 			t.Errorf("%s changed by an unrelated update:\nbefore %#v\nafter  %#v", key, before[key], after[key])
 		}
 	}
-	shBefore := before["shell"].(map[string]any)
-	shAfter := after["shell"].(map[string]any)
-	if shAfter["enabled"] != true {
-		t.Errorf("shell.enabled = %v; want true", shAfter["enabled"])
+	devBefore := before["devices"].(map[string]any)
+	devAfter := after["devices"].(map[string]any)
+	if devAfter["allowPhysical"] != true {
+		t.Errorf("devices.allowPhysical = %v; want true", devAfter["allowPhysical"])
 	}
-	if shAfter["extra"] != shBefore["extra"] || !reflect.DeepEqual(shAfter["roots"], shBefore["roots"]) {
-		t.Errorf("the shell section was replaced, not merged: before %#v after %#v", shBefore, shAfter)
+	if devAfter["extra"] != devBefore["extra"] || !reflect.DeepEqual(devAfter["allowlist"], devBefore["allowlist"]) {
+		t.Errorf("the devices section was replaced, not merged: before %#v after %#v", devBefore, devAfter)
 	}
-	if got.State != policy.StateOK || !got.Shell.Enabled {
-		t.Errorf("Update result = %+v; want state ok and shell enabled (D2's shape after the write)", got)
+	if got.State != policy.StateOK || !got.Devices.AllowPhysical {
+		t.Errorf("Update result = %+v; want state ok and physical devices allowed (D2's shape after the write)", got)
 	}
 
 	// A null section is removed and its defaults apply.
-	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": null}`)); err != nil {
+	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"devices": null}`)); err != nil {
 		t.Fatal(err)
 	}
 	removed := read(t, path)
-	if _, ok := removed["shell"]; ok {
-		t.Errorf("{\"shell\": null} left the section: %v", removed["shell"])
+	if _, ok := removed["devices"]; ok {
+		t.Errorf("{\"devices\": null} left the section: %v", removed["devices"])
 	}
-	if s := policy.New(envAt(dir)).Get(); s.Shell.Enabled || len(s.Shell.Roots) != 0 {
-		t.Errorf("after removing the section: shell = %+v; want defaults", s.Shell)
+	if s := policy.New(envAt(dir)).Get(); s.Devices.AllowPhysical || len(s.Devices.Allowlist) != 0 {
+		t.Errorf("after removing the section: devices = %+v; want defaults", s.Devices)
 	}
 }
 
@@ -140,13 +141,16 @@ func TestUpdateRefusesUnknownOrWrongKeysAtStart(t *testing.T) {
 
 	for _, body := range []string{
 		`{"gradle": {}}`,
-		`{"shell": {"enable": true}}`,
+		`{"trust": {"root": []}}`,
+		// shell.exec left with ADR-0137 §1: its section is no longer a patch key.
+		`{"shell": {"enabled": true}}`,
+		`{"shell": null}`,
 		`{"schemaVersion": 2}`,
 		`{"trust": {"roots": "x"}}`,
 		`{"devices": {"allowlist": [1]}}`,
 		// Case variants: encoding/json would match them, the merge would write them.
-		`{"Shell": {"enabled": true}}`,
-		`{"shell": {"Roots": ["rel"]}}`,
+		`{"Trust": {"roots": ["/x"]}}`,
+		`{"devices": {"Allowlist": []}}`,
 	} {
 		_, err := ops.Start(context.Background(), capability.Request{
 			Capability: "policy.update", Params: json.RawMessage(body), Client: capability.ClientCLI,
@@ -178,7 +182,7 @@ func TestUpdateCanonicalisesPathsAndRejectsRelative(t *testing.T) {
 	before, mtime := raw(t, path)
 	for _, c := range []struct{ body, key string }{
 		{`{"trust": {"roots": ["rel"]}}`, "trust.roots"},
-		{`{"shell": {"roots": ["./here"]}}`, "shell.roots"},
+		{`{"trust": {"prefixes": ["./here"]}}`, "trust.prefixes"},
 	} {
 		_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, c.body))
 		if e := errCode(err); e == nil || e.Code != capability.ErrInvalidParams || !strings.Contains(e.Cause, c.key) {
@@ -203,7 +207,7 @@ func TestUpdateRefusesAnInvalidOrNewerFileUntouched(t *testing.T) {
 		path := write(t, dir, body)
 		before, mtime := raw(t, path)
 
-		_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`))
+		_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"devices": {"allowPhysical": true}}`))
 		if e := errCode(err); e == nil || e.Code != capability.ErrPolicyConfigUnusable {
 			t.Errorf("%s = %v; want POLICY_CONFIG_UNUSABLE", body, err)
 		}
@@ -224,7 +228,7 @@ func TestUpdateRefusesAReadOnlyDirectory(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`))
+	_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"devices": {"allowPhysical": true}}`))
 	if e := errCode(err); e == nil || e.Code != capability.ErrPolicyConfigUnusable || e.Cause == "" {
 		t.Fatalf("a read-only directory = %v; want POLICY_CONFIG_UNUSABLE with the OS error as cause", err)
 	}
@@ -238,7 +242,7 @@ func TestUpdateRefusesAReadOnlyDirectory(t *testing.T) {
 func TestUpdateIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, `{"schemaVersion":1}`)
-	body := `{"shell": {"enabled": true, "roots": ["/w"]}, "devices": {"allowPhysical": true, "allowlist": ["SER"]}}`
+	body := `{"trust": {"roots": ["/w"]}, "devices": {"allowPhysical": true, "allowlist": ["SER"]}}`
 
 	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, body)); err != nil {
 		t.Fatal(err)
@@ -253,20 +257,20 @@ func TestUpdateIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestUpdateMakesTheShellPolicyLive: an update takes effect on the next check, without
+// TestUpdateMakesTheTrustPolicyLive: an update takes effect on the next check, without
 // a restart (ADR-0032 §6; plan m1k A3). A cache that did not drop would keep answering
 // from the state before the write.
-func TestUpdateMakesTheShellPolicyLive(t *testing.T) {
+func TestUpdateMakesTheTrustPolicyLive(t *testing.T) {
 	dir := t.TempDir()
 	p := policy.New(envAt(dir))
-	if ok, _ := p.ShellAllowed("/w/proj"); ok {
-		t.Fatal("the shell is allowed before it is enabled")
+	if ok, _ := p.Trusted("/w/proj"); ok {
+		t.Fatal("the root is trusted before it is named")
 	}
-	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"roots": ["/w/proj"]}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"trust": {"roots": ["/w/proj"]}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := p.ShellAllowed("/w/proj"); !ok || err != nil {
-		t.Errorf("ShellAllowed after the update = %v, %v; want true without a restart", ok, err)
+	if ok, err := p.Trusted("/w/proj"); !ok || err != nil {
+		t.Errorf("Trusted after the update = %v, %v; want true without a restart", ok, err)
 	}
 }
 
@@ -357,7 +361,7 @@ func TestUpdateRefusesAFileOverTheReadersBound(t *testing.T) {
 func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	dir := t.TempDir()
 	p := policy.New(envAt(dir))
-	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"roots": ["/w/aa"]}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"trust": {"roots": ["/w/aa"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, policy.FileName)
@@ -365,10 +369,10 @@ func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := p.ShellAllowed("/w/bb"); ok {
+	if ok, _ := p.Trusted("/w/bb"); ok {
 		t.Fatal("/w/bb allowed before the update")
 	}
-	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"roots": ["/w/bb"]}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"trust": {"roots": ["/w/bb"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
@@ -377,8 +381,8 @@ func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	if fi2, _ := os.Stat(path); fi2.Size() != fi.Size() {
 		t.Fatalf("the rewrite changed the size (%d → %d); the row needs equal sizes", fi.Size(), fi2.Size())
 	}
-	if ok, err := p.ShellAllowed("/w/bb"); !ok {
-		t.Errorf("ShellAllowed(/w/bb) after the update = %v, %v; the cache served the old file", ok, err)
+	if ok, err := p.Trusted("/w/bb"); !ok {
+		t.Errorf("Trusted(/w/bb) after the update = %v, %v; the cache served the old file", ok, err)
 	}
 }
 
@@ -407,7 +411,7 @@ func TestUpdateLockWaitHonoursCancel(t *testing.T) {
 	t.Cleanup(func() { policy.SetLockSeam(nil) })
 	done := make(chan *capability.Error, 1)
 	go func() {
-		_, err := policy.New(envAt(dir)).Update(ctx, patch(t, `{"shell": {"enabled": true}}`))
+		_, err := policy.New(envAt(dir)).Update(ctx, patch(t, `{"devices": {"allowPhysical": true}}`))
 		done <- err
 	}()
 	<-about
@@ -435,7 +439,7 @@ func TestUpdateLockWaitHonoursCancel(t *testing.T) {
 // last-wins patch would apply the second value unseen (step 7's verifier).
 func TestPatchWithARepeatedKeyIsRefused(t *testing.T) {
 	var p policy.UpdateParams
-	if err := json.Unmarshal([]byte(`{"shell":{"enabled":false,"enabled":true}}`), &p); err == nil {
-		t.Fatal("a patch repeating shell.enabled was accepted")
+	if err := json.Unmarshal([]byte(`{"devices":{"allowPhysical":false,"allowPhysical":true}}`), &p); err == nil {
+		t.Fatal("a patch repeating devices.allowPhysical was accepted")
 	}
 }

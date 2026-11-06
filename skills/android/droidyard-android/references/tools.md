@@ -14,7 +14,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `build_tasks` |  | read-only | Lists the tasks that exist in the project, filtered by module, group or a name substring, from the cached project model (it never runs Gradle). |
 | `device_forceStop` |  | changes state | Force-stops an application, which ends its processes and loses its unsaved in-memory state, and reports whether it was running. |
 | `device_inputText` | core | changes state | Types text into the focused field, or into target after tapping it once, and verifies the effect in the same call; clear empties the field first and ... |
-| `device_install` | core | changes state | Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. |
+| `device_install` | core | changes state | Installs an APK on the device with adb install -r, which keeps the app's data: a build's output (build, with project; buildId absent means the newest ... |
 | `device_launch` | core | changes state | Starts an application's launcher activity, or with url opens that link in the app, and returns launchedAt and the process id observed afterwards ... |
 | `device_list` | core | read-only | Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model ... |
 | `device_logs` | core | read-only | Reads the device's log once, or follows it for followMs: structured lines, crash blocks, how lines were selected, and a capture of the matches. |
@@ -46,10 +46,5 @@ A session started with `--tools core` lists only the tools marked core.
 | `sdk_profiles` |  | read-only | Lists the device profiles AVDs are created from (id, name, maker, kind); use an id as emulator_create's profile. |
 | `sdk_requirements` |  | read-only | Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and, for each, ... |
 | `sdk_status` |  | read-only | Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, ... |
-| `shell_exec` |  | changes state | Runs a shell command as the user with `/bin/sh -c` in the project root, or in cwd inside it; stdout and stderr are each the last 16 KiB, and a longer ... |
 | `system_capabilities` |  | read-only | Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point. |
 | `system_health` |  | read-only | Reports whether the core is alive, its version, uptime and operations in flight, where adb and the JVM were found, any state file it could not use, ... |
-| `workspace_close` |  | changes state | Closes the workspace for every session: cancels its running operations, waits up to 10 s for them, and stops its processes. |
-| `workspace_describe` | core | read-only | Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, when degraded why, and the project's git worktrees with their ... |
-| `workspace_enter` | core | changes state | Moves this session into a git worktree of its project, occupying it, or back to the project's root, which frees what it occupies: later calls act on ... |
-| `workspace_open` | core | changes state | Opens the workspace for a project root, or returns its state if it is already open. |

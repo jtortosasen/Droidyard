@@ -69,11 +69,10 @@ func newOccFix(t *testing.T) *occFix {
 	return f
 }
 
-// connect registers an MCP session of its own chat, named name, bound at the main tree.
+// connect registers an MCP session of its own chat, named name.
 func (f *occFix) connect(id, name string) {
 	f.sessions.Connect(id, "chat-"+id)
 	f.sessions.Named(id, name)
-	f.sessions.Opened(id, "/main", "ws-main", "/main")
 }
 
 // who is the caller of a request.
@@ -93,12 +92,12 @@ var (
 // as runs a capability as w and waits for its outcome.
 func (f *occFix) as(t *testing.T, w who, name, params string) capability.Outcome {
 	t.Helper()
-	ws := ""
+	raw := []byte(params)
 	if name == "device.install" {
-		ws = installWS
+		raw = withProject(params, installWS)
 	}
 	id, err := f.ops.Start(context.Background(), capability.Request{
-		Capability: name, Workspace: ws, Params: []byte(params), Client: w.client,
+		Capability: name, Params: raw, Client: w.client,
 		Origin: capability.Origin{ID: w.id, Client: w.client, Joined: w.joined},
 	})
 	if ce := capability.AsError(err); ce != nil {
@@ -279,18 +278,19 @@ func TestDeviceOccupation(t *testing.T) {
 		}
 	})
 
-	t.Run("entering the main tree releases, the end releases, a vanished serial releases", func(t *testing.T) {
+	t.Run("the end releases, a vanished serial releases", func(t *testing.T) {
 		f := newOccFix(t)
 		f.connect("a", "agent-a")
 		f.connect("b", "agent-b")
 		mustOK(t, "A's launch", f.as(t, mcp("a"), "device.launch", launchParams))
 		mustFail(t, f.as(t, mcp("b"), "device.install", installParams), ErrOccupied)
 
-		// A's "task done": it enters the main tree it is already at.
-		f.sessions.Occupy("a", "ws-main", "/main", false)
+		// A's end frees the device it held.
+		f.sessions.End("a")
 		if _, ok := f.holder(uiSerial); ok {
-			t.Fatal("A entering the main tree kept the device")
+			t.Fatal("A's end kept the device")
 		}
+		f.connect("a", "agent-a")
 		mustOK(t, "B's install", f.as(t, mcp("b"), "device.install", installParams))
 		if h, ok := f.holder(uiSerial); !ok || h.Name != "agent-b" {
 			t.Fatalf("after B's install the holder is %+v, %v; want agent-b", h, ok)

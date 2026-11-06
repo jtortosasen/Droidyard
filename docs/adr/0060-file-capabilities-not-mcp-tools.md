@@ -1,6 +1,6 @@
 # ADR-0060: The file capabilities are not MCP tools
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0095 (§Consequences)
 - Date: 2026-10-12
 - Supersedes: ADR-0053 §Decision (in part: item 1's "MCP tools under `--tools all`"; item 2's text rendering and "a successful MCP call")

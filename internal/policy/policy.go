@@ -5,13 +5,15 @@
 // migrated or reset with the state.
 //
 // Trust is the project's (ADR-0081): a root that is a linked worktree of a trusted
-// repository's main tree is trusted too, and matches `shell.roots` by the same rule.
+// repository's main tree is trusted too.
 // It never flows the other way, from a worktree to its main tree or to a sibling, and
 // the proof is git's own files inside the trusted repository (platform.LinkedWorktree).
 // `droidyard trust <path>` still trusts exactly the path it is given.
 //
-// Version 1 of the file has eight sections: `trust`, `devices`, `shell`, `gradle`,
+// Version 1 of the file has seven sections: `trust`, `devices`, `gradle`,
 // `tools` (ADR-0032 §1), `occupation` (ADR-0094 §7), `hosting` and `remotes` (ADR-0098 §6).
+// A `shell` section an older droidyard wrote is an unknown key like any other (ADR-0137 §1):
+// kept on every rewrite, never read.
 // Every key is optional; a `null` value is its default. Unknown keys, at the top level and
 // inside a known section, are kept on every rewrite and ignored, so a newer droidyard's
 // keys survive an older one's edit; the exception is a key inside an entry of a list
@@ -21,7 +23,7 @@
 // enabling the wrong thing. A peer's or a remote's name, fingerprint or address that fails
 // its rule (hosting.go) makes the file invalid in the same way.
 //
-// The section a check reads — trust, shell, devices, hosting — is read from one
+// The section a check reads — trust, devices, hosting — is read from one
 // size-and-mtime snapshot, so a hand edit or a `droidyard trust` takes effect without a
 // restart (ADR-0031 §4; ADR-0032 §6). The tool keys are read once, at daemon start;
 // `hosting.listen`, `hosting.on`, `hosting.port` and `remotes` are followed live, within
@@ -60,7 +62,7 @@ const LockName = FileName + ".lock"
 
 // schemaVersion is the only configuration schema version this binary reads and writes.
 // A file of a newer version is treated like an unparseable one: nothing is trusted, no
-// physical device is admitted, shell.exec stays off, no tool key is used, and it is
+// physical device is admitted, no tool key is used, and it is
 // never rewritten (ADR-0032 §4).
 const schemaVersion = 1
 
@@ -165,8 +167,8 @@ func (p *Policy) Authorize(rootOf RootOf) func(context.Context, *capability.Call
 	return func(_ context.Context, call *capability.Call) (any, error) {
 		root, ok := rootOf(call)
 		if !ok || root == "" {
-			return nil, capability.Errorf(capability.ErrWorkspaceNotOpen, "the call names no project root, so its trust cannot be decided").
-				WithNextStep("open a workspace, then retry")
+			return nil, capability.NewError(capability.ErrInvalidParams, "the call names no project root, so its trust cannot be decided").
+				WithNextStep("pass the absolute path of the project's folder as project")
 		}
 		canonical := p.env.Canonical(root)
 		trusted, err := p.Trusted(canonical)
@@ -182,39 +184,6 @@ func (p *Policy) Authorize(rootOf RootOf) func(context.Context, *capability.Call
 		}
 		return canonical, nil
 	}
-}
-
-// ShellAllowed reports whether shell.exec may run with root as its project root:
-// `shell.enabled`, or root equal to or under a `shell.roots` entry at a path-component
-// boundary, or a linked worktree of such a root (ADR-0032 §2; plan m1k D4; ADR-0081 §4).
-// When it may not, the returned failure is
-// POLICY_SHELL_DISABLED; its cause names the file when the configuration is invalid,
-// and it always names the file in its nextStep. A missing file keeps the shell off.
-func (p *Policy) ShellAllowed(root string) (bool, *capability.Error) {
-	if p.dirErr != nil {
-		return false, p.shellDisabled(root, p.dirErr.Error())
-	}
-	snap := p.snapshot()
-	if snap.err != nil {
-		return false, p.shellDisabled(root, snap.err.Cause)
-	}
-	if !snap.present {
-		return false, p.shellDisabled(root, "")
-	}
-	if snap.doc.shell.enabled {
-		return true, nil
-	}
-	canonical := p.env.Canonical(root)
-	shellRoots := p.canonical(snap.doc.shell.roots)
-	if trustedBy(nil, shellRoots, canonical) {
-		return true, nil
-	}
-	// The shell is the project's choice too (ADR-0081 §4): a linked worktree of a
-	// `shell.roots` project may run it.
-	if main, ok := platform.LinkedWorktree(p.env, canonical); ok && trustedBy(nil, shellRoots, main) {
-		return true, nil
-	}
-	return false, p.shellDisabled(root, "")
 }
 
 // Occupation is `occupation.conflict` and `occupation.staleAfterMinutes` (ADR-0094 §7):
@@ -433,12 +402,6 @@ type DevicePolicy struct {
 	Allowlist     []string `json:"allowlist" jsonschema:"required" jsonschema_description:"The exact physical serials admitted."`
 }
 
-// ShellPolicy is the shell section as policy.get returns it.
-type ShellPolicy struct {
-	Enabled bool     `json:"enabled" jsonschema:"required" jsonschema_description:"Whether shell.exec is enabled everywhere."`
-	Roots   []string `json:"roots" jsonschema:"required" jsonschema_description:"The project roots shell.exec is enabled for."`
-}
-
 // GetResult is policy.get's result: the policy sections as written in the file, with
 // the defaults when it is missing or invalid (plan m1k D2).
 type GetResult struct {
@@ -447,7 +410,6 @@ type GetResult struct {
 	Error   string       `json:"error,omitempty" jsonschema_description:"The parse error, when state is invalid."`
 	Trust   TrustPolicy  `json:"trust" jsonschema:"required"`
 	Devices DevicePolicy `json:"devices" jsonschema:"required"`
-	Shell   ShellPolicy  `json:"shell" jsonschema:"required"`
 	// Hosting and Remotes are the peer sections (ADR-0098 §6).
 	Hosting HostingPolicy `json:"hosting" jsonschema:"required"`
 	Remotes []Remote      `json:"remotes" jsonschema:"required" jsonschema_description:"The hosts this daemon pairs with, dialled as the list changes; their devices join the device list as <name>/<serial>."`
@@ -486,7 +448,6 @@ func (p *Policy) Get() GetResult {
 		Path:    p.path,
 		Trust:   TrustPolicy{Roots: []string{}, Prefixes: []string{}},
 		Devices: DevicePolicy{Allowlist: []string{}},
-		Shell:   ShellPolicy{Roots: []string{}},
 		Hosting: HostingPolicy{Peers: []HostPeer{}, Lend: []Lend{}},
 		Remotes: []Remote{},
 	}
@@ -507,7 +468,6 @@ func (p *Policy) Get() GetResult {
 	res.State = StateOK
 	res.Trust = TrustPolicy{Roots: nonNil(snap.doc.trust.roots), Prefixes: nonNil(snap.doc.trust.prefixes)}
 	res.Devices = DevicePolicy{AllowPhysical: snap.doc.devices.allowPhysical, Allowlist: nonNil(snap.doc.devices.allowlist)}
-	res.Shell = ShellPolicy{Enabled: snap.doc.shell.enabled, Roots: nonNil(snap.doc.shell.roots)}
 	res.Hosting, _ = p.Hosting()
 	res.Remotes, _ = p.Remotes()
 	return res
@@ -527,7 +487,7 @@ func Register(reg *capability.Registry, p *Policy) {
 		Scope:       capability.Global,
 		Audience:    capability.AudienceHuman,
 		Since:       "0.10.0",
-		Description: "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices, shell, hosting and remotes sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
+		Description: "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices, hosting and remotes sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
 		Params:      None{},
 		Result:      GetResult{},
 		Handler:     func(context.Context, *capability.Call) (any, error) { return p.Get(), nil },
@@ -539,7 +499,7 @@ func Register(reg *capability.Registry, p *Policy) {
 		Audience:    capability.AudienceHuman,
 		Since:       "0.10.0",
 		Idempotent:  true,
-		Description: "Applies a JSON Merge Patch (RFC 7386) to the trust, devices, shell, hosting and remotes sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
+		Description: "Applies a JSON Merge Patch (RFC 7386) to the trust, devices, hosting and remotes sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
 		Params:      UpdateParams{},
 		Result:      GetResult{},
 		Errors:      []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams, capability.ErrPolicyRevisionConflict},
@@ -584,21 +544,6 @@ func worktreeUntrustedError(root, main string) *capability.Error {
 		WithNextStep(UntrustedError(main).NextStep)
 }
 
-// shellDisabled is the fixed failure of shell.exec on a root the policy does not admit
-// (ADR-0015 §7; ADR-0032 §2). Its message tells the human what enabling it would mean —
-// once on, the agent runs any command as the user, with the user's full reach over
-// droidyard's own configuration and trust included (Q1, delegated) — its nextStep names
-// the configuration file so a human can enable the root, and its cause names the file
-// when the file is the problem (plan m1k D4, D6; ADR-0032 Q1).
-func (p *Policy) shellDisabled(root, cause string) *capability.Error {
-	e := capability.Errorf(capability.ErrPolicyShellDisabled, "shell.exec is not enabled for the project root %q; enabling it lets an agent run any command as you, with your full rights over this machine, droidyard's own configuration and trust included", root).
-		WithNextStep("ask the user to enable shell.exec for this project (`shell.roots` in " + p.path + ", or the human-only policy.update), or use a modelled capability; nothing ran, so this call is safe to repeat once it is enabled")
-	if cause != "" {
-		e = e.WithCause(cause)
-	}
-	return e
-}
-
 // configurationError is the failure when the configuration file cannot be read or
 // parsed. Its cause names the file (plan m1g D1).
 func configurationError(path string, err error) *capability.Error {
@@ -613,7 +558,7 @@ func configurationError(path string, err error) *capability.Error {
 
 // trustedBy is the trust rule: an exact entry, or a prefix at a path-component
 // boundary, so prefix /a/b trusts /a/b/c and not /a/bc (plan m1g D1). It is the rule
-// both `trust.prefixes` and `shell.roots` use.
+// `trust.prefixes` uses.
 func trustedBy(roots, prefixes []string, root string) bool {
 	for _, r := range roots {
 		if r == root {
@@ -788,7 +733,6 @@ type document struct {
 	top     map[string]json.RawMessage // every top-level key, as it was
 	trust   trustSection
 	devices deviceSection
-	shell   shellSection
 	gradle  gradleSection
 	tools   toolsSection
 	hosting HostingPolicy
@@ -815,11 +759,6 @@ type trustSection struct {
 type deviceSection struct {
 	allowPhysical bool
 	allowlist     []string
-}
-
-type shellSection struct {
-	enabled bool
-	roots   []string
 }
 
 type gradleSection struct {
@@ -860,9 +799,6 @@ func decode(data []byte) (*document, error) {
 		return nil, err
 	}
 	if err := decodeDevices(top["devices"], doc); err != nil {
-		return nil, err
-	}
-	if err := decodeShell(top["shell"], doc); err != nil {
 		return nil, err
 	}
 	if err := decodeGradle(top["gradle"], doc); err != nil {
@@ -930,7 +866,7 @@ func decodeOccupation(raw json.RawMessage, doc *document) error {
 
 // rejectDuplicateKeys fails a document that repeats a key within one object, at any
 // depth. encoding/json keeps the last of two equal keys, so a hand-edited file with two
-// `shell` sections would silently enable what the first one said off (or the reverse);
+// `trust` sections would silently trust what the first one said not to (or the reverse);
 // a duplicate makes the file unparseable instead, which is the fail-closed path of
 // ADR-0031 §3 and ADR-0032 §4. The error names the key and the path to it. data has
 // already parsed as one JSON value, so only the repeat is looked for here.
@@ -1039,32 +975,6 @@ func decodeDevices(raw json.RawMessage, doc *document) error {
 				}
 			}
 			doc.devices.allowlist = list
-		}
-	}
-	return nil
-}
-
-func decodeShell(raw json.RawMessage, doc *document) error {
-	if absent(raw) {
-		return nil
-	}
-	var s map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return fmt.Errorf("shell: %w", err)
-	}
-	for k, v := range s {
-		switch k {
-		case "enabled":
-			if isNull(v) {
-				continue
-			}
-			if err := json.Unmarshal(v, &doc.shell.enabled); err != nil {
-				return fmt.Errorf("shell.enabled: %w", err)
-			}
-		case "roots":
-			if err := decodePaths("shell.roots", v, &doc.shell.roots); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

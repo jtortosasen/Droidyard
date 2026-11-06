@@ -1,6 +1,6 @@
 # ADR-0088: A session carries its chat's id, and a resumed chat gets its worktree back
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0095 (§Decision)
 - Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0127 (§Decision 4)

@@ -1,6 +1,6 @@
 # ADR-0089: `workspace.describe` lists the project's worktrees
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Superseded in part by: ADR-0094 (§Decision)
 - Date: 2026-10-18
 - Relates to: ADR-0081 §2, ADR-0082 §2, §6; plan m2q step 5

@@ -13,6 +13,24 @@ type devHold struct {
 	seq   uint64
 }
 
+// How a session's claim on a device stands (occupyDevice).
+type claim int
+
+const (
+	// claimFree: nobody holds it, or the holder's record is gone.
+	claimFree claim = iota
+	// claimSelf: the session holds it already.
+	claimSelf
+	// claimShared: another live session of the same chat holds it; both are one chat
+	// (ADR-0094 §1), so neither is refused and the second does not hold.
+	claimShared
+	// claimTakeover: an idle session of another chat holds it; acting takes it over
+	// (ADR-0094 §4).
+	claimTakeover
+	// claimBlocked: a live, non-idle session of another chat holds it.
+	claimBlocked
+)
+
 // devicesOf is the serials session id holds, sorted; nil when none. mu is held.
 func (s *Sessions) devicesOf(id string) []string {
 	var out []string

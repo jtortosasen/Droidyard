@@ -34,19 +34,20 @@ Run the core daemon in the foreground, until SIGTERM or SIGINT; --detach runs it
 session of its own, logging to daemon.log.
 `
 
-const callHelp = `droidyard call <capability> [--workspace <id|root>] [--params <json>] [--detach] [--no-autostart]
+const callHelp = `droidyard call <capability> [--project <path>] [--params <json>] [--detach] [--no-autostart]
 
 Call one capability and print its response envelope. This is the raw door: every
 capability is also a command of its own, droidyard <domain> <verb>.
---workspace names the workspace; without it, a workspace call uses the project root of
-the current directory.
+--project names the project a build, project or SDK-requirements call acts on, by the
+path of its folder or of a folder inside it (a relative path is made absolute against the
+current directory); without it, the current directory is the project.
 Ctrl-C cancels the operation; --detach prints its id and returns.
 call and mcp start a daemon when none answers, unless --no-autostart.
 `
 
 const statusHelp = `droidyard status
 
-Report on the running daemon: its socket, and the web UI's address and tokenised URL.
+Report on the running daemon: its socket, and the HTTP API's address.
 `
 
 const stopHelp = `droidyard stop
@@ -67,15 +68,6 @@ With no project, the session has no tools: mcp starts no daemon and connects to 
 --wait bounds how long a long-running tool waits (default 20s).
 --tools core lists the golden path's tools only (default all).
 mcp starts a daemon when none answers, unless --no-autostart.
-`
-
-const uiHelp = `droidyard ui [--no-autostart]
-
-Open the web UI in the default browser, at the tokenised URL.
-In a project folder, or under one (a settings.gradle or settings.gradle.kts), or at the
-top of a repository whose Gradle build is one or two folders below, it opens that project;
-elsewhere, the newest open project, else the projects panel.
-ui starts a daemon when none answers, unless --no-autostart.
 `
 
 const trustHelp = `droidyard trust <root>
@@ -156,8 +148,8 @@ const initHelp = `droidyard init --client cursor|claude|opencode|all [--user | [
 
 Set a project up for coding assistants (optional; every tool works without it).
 Writes the droidyard-android skill and, per client, the MCP server entry and an allowlist
-of the read-only tools, naming this binary by its absolute path; for claude and cursor
-also the entries that run droidyard hook, before a shell command and after one.
+of the read-only tools, naming this binary by its absolute path. It writes no hook, and
+removes the hook entries an earlier init wrote (its own only; yours stay), saying so per file.
 It merges into existing files, keeps an existing droidyard entry, and refuses a file it
 cannot parse. --uninstall removes what init would write; --dry-run prints the changes and
 writes none.
@@ -179,26 +171,10 @@ No daemon is involved or started.
 
 const hookHelp = `droidyard hook --client claude|cursor [--root <absolute project root>]
 
-Answer one coding assistant's hook event (run by an assistant's hook entry).
-Before a shell command, a simple rm inside the root is denied with the command that moves
-the files to droidyard's trash instead; anything else passes.
-After one, a gradlew, gradle, adb, emulator, sdkmanager or avdmanager command gets a hint
-naming the droidyard tool that does the same, when there is one, and is recorded in
-Activity if a daemon is running; nothing else is read or kept. It reads the event on
-stdin, answers within 2 s, never starts a daemon, deletes nothing, denies nothing after a
-command, and lets the command through whenever it cannot decide.
-Without --root (an entry init --user wrote) the project is the folder the assistant names
-as its own; outside a project, or where that folder has init's own hook, every event passes.
-`
-
-const trashHelp = `droidyard trash [--state-dir <dir>] [--root <abs>] [-r|-R|-f ...] [--] <path>...
-
-Move files to the project's trash, where they can be restored (what a denied rm is handed;
-usable by hand).
-Paths resolve against the current directory; the root is --root, else the project root of
-the current directory. Every path is checked before any moves.
-It needs a running daemon and never starts one. Exits 0 only when every path is trashed; a
-refusal prints the rm command that deletes without the trash.
+Pass one coding assistant's hook event: exit 0 and the client's pass-through, with no
+daemon dialled and nothing read or written. Droidyard no longer uses hooks; the command
+stays for one minor release so the entries an earlier init wrote do not fail. Run
+droidyard init (or init --user) once to remove them.
 `
 
 const artifactCatHelp = `droidyard artifact cat <ref> > dump.xml

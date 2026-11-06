@@ -1,6 +1,6 @@
 # ADR-0126: The ignore block is shared by every run in a repository
 
-- Status: Accepted
+- Status: Superseded by ADR-0137
 - Date: 2026-10-23
 - Supersedes: ADR-0124 §Decision (in part: §4, a rerun replaces the block and an uninstall removes it)
 - Relates to: ADR-0090 §1; [plan m3a](../plans/m3a-init-once-per-user.md) §Changes (the close verifier's B1)

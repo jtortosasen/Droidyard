@@ -2,7 +2,7 @@
 
 How the capability API is projected to agents over MCP. This is an **adapter**: it
 translates and holds no domain logic ([ADR-0003](../adr/0003-unified-capability-api.md)).
-It is the agent-facing contract; the UI-facing one is
+It is the agent-facing contract; the one for a UI of its own is
 [`http-websocket.md`](http-websocket.md). The tool list is not written down here:
 `droidyard mcp` serves it, generated from the registry
 ([ADR-0016](../adr/0016-capability-schema-in-go.md)). This document holds the why of the
@@ -14,36 +14,29 @@ projection and the verdict on every MCP feature beyond tool calls.
   JSON-RPC over the daemon's socket
   ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)); one shim connection is
   one MCP session.
-- **A session is bound to one project root** at attach: `--root`, else the project of
-  `--from` or the cwd (the nearest ancestor holding `settings.gradle(.kts)`). With no
-  project the shim serves a session with no tools itself and starts nothing
-  ([ADR-0124](../adr/0124-init-once-per-user.md)). The adapter
-  fills the envelope's `workspace` from this binding, so no tool takes a workspace
-  argument. An agent that needs two projects configures two servers. Binding does not
-  grant trust ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
-- **`workspace_enter` moves the session within its project**
-  ([ADR-0082](../adr/0082-session-enters-a-worktree.md)): to its main tree or a linked git
-  worktree of it, made by the agent's own git. Only the calling session moves:
-  the descriptor's `binding` flag makes Start refuse the call from a connection that is not
-  an MCP session (`REQUEST_NOT_ALLOWED_HERE`), and another root is
-  `WORKSPACE_NOT_A_WORKTREE`.
-- **A resumed chat gets its worktree back**
-  ([ADR-0088](../adr/0088-chat-id-recovers-binding.md)). `droidyard mcp` sends
-  `CLAUDE_CODE_SESSION_ID` in the hello: Claude Code 2.1.302's chat id, unchanged by
-  `--resume`. The daemon remembers each chat's last binding in memory and binds that chat's
-  next session there first, under `workspace_enter`'s rule. The
-  variable is not documented for MCP servers and cursor-agent sets none: then a resumed
-  chat is bound to the main tree and enters again, as after a daemon restart.
-- **A session occupies the linked worktree it enters and the device it acts on**
+- **A session is the machine's, not a project's**
+  ([ADR-0137](../adr/0137-machine-level-android-tool.md) §2). `droidyard mcp` lists the same
+  tools wherever it starts and binds nothing: one client process may serve several chats,
+  and nothing in the protocol names the calling chat. A project tool (build, project, SDK
+  requirements, install from a build) **takes `project`**, the absolute path of the
+  project's folder or worktree the agent works in; the daemon resolves it to the project's
+  root (the nearest ancestor holding `settings.gradle(.kts)`, else the folder itself when its
+  one build lies one or two levels below) and opens that root on the first call that names
+  it. A device, emulator or SDK tool takes none. Naming a project does not grant trust
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5; a linked worktree of a trusted
+  project is trusted, [ADR-0081](../adr/0081-worktree-inherits-trust.md)), and trust is judged
+  on the resolved root, never on the path passed.
+- **A session occupies the device it acts on**
   ([ADR-0094](../adr/0094-occupation-by-a-session.md)): another chat is refused
-  `WORKSPACE_OCCUPIED` or `DEVICE_OCCUPIED` with the way out. Entering the main tree releases
-  both; so do the connection's end and the user's release.
+  `DEVICE_OCCUPIED` with the way out; the connection's end frees it (a worktree's
+  occupation left in 3j). `droidyard mcp` sends the chat id Claude Code names
+  (`CLAUDE_CODE_SESSION_ID`) in the hello, so a chat's sessions
+  reach each other's operations ([ADR-0101](../adr/0101-waits-reach-own-operations.md)).
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
-- The adapter opens the bound root when the session starts; if any client closes it
-  later, workspace tools return `WORKSPACE_NOT_OPEN` and the adapter does **not** reopen it
-  on its own ([ADR-0020](../adr/0020-operation-contract.md) §Scope and workspace
-  addressing).
+- The root a call names is opened by that call and released after 30 minutes with no call
+  and no running operation ([ADR-0137](../adr/0137-machine-level-android-tool.md) §3); the
+  next call that names it opens it again, so no tool opens or closes a workspace.
 
 ## Naming
 
@@ -61,8 +54,10 @@ Generated from the Go structs and constrained for what clients accept: `inputSch
 top-level `oneOf`, `anyOf` or `allOf`; a capability that would need one is split, per the
 "discriminated tools" convention. `TestSchemaObeysTheClientRules` in `internal/schema` checks the root; nested `$ref` is
 prevented by the generator's `DoNotReference` and pinned by the golden file. Whether *nested* unions are safe for the clients we target was left to spike S7,
-which has not run (a register row). `workspace` never appears: it is an envelope field the
-adapter fills. `outputSchema` is registered for every tool: the result schema for a tool
+which has not run (a register row). A project tool's `inputSchema` has one required
+`project` property, added by the schema generator from the descriptor's scope
+([ADR-0137](../adr/0137-machine-level-android-tool.md) §3), so it is the same words in every
+such tool. `outputSchema` is registered for every tool: the result schema for a tool
 not flagged long-running, and the **operation view** for a long-running tool and for
 `operation_wait`, as one object with no top-level union
 ([ADR-0020](../adr/0020-operation-contract.md) §Adapter projections).
@@ -73,15 +68,12 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput`, `workspace.watch`, `session.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
-| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget`, `session.release`, `session.chats` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md); [ADR-0094](../adr/0094-occupation-by-a-session.md) §3). The core rejects them from an MCP session: enforcement, not just omission. |
-| `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.trash`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
-| `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI uses them. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `policy.get`, `policy.update` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). The core rejects them from an MCP session: enforcement, not just omission. |
 | `device.scroll` | Audience `human` ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md), [ADR-0133](../adr/0133-agents-act-by-coordinates-keys-and-system-verbs.md) §2): a wheel needs a view; agents swipe. |
-| `device.deleteUiRecording` | Audience `human` ([ADR-0113](../adr/0113-ui-recording.md) §6): the UI and the CLI delete a recording. |
+| `device.deleteUiRecording` | Audience `human` ([ADR-0113](../adr/0113-ui-recording.md) §6): a person deletes a recording, from the CLI or a UI. |
 | `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
 | `hosting.share`, `hosting.unshare`, `hosting.watchShare`, `hosting.join` | Audience `human` ([ADR-0108](../adr/0108-share-lifetime-and-consent.md) §1): sharing a device widens the physical policy; only its human consents. |
-| `agent.recordCommand`, `agent.recordEdit`, `agent.checkWrite` | Audience `human` ([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md) §3): the hook's channel: records of commands and edits, check before a write. |
 | `sdk.licenses`, `sdk.acceptLicense`, `sdk.uninstall`, `emulator.delete`, `emulator.configure` | Audience `human` ([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §1, §2): a person accepts a licence and removes packages and AVDs. |
 
 `operation_wait`, `operation_cancel`, `artifact_read`, `artifact_search` **are** exposed. Each exposed
@@ -136,9 +128,9 @@ drifted. They are approval hints, never enforcement
 - `destructiveHint`: the call may destroy data or work that it cannot restore itself (an
   uninstalled app, wiped or overwritten data, deleted build outputs, a running
   emulator's in-memory state, in-flight operations **including other sessions'**).
-  `workspace_close` and `operation_cancel` keep the command default for that last reason.
+  `operation_cancel` keeps the command default for that last reason.
 - `idempotentHint` is MCP's meaning: repeating the call with the same arguments has no
-  additional effect. It is not harmless: `workspace_close` is
+  additional effect. It is not harmless: `operation_cancel` is
   idempotent *and* destructive.
 - `openWorldHint`: the call reaches beyond the core's own state and the workspace's files
   (a device or emulator, the network, the project's build logic; Gradle configuration
@@ -159,10 +151,9 @@ characters: every session pays for it, and it must not duplicate the tool descri
 test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 
 ```text
-- This server is bound to one project; tools take no workspace argument.
-  workspace_describe lists its worktrees: a task that has one (its branch names it) is
-  done there, so workspace_enter it first. Else a task that changes code first gets one
-  (git worktree add) and enters it; a question stays put.
+- Tools that act on a project (build, project, sdk requirements) take project: the
+  absolute path of the folder or worktree you work in. Installing takes apk (an absolute
+  path) or build with project. No other tool takes one.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not
@@ -183,7 +174,7 @@ test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 - droidyard://artifact/… references are read with artifact_read.
 - A failed build is a successful call: read its problems with build_errors, do not retry
   blindly.
-- Policy (devices, shell, trusted projects) is changed by the user, not through this
+- Policy (devices, trusted projects) is changed by the user, not through this
   server. Errors say what to ask for.
 ```
 
@@ -195,7 +186,7 @@ compact rendering where it has one (the UI tree, the screen's events, action res
 `system_capabilities`, build results; `operation_wait` renders as its tool does), else the
 result's compact JSON. The model reads the text block, not the structured content
 (observed for OpenCode and Cursor), so the rendering is where tokens are saved; the
-structured content stays the full result, for typed clients and the UI
+structured content stays the full result, for typed clients and UIs
 ([ADR-0036](../adr/0036-agent-surface-token-budget.md) Decision 2).
 
 **Errors versus failures**, kept strict so agents do not retry the wrong things:
@@ -256,7 +247,7 @@ the error JSON alone: no fixed first line and no `structuredContent`, since an e
 not the declared result
 ([capability-api](../architecture/capability-api.md) §Untrusted outputs are marked).
 Wrapping each field in the payload would add noise, and the per-result mark alone would
-not tell the UI which fields to render inert; each level is used where it is cheap.
+not tell a UI which fields to render inert; each level is used where it is cheap.
 
 ## Features beyond tools
 
@@ -273,13 +264,13 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; three adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md), [ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md): the client's edit tools, checked before and recorded after, joined to the chat's session) |
+| **Assistant-side hooks** | Not part of MCP; none (the three adopted left in 3j, [ADR-0137](../adr/0137-machine-level-android-tool.md)) |
 
 **Elicitation** closes problems we have written down: a real confirmation step for destructive operations (fallback: `destructiveHint`
 only, which clients may ignore), and resolving ambiguity such as "which of these two
 devices?" (fallback: an error naming the candidates that requires an explicit parameter).
 Rules: it is **always optional**, an improvement when available and never a requirement;
-support varies, so detect and degrade to the fallback; and it is **never a policy channel**: it does not enable devices or `shell.exec` and does not trust
+support varies, so detect and degrade to the fallback; and it is **never a policy channel**: it does not enable devices and does not trust
 a root, since a client in auto-approve mode would let the agent grant itself access
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). For the same reason SDK
 licence consent does not use it: a person accepts through a human-only call, and an agent
@@ -299,10 +290,10 @@ doing for a client we care about that supports prompts but not skills.
 
 **Logging** complements `stderr`, which stays the transport-safe default. **Roots** are an
 optional input that can only narrow: a root the client does not declare may be refused, but
-a declared root is never trusted because of it, and it is never the session's binding
-source, which comes from `--root`, `--from` or the cwd so it is deterministic and visible in the
-server config ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5,
-[ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+a declared root is never trusted because of it, and it never names a call's project, which
+is the call's own argument so it is deterministic and visible in the transcript
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5,
+[ADR-0137](../adr/0137-machine-level-android-tool.md) §3).
 
 **Sampling is rejected.** It moves intelligence into the core's workflow and edges us toward
 being a harness, which [ADR-0004](../adr/0004-no-own-harness.md) rejects: the agent already
@@ -313,9 +304,10 @@ do with its model and context.
 **Assistant-side hooks** (`PreToolUse`, `SessionStart`) belong to individual assistants and
 are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forbids as a
 dependency, and largely redundant: "device data is not instructions" lives in
-`instructions`, "open the workspace" is a call the agent makes, and "build after editing"
-should not be automatic. `init` writes optional ones for Claude Code and Cursor, per project or once per user ([ADR-0124](../adr/0124-init-once-per-user.md)):
-a simple `rm` in the project is denied with `droidyard trash` and the same operands, which moves them to the trash from the agent's own shell ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0062](../adr/0062-agent-rm-handed-droidyard-trash.md)); and after a shell command, an Android one (`gradlew`, `adb` and four more) is hinted with the droidyard tool that does the same and recorded in Activity, never blocked ([ADR-0063](../adr/0063-hook-observes-android-commands.md)).
+`instructions`, and "build after editing" should not be automatic. `init` wrote some until
+3j; it removes the entries it wrote, and `droidyard hook` passes every event for one minor
+version, so a client set up before still works. `droidyard mcp` ignores `--root` and
+`--from` with one line on stderr for the same minor ([ADR-0137](../adr/0137-machine-level-android-tool.md) §2).
 
 ## Transports
 
