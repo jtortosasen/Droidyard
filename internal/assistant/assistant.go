@@ -32,6 +32,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -81,8 +82,8 @@ const SkillName = "droidyard-android"
 
 // Options is one run of init.
 type Options struct {
-	// Root is the project root, an absolute path. The MCP entries name it with --root,
-	// since Cursor's spawn directory is not known (plan m1l C4).
+	// Root is the project root, an absolute path. The MCP entries do not name it: the
+	// server is the machine's and every tool takes its project (ADR-0137 §2).
 	Root string
 	// Command is the absolute path of the droidyard binary every entry runs: a client
 	// launched from a GUI has no shell PATH (ADR-0019 §Processes 8).
@@ -252,14 +253,14 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		jobs = append(jobs, sj...)
 	}
 
-	server := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}})
-	serverSpec := jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: server}}}
+	server := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp"}})
+	serverSpec := jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: server, stale: staleStdioServer}}}
 	// Cursor rebuilds the server's environment, so a custom state root travels in the entry
 	// (row 199, ADR-0037 §Decision 2); Claude Code's .mcp.json is not observed to lose it.
 	cursorServerSpec := serverSpec
 	if o.StateDir != "" {
-		withEnv := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}, Env: map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}})
-		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv}}}
+		withEnv := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp"}, Env: map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}})
+		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv, stale: staleStdioServer}}}
 	}
 	allowSpec := func(c Client) (jsonSpec, error) { return allowlistSpec(c, tools, allowed) }
 
@@ -289,12 +290,12 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 	}
 	if has(o.Clients, OpenCode) {
 		entry := rawJSON(openCodeServer{
-			Type: "local", Command: []string{o.Command, "mcp", "--root", o.Root},
+			Type: "local", Command: []string{o.Command, "mcp"},
 			// The measured configuration: with Code Mode on, OpenCode reaches MCP tools
 			// through an execute/search wrapper (daily-use-harness-2026-10.md §2).
 			Codemode: false,
 		})
-		spec := jsonSpec{keys: []keyEntry{{path: openCodeServers, key: ServerName, value: entry}}}
+		spec := jsonSpec{keys: []keyEntry{{path: openCodeServers, key: ServerName, value: entry, stale: staleOpenCodeServer}}}
 		jobs = append(jobs, openCodeJobs(root, spec, o.Uninstall)...)
 	}
 	return jobs, allowed, nil
@@ -352,6 +353,70 @@ type openCodeServer struct {
 	Type     string   `json:"type"`
 	Command  []string `json:"command"`
 	Codemode bool     `json:"codemode"`
+}
+
+// staleStdioServer recognises the server entry an earlier init wrote for Cursor or Claude
+// Code, which named a project: `mcp --root <absolute path>`, or Cursor's user entry
+// `mcp --from ${workspaceFolder}`, with any binary path and at most the state root in env.
+// ADR-0137 §2 makes the server the machine's, so init replaces it with `mcp` (ADR-0090 §1).
+// An entry with any other field or argument is the user's.
+func staleStdioServer(raw json.RawMessage) bool {
+	var s struct {
+		Type    string            `json:"type"`
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+		Env     map[string]string `json:"env"`
+	}
+	if !strictDecode(raw, &s, "type", "command", "args", "env") {
+		return false
+	}
+	for k := range s.Env {
+		if k != "DROIDYARD_STATE_DIR" {
+			return false
+		}
+	}
+	return s.Command != "" && (s.Type == "" || s.Type == "stdio") && staleMCPArgs(s.Args)
+}
+
+// staleOpenCodeServer is staleStdioServer for OpenCode's local server.
+func staleOpenCodeServer(raw json.RawMessage) bool {
+	var s struct {
+		Type    string   `json:"type"`
+		Command []string `json:"command"`
+	}
+	if !strictDecode(raw, &s, "type", "command", "codemode") || s.Type != "local" || len(s.Command) == 0 {
+		return false
+	}
+	return s.Command[0] != "" && staleMCPArgs(s.Command[1:])
+}
+
+// staleMCPArgs is the argument list an earlier init wrote after the binary.
+func staleMCPArgs(a []string) bool {
+	switch {
+	case len(a) == 3 && a[0] == "mcp" && a[1] == "--from" && a[2] == "${workspaceFolder}":
+		return true
+	case len(a) == 3 && a[0] == "mcp" && a[1] == "--root" && strings.HasPrefix(a[2], "/"):
+		return true
+	}
+	return false
+}
+
+// strictDecode decodes raw into v when it is an object whose keys are all in allowed.
+func strictDecode(raw json.RawMessage, v any, allowed ...string) bool {
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(raw, &keys) != nil {
+		return false
+	}
+	for k := range keys {
+		ok := false
+		for _, a := range allowed {
+			ok = ok || k == a
+		}
+		if !ok {
+			return false
+		}
+	}
+	return json.Unmarshal(raw, v) == nil
 }
 
 // openCodeServers is where opencode.json lists MCP servers.
@@ -476,7 +541,7 @@ func skillJobs(skill fs.FS, dir string) ([]job, error) {
 				case bytes.Equal(old, want):
 					return edit{status: Unchanged, notes: []string{"already there"}}
 				}
-				return edit{status: Updated, content: want, notes: []string{"differed from this build's skill: refreshed"}}
+				return edit{status: Updated, content: want, notes: []string{skillRefreshNote(old, want)}}
 			},
 			uninstall: func(old []byte, exists bool) edit {
 				switch {
@@ -491,6 +556,32 @@ func skillJobs(skill fs.FS, dir string) ([]job, error) {
 		return nil
 	})
 	return jobs, err
+}
+
+// skillVersion is the droidyard.version in a SKILL.md's front matter, "" when the file
+// names none.
+func skillVersion(b []byte) string {
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(l), "droidyard.version:"); ok {
+			return strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
+}
+
+// skillRefreshNote says why an installed skill file was refreshed: when it carries an
+// older droidyard.version than this build's, which versions (ADR-0137 §2).
+func skillRefreshNote(old, want []byte) string {
+	have, now := skillVersion(old), skillVersion(want)
+	hn, e1 := strconv.Atoi(have)
+	nn, e2 := strconv.Atoi(now)
+	switch {
+	case now != "" && have == "":
+		return fmt.Sprintf("the installed skill names no droidyard.version, older than this build's version %s: refreshed", now)
+	case e1 == nil && e2 == nil && hn < nn:
+		return fmt.Sprintf("the installed skill is version %s, older than this build's version %s: refreshed", have, now)
+	}
+	return "differed from this build's skill: refreshed"
 }
 
 // run computes one job's outcome and, unless it is a dry run, applies it.

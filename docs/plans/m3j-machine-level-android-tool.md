@@ -152,7 +152,7 @@
 - Needs: step 6.
 - Not here: refusing `--root`/`--from` (the next minor, ADR-0137 §2); a shim that answers `tools/list` itself (Q6).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: seen failing on step 6's code (its `client.go` and `internal/assistant` put back): `TestMCPListsAllToolsAnywhere` (an empty folder, `--from '${workspaceFolder}'`, `--from=<non-project>`, `--root /nonexistent`, `--root=…` → one identical `tools/list`, the one stderr line, none for a plain shim), "an empty folder: the session lists no tools"; `TestMCPOutsideAProjectDials`, "dialled 0 time(s); want 1"; `TestCursorEntryHasNoFrom` (user level and project `--root` replaced and reported; an entry with an extra argument is the user's and kept), `args ["mcp" "--from" "${workspaceFolder}"]`; `TestInitReportsAStaleSkill`, "init did not report the older skill". Delegated: every MCP entry init writes is plain `mcp` (Cursor, Claude `.mcp.json`, OpenCode), so no shim prints the line; a stale one of init's exact shape is replaced on install and removed on `--uninstall`.
 
 ### 8. `device.install` with `apk`
 

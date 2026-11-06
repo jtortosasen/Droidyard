@@ -142,10 +142,10 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// TestInitEntriesNameTheBinaryAndTheRoot: every client's server entry runs an absolute
-// path to this binary and names the project root, since a GUI-launched client has no
-// PATH and Cursor's working directory is unknown.
-func TestInitEntriesNameTheBinaryAndTheRoot(t *testing.T) {
+// TestInitEntriesNameTheBinaryAndNoRoot: every client's server entry runs an absolute
+// path to this binary, since a GUI-launched client has no PATH, and names no root: the
+// server is the machine's (ADR-0137 §2).
+func TestInitEntriesNameTheBinaryAndNoRoot(t *testing.T) {
 	t.Parallel()
 	proj := projectDir(t)
 	if out, code := initRun(t, shortDir(t), proj, "--client", "all", "--root", proj); code != 0 {
@@ -164,8 +164,8 @@ func TestInitEntriesNameTheBinaryAndTheRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := doc.Servers["droidyard"]
-		if !sameFile(s.Command, exe) || !filepath.IsAbs(s.Command) || strings.Join(s.Args, " ") != "mcp --root "+proj {
-			t.Errorf("%s: %+v; want an absolute path to this binary and `mcp --root %s`", f, s, proj)
+		if !sameFile(s.Command, exe) || !filepath.IsAbs(s.Command) || strings.Join(s.Args, " ") != "mcp" {
+			t.Errorf("%s: %+v; want an absolute path to this binary and `mcp`", f, s)
 		}
 	}
 	var oc struct {
@@ -182,8 +182,8 @@ func TestInitEntriesNameTheBinaryAndTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := oc.MCP.Servers["droidyard"]
-	if s.Type != "local" || len(s.Command) != 4 || !sameFile(s.Command[0], exe) || s.Command[3] != proj || s.Codemode == nil || *s.Codemode {
-		t.Errorf("opencode.json mcp.servers.droidyard: %+v; want a local server [binary mcp --root %s] and codemode false", s, proj)
+	if s.Type != "local" || len(s.Command) != 2 || !sameFile(s.Command[0], exe) || s.Command[1] != "mcp" || s.Codemode == nil || *s.Codemode {
+		t.Errorf("opencode.json mcp.servers.droidyard: %+v; want a local server [binary mcp] and codemode false", s)
 	}
 	// OpenCode 2.0.18's local server has no `enabled`, and reads mcp.servers.<name>
 	// only: an entry elsewhere would leave it without droidyard, silently.

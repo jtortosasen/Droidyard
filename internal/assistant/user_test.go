@@ -122,8 +122,7 @@ func fileSet(snap map[string]string) []string {
 }
 
 // ADR-0124 Decision 1, the table: every file and key each client gets at user level,
-// written out in full. No entry names a root, Cursor's server carries --from
-// ${workspaceFolder}, every command is the binary's absolute path, and nothing is written
+// written out in full. No entry names a root or a folder (ADR-0137 §2), every command is the binary's absolute path, and nothing is written
 // outside the directories the run was given (the project is not involved at all).
 func TestUserRunWritesEachClientsFiles(t *testing.T) {
 	e := newUserEnv(t)
@@ -135,7 +134,7 @@ func TestUserRunWritesEachClientsFiles(t *testing.T) {
 
 	files := map[string]string{
 		".claude/settings.json": `{"permissions":{"allow":["mcp__droidyard__device_list","mcp__droidyard__device_uiTree"]}}`,
-		".cursor/mcp.json":      `{"mcpServers":{"droidyard":{"command":"/opt/bin/droidyard","args":["mcp","--from","${workspaceFolder}"]}}}`,
+		".cursor/mcp.json":      `{"mcpServers":{"droidyard":{"command":"/opt/bin/droidyard","args":["mcp"]}}}`,
 		// No deny array: step 1 saw no need of one in cli-config.json.
 		".cursor/cli-config.json":        `{"permissions":{"allow":["Mcp(droidyard:device_list)","Mcp(droidyard:device_uiTree)"]}}`,
 		".config/opencode/opencode.json": `{"mcp":{"servers":{"droidyard":{"type":"local","command":["/opt/bin/droidyard","mcp"],"codemode":false}}}}`,
@@ -563,7 +562,7 @@ func TestUserRunCarriesACustomStateRoot(t *testing.T) {
 	if len(res.Allowed[Claude]) == 0 {
 		t.Errorf("Allowed = %v", res.Allowed)
 	}
-	if got := read(t, e.base, ".cursor/mcp.json"); !strings.Contains(got, `"DROIDYARD_STATE_DIR": "/var/state dir"`) || !strings.Contains(got, `${workspaceFolder}`) {
+	if got := read(t, e.base, ".cursor/mcp.json"); !strings.Contains(got, `"DROIDYARD_STATE_DIR": "/var/state dir"`) || strings.Contains(got, `${workspaceFolder}`) {
 		t.Errorf("cursor mcp.json:\n%s", got)
 	}
 	sameJSON(t, ".claude.json", read(t, e.base, ".claude.json"), `{"mcpServers":{"droidyard":`+wantClaudeMCP+`}}`)

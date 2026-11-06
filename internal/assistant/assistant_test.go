@@ -149,8 +149,8 @@ func statusOf(t *testing.T, res Result, path string) Change {
 func notesOf(c Change) string { return strings.Join(c.Notes, " | ") }
 
 // The files each client gets, written out in full: the golden trees of plan m1o step 8.
-// Every command is the binary's absolute path and every server names the root, since
-// a client's spawn directory is not known.
+// Every command is the binary's absolute path and no server names the root: the server is
+// the machine's and every tool takes its project (ADR-0137 §2).
 func TestInitWritesEachClientsFiles(t *testing.T) {
 	skill := "---\nname: droidyard-android\n---\nbody\n"
 	tools := "| tool |\n"
@@ -175,22 +175,20 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
   }
 }
 `
-	server := func(root string) string {
+	server := func() string {
 		return fmt.Sprintf(`{
   "mcpServers": {
     "droidyard": {
       "command": "/opt/bin/droidyard",
       "args": [
-        "mcp",
-        "--root",
-        %q
+        "mcp"
       ]
     }
   }
 }
-`, root)
+`)
 	}
-	opencode := func(root string) string {
+	opencode := func() string {
 		return fmt.Sprintf(`{
   "mcp": {
     "servers": {
@@ -198,16 +196,14 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
         "type": "local",
         "command": [
           "/opt/bin/droidyard",
-          "mcp",
-          "--root",
-          %q
+          "mcp"
         ],
         "codemode": false
       }
     }
   }
 }
-`, root)
+`)
 	}
 	cases := []struct {
 		client Client
@@ -222,7 +218,7 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
 				".cursor/":         "",
-				".cursor/mcp.json": server(root),
+				".cursor/mcp.json": server(),
 				".cursor/cli.json": cursorAllow,
 			}
 		}},
@@ -235,7 +231,7 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".claude/skills/droidyard-android/references/":         "",
 				".claude/skills/droidyard-android/references/tools.md": tools,
 				".claude/settings.json":                                claudeAllow,
-				".mcp.json":                                            server(root),
+				".mcp.json":                                            server(),
 			}
 		}},
 		{OpenCode, func(root string) map[string]string {
@@ -246,7 +242,7 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".agents/skills/droidyard-android/SKILL.md":            skill,
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
-				"opencode.json":                                        opencode(root),
+				"opencode.json":                                        opencode(),
 			}
 		}},
 	}

@@ -44,6 +44,10 @@ type keyEntry struct {
 	// object (after init's array elements are gone). Cursor's empty deny list is one: every
 	// valid user cli.json has one, and removing it would make Cursor drop the file.
 	sole bool
+	// stale, when set, recognises a value an earlier init wrote under this key that
+	// differs from value: install replaces it, uninstall removes it (ADR-0090 §1). It
+	// must match only what init could have written, never an entry a user wrote.
+	stale func(json.RawMessage) bool
 }
 
 // arrayEntry is the elements init appends to the array at path/key.
@@ -127,6 +131,10 @@ func (s jsonSpec) mergeInto(root *object) (notes []string, changed bool, err err
 				return true, nil
 			case equalJSON(have, k.value):
 				notes = append(notes, name+": already there")
+			case k.stale != nil && k.stale(have):
+				leaf.set(k.key, k.value)
+				notes = append(notes, name+": replaced a stale entry")
+				return true, nil
 			default:
 				notes = append(notes, name+": kept, yours differs from what init would write (not replaced)")
 			}
@@ -281,6 +289,10 @@ func uninstallJSON(old []byte, exists bool, s jsonSpec) edit {
 			case equalJSON(have, k.value):
 				leaf.del(k.key)
 				notes = append(notes, name+": removed")
+				return true, nil
+			case k.stale != nil && k.stale(have):
+				leaf.del(k.key)
+				notes = append(notes, name+": removed a stale entry")
 				return true, nil
 			}
 			notes = append(notes, name+": kept, differs from what init writes now")
