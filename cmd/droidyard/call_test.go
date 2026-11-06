@@ -29,6 +29,7 @@ import (
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
 	"github.com/jtortosasen/droidyard/internal/testtime"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // inProcess is the shipped wiring (registry(), daemonOptions) started in the test
@@ -43,7 +44,8 @@ type slowResult struct {
 type inProcess struct {
 	d       *daemon.Daemon
 	reg     *capability.Registry
-	host    *hosting.Host // the peer link, not started: a test that wants it calls startPeers
+	ws      *workspace.Registry // the daemon's workspaces, for a test that reads one's state
+	host    *hosting.Host       // the peer link, not started: a test that wants it calls startPeers
 	mcp     *mcpadapter.Server
 	http    *httpapi.Server // the UI's HTTP side, for its test seams
 	ops     *capability.Operations
@@ -178,18 +180,20 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	if adb != nil && adb.gradle != nil {
 		gradleLaunch, gradleFinder = adb.gradle.launch, adb.gradle.finder
 	}
-	reg, ops, bus, artifacts, deviceADB, host, _ := registry(env, st, sup, os.Stderr)
+	reg, ops, bus, artifacts, deviceADB, host, ws := registry(env, st, sup, os.Stderr)
 	adbEnviron, adbExec, adbStreamWrap = oldEnv, oldExec, oldWrap
 	gradleLaunch, gradleFinder = oldLaunch, oldFinder
 	adbFloor = oldFloor
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
-	p.reg, p.host = reg, host
+	p.reg, p.host, p.ws = reg, host, ws
 	p.ops, p.bus, p.store = ops, bus, artifacts
 	p.adb = deviceADB
 	if extra != nil {
 		extra(reg, env)
 	}
+	registerTouchFixture(reg)
+	registerTrustedFixture(reg, env)
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.block", Kind: capability.Command, Scope: capability.Global,
 		Description: "Blocks until released.", Params: struct{}{}, Result: struct{}{},

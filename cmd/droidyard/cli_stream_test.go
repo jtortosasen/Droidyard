@@ -281,7 +281,6 @@ func TestCLIStreamsReleaseOnClose(t *testing.T) {
 		name, capability, params string
 	}{
 		{"operation.watch", "operation.watch", ""},
-		{"workspace.watch", "workspace.watch", ""},
 		{"events.subscribe", "events.subscribe", `{"topics":["operation.progress"]}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {

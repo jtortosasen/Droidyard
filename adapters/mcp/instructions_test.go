@@ -45,10 +45,8 @@ func TestInstructionsCarryTheManual(t *testing.T) {
 		"operation_wait finishes a slow tool":        "call operation_wait",
 		"artifact references are read with a reader": "references are read with artifact_read",
 		"the tree is preferred to screenshots":       "Prefer device_uiTree to screenshots",
-		"the server is bound to one project":         "bound to one project",
-		"describe lists the worktrees (ADR-0089)":    "workspace_describe lists its worktrees",
-		"a task with a worktree is done there":       "a task that has one (its branch names it) is done there, so workspace_enter it first",
-		"a code task with none makes one":            "a task that changes code first gets one (git worktree add)",
+		"project tools take project (ADR-0137 §3)":   "Tools that act on a project (build, project, sdk requirements, device install) take project: the absolute path of the folder or worktree you work in",
+		"no other tool takes one":                    "no other tool does",
 	} {
 		// Lines wrap in the block; a point is a phrase, wherever the line breaks.
 		if !strings.Contains(strings.Join(strings.Fields(Instructions), " "), want) {

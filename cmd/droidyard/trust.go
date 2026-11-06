@@ -11,7 +11,8 @@ import (
 
 // trust implements `droidyard trust <root>`: the human channel that adds a project
 // root to the configuration's trusted roots (ADR-0015 §5; plan m1g D2). It talks to no
-// daemon and starts none. It canonicalises the root as `workspace.open` does and
+// daemon and starts none. It canonicalises the root as a call's project root is canonical (the daemon
+// compares trust on the root a call's `project` resolves to, ADR-0137 §3) and
 // writes the file under an exclusive lock, so a running daemon picks the change up on
 // its next trust check (ADR-0015 §6).
 func trust(args []string) int {

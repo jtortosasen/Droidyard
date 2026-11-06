@@ -142,7 +142,10 @@ func TestEveryOperationIsTracedOnce(t *testing.T) {
 	start := func(client ClientKind, capability, workspace string) string {
 		t.Helper()
 		params := json.RawMessage(`{"secret":"` + sentinelParam + `"}`)
-		id, err := ops.Start(ctx, Request{Capability: capability, Workspace: workspace, Params: params, Client: client})
+		if workspace != "" {
+			params = withProject(params, workspace)
+		}
+		id, err := ops.Start(ctx, Request{Capability: capability, Params: params, Client: client})
 		if err != nil {
 			t.Fatalf("Start %s: %v", capability, err)
 		}

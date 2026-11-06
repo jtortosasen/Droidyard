@@ -167,8 +167,8 @@ func (p *Policy) Authorize(rootOf RootOf) func(context.Context, *capability.Call
 	return func(_ context.Context, call *capability.Call) (any, error) {
 		root, ok := rootOf(call)
 		if !ok || root == "" {
-			return nil, capability.Errorf(capability.ErrWorkspaceNotOpen, "the call names no project root, so its trust cannot be decided").
-				WithNextStep("open a workspace, then retry")
+			return nil, capability.NewError(capability.ErrInvalidParams, "the call names no project root, so its trust cannot be decided").
+				WithNextStep("pass the absolute path of the project's folder as project")
 		}
 		canonical := p.env.Canonical(root)
 		trusted, err := p.Trusted(canonical)

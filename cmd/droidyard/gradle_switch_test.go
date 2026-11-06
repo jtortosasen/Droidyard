@@ -105,7 +105,6 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		t.Parallel()
 		state, top, events, stop := setup(t, gradletest.Config{})
 		dev, tools := filepath.Join(top, "dev"), top
-		call(t, state, top, "workspace.open")
 
 		useGradleRoot(t, top, "dev")
 		call(t, state, top, "build.tasks")
@@ -141,8 +140,6 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		t.Parallel()
 		state, top, events, stop := setup(t, gradletest.Config{})
 		dev := filepath.Join(top, "dev")
-		call(t, state, top, "workspace.open")
-		call(t, state, dev, "workspace.open")
 
 		useGradleRoot(t, top, "dev")
 		call(t, state, top, "build.tasks")
@@ -163,7 +160,6 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		build := &gradletest.Build{Steps: []gradletest.Step{{Kind: "gate", Path: gate}}}
 		state, top, events, stop := setup(t, gradletest.Config{Build: build})
 		dev := filepath.Join(top, "dev")
-		call(t, state, top, "workspace.open")
 
 		useGradleRoot(t, top, "dev")
 		// `call` waits for the operation, so the build is left running and read at the end.
@@ -199,8 +195,6 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		build := &gradletest.Build{Steps: []gradletest.Step{{Kind: "gate", Path: gate}}}
 		state, top, events, stop := setup(t, gradletest.Config{Build: build})
 		dev := filepath.Join(top, "dev")
-		call(t, state, top, "workspace.open")
-		call(t, state, dev, "workspace.open")
 
 		useGradleRoot(t, top, "dev")
 		run := droidyardIn(t, state, top, "call", "--no-autostart", "build.run", "--params", `{"tasks":["assembleDebug"]}`)

@@ -21,8 +21,8 @@ func buildAt(t *testing.T, dir, rel string) {
 }
 
 // TestProjectOf pins ADR-0075 §6: the upward walk is unchanged, and the top of a
-// repository is a project only when its Gradle root resolves (one candidate, or a valid
-// key). The home directory is never one, so a user who runs `droidyard` in ~ is not
+// repository is a project only when its Gradle root resolves (one candidate; the project
+// file's key no longer chooses among several, ADR-0137). The home directory is never one, so a user who runs `droidyard` in ~ is not
 // offered the one build somewhere under it.
 func TestProjectOf(t *testing.T) {
 	// HOME is set, so the test cannot run in parallel.
@@ -55,7 +55,7 @@ func TestProjectOf(t *testing.T) {
 		{"inside that build: the walk finds it", filepath.Join(top, "dev"), filepath.Join(top, "dev")},
 		{"below that build", filepath.Join(top, "dev", "sub"), filepath.Join(top, "dev")},
 		{"two builds and no choice", two, ""},
-		{"two builds and a valid key", keyed, keyed},
+		{"two builds and a project file naming one: the file chooses nothing", keyed, ""},
 		{"the home directory holding one build two levels down", home, ""},
 		{"the filesystem root", string(filepath.Separator), ""},
 	} {

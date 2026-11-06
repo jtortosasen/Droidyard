@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -56,35 +57,59 @@ func TestCtrlCStopsAWaitThatIsNotAnOperation(t *testing.T) {
 	}
 }
 
-// TestWorkspaceFlagIsSentVerbatim: --workspace takes an id or an absolute root and the
-// envelope carries it as given; only the daemon resolves it
-// (ADR-0020 §Scope and workspace addressing; plan m1c, R5).
-func TestWorkspaceFlagIsSentVerbatim(t *testing.T) {
+// TestProjectFlagIsSentAsTheProjectParameter: --project takes the path of a project folder
+// and the request carries it as the `project` parameter, beside the other parameters, as
+// given; only the daemon resolves it (ADR-0137 §3, §5). The envelope has no workspace field
+// to carry it in, and the old flag is refused. A --project beside a `project` in --params is
+// a usage error rather than a choice the daemon would make.
+func TestProjectFlagIsSentAsTheProjectParameter(t *testing.T) {
 	for _, args := range [][]string{
-		{"workspace.describe", "--workspace", "/Users/Me/./app"},
-		{"--workspace=/Users/Me/./app", "workspace.describe"},
+		{"build.tasks", "--project", "/Users/Me/./app"},
+		{"--project=/Users/Me/./app", "build.tasks"},
 	} {
 		c, err := Parse(args)
-		if err != nil || c.Workspace != "/Users/Me/./app" || c.Capability != "workspace.describe" {
+		if err != nil || c.Project != "/Users/Me/./app" || c.Capability != "build.tasks" {
 			t.Errorf("Parse(%q) = %+v, %v", args, c, err)
 		}
 	}
-	for _, bad := range [][]string{{"workspace.describe", "--workspace"}, {"--workspace=", "workspace.describe"}} {
+	for _, bad := range [][]string{{"build.tasks", "--project"}, {"--project=", "build.tasks"}} {
 		if _, err := Parse(bad); err == nil {
-			t.Errorf("Parse(%q) accepted a missing workspace", bad)
+			t.Errorf("Parse(%q) accepted a missing project", bad)
 		}
 	}
-
-	pr, pw := io.Pipe()
-	sent := make(chan string, 1)
-	go func() {
-		line, _ := bufio.NewReader(pr).ReadString('\n')
-		sent <- line
-	}()
-	r, _ := fakeDaemon(`{"id":"cli-1","error":{"code":"WORKSPACE_NOT_OPEN","message":"no"}}`)
-	c := Call{Capability: "workspace.describe", Workspace: "/Users/Me/./app"}
-	c.Run(r, pw, Streams{Out: io.Discard, Err: io.Discard}, nil)
-	if line := <-sent; !strings.Contains(line, `"workspace":"/Users/Me/./app"`) {
-		t.Errorf("the envelope sent: %s", line)
+	if _, err := Parse([]string{"build.tasks", "--workspace", "/Users/Me/app"}); err == nil {
+		t.Error("the --workspace flag, which --project replaced, was accepted")
 	}
+
+	sendOf := func(c Call) string {
+		pr, pw := io.Pipe()
+		sent := make(chan string, 1)
+		go func() {
+			line, _ := bufio.NewReader(pr).ReadString('\n')
+			sent <- line
+		}()
+		r, _ := fakeDaemon(`{"id":"cli-1","error":{"code":"REQUEST_INVALID_PARAMS","message":"no"}}`)
+		c.Run(r, pw, Streams{Out: io.Discard, Err: io.Discard}, nil)
+		return <-sent
+	}
+	line := sendOf(Call{Capability: "build.tasks", Project: "/Users/Me/./app"})
+	var env map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line), &env); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := env["workspace"]; has || string(env["params"]) != `{"project":"/Users/Me/./app"}` {
+		t.Errorf("the envelope sent: %s; want the project in params and no workspace field", line)
+	}
+	line = sendOf(Call{Capability: "build.run", Project: "/p", Params: json.RawMessage(`{"tasks":["assemble"]}`)})
+	if !strings.Contains(line, `"project":"/p"`) || !strings.Contains(line, `"tasks":["assemble"]`) {
+		t.Errorf("the envelope sent: %s; want the project beside the other parameters", line)
+	}
+	line = sendOf(Call{Capability: "device.list"})
+	if strings.Contains(line, "project") {
+		t.Errorf("a call with no project sent one: %s", line)
+	}
+	if _, err := (Call{Project: "/p", Params: json.RawMessage(`{"project":"/q"}`)}).requestParams(); err == nil {
+		t.Error("a --project beside a project in --params was accepted")
+	}
+
 }

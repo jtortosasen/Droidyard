@@ -8,12 +8,8 @@ import (
 	"time"
 )
 
-// MaxChats is how many chats the registry remembers a binding for (ADR-0088 §2): the
-// oldest is dropped first. A working default.
-const MaxChats = 256
-
 // The values of config.json's occupation.conflict (ADR-0094 §5, §7). Where Droidyard
-// cannot ask (workspace.enter), ask is refuse (ADR-0094 §6).
+// cannot ask, ask is refuse (ADR-0094 §6).
 const (
 	OccupationRefuse = "refuse"
 	OccupationAsk    = "ask"
@@ -32,7 +28,7 @@ const SweepInterval = time.Minute
 // over (ADR-0104 §3): a constant, not config.json's occupation.staleAfterMinutes.
 const PeerLeaseIdle = 15 * time.Minute
 
-// Holder is who holds a worktree, as another session is told (ADR-0094 §5). It carries no
+// Holder is who holds a device, as another session is told (ADR-0094 §5). It carries no
 // session id (ADR-0048 §2).
 type Holder struct {
 	Name  string
@@ -43,28 +39,21 @@ type Holder struct {
 }
 
 // Sessions is the core's registry of MCP sessions, one per connection (ADR-0082 §5). It
-// holds what an adapter must not keep on its own: where each session is bound, so a
-// capability that moves the binding (Descriptor.Binding) and the adapter that addresses
-// the session's calls by it read one value, and each chat's last binding, so a resumed
-// chat gets its worktree back while the daemon lives (ADR-0088). Nothing here is written
-// to disk. A paired peer's link is a session too (ConnectPeer, ADR-0104): what it holds is the
-// lease of the lent devices its calls name. Every method is safe for concurrent use.
+// holds what an adapter must not keep on its own: which device each session holds, so the
+// capabilities that act on one and the adapter read one value (ADR-0094). A session has no
+// binding: its calls name their project (ADR-0137 §3). Nothing here is written to disk. A
+// paired peer's link is a session too (ConnectPeer, ADR-0104): what it holds is the lease
+// of the lent devices its calls name. Every method is safe for concurrent use.
 //
 // What a session shows (sessions_state.go) is published from here, under the same lock that
 // changes it, so an event of a session is never published before the row listed can show it,
 // and none after its end. The chat id is never published or listed (ADR-0088 §4).
 type Sessions struct {
-	mu    sync.Mutex
-	byID  map[string]*sessionRec
-	chats map[string]string // chat id → the root of its last binding
-	order []string          // the keys of chats, oldest first
-	next  uint64            // the connection order of the next session
-	pub   StatePublisher    // session.state's bus; nil publishes nothing
-	now   func() time.Time
-	// holders is the one holder of each linked worktree, by canonical root: the session
-	// that holds it (ADR-0094 §1). Under mu with the records, so one lock decides and
-	// binds.
-	holders map[string]string
+	mu   sync.Mutex
+	byID map[string]*sessionRec
+	next uint64         // the connection order of the next session
+	pub  StatePublisher // session.state's bus; nil publishes nothing
+	now  func() time.Time
 	// devHolders is the one holder of each device, by serial (ADR-0094 §1, §2), under mu too.
 	// devSeq counts the holds taken, so a listing read before a hold cannot release it
 	// (ForgetDevicesAbsent).
@@ -89,11 +78,6 @@ type sessionRec struct {
 	// seq is the connection order, at the connection time.
 	seq uint64
 	at  time.Time
-	// project is the session's project root: the main tree of its hello's root, or that
-	// root itself when it is not a worktree (ADR-0082 §3). Empty without a hello root.
-	project string
-	// root is the bound root, empty until the session is bound; workspace is its id.
-	root, workspace string
 	// seen is the last MCP request of the session (its connection, until the first); stale
 	// is set once it is older than the configured staleAfterMinutes, and cleared by the
 	// next request (ADR-0094 §4).
@@ -104,15 +88,11 @@ type sessionRec struct {
 	// streams count as activity: streams is how many it has.
 	peer    string
 	streams int
-	// holdRoot is the linked worktree the session holds, holdWorkspace its id and holdSince
-	// when it took it; all empty while it holds none.
-	holdRoot, holdWorkspace string
-	holdSince               time.Time
 }
 
 // NewSessions returns an empty registry.
 func NewSessions() *Sessions {
-	return &Sessions{byID: map[string]*sessionRec{}, chats: map[string]string{}, holders: map[string]string{}, devHolders: map[string]devHold{}, now: time.Now}
+	return &Sessions{byID: map[string]*sessionRec{}, devHolders: map[string]devHold{}, now: time.Now}
 }
 
 // UseOccupation gives the registry config.json's occupation section: f returns the
@@ -162,12 +142,12 @@ func (s *Sessions) usePublisher(p StatePublisher) {
 // events of one session arrive in the order its changes were made.
 func (s *Sessions) publish(id string, r *sessionRec) {
 	if s.pub != nil {
-		s.pub.Broadcast(SessionStateTopic, SessionStateType, "", "", SessionState{ID: id, Name: r.name, Workspace: r.workspace, Occupies: r.holdWorkspace, Devices: s.devicesOf(id), Stale: r.stale})
+		s.pub.Broadcast(SessionStateTopic, SessionStateType, "", "", SessionState{ID: id, Name: r.name, Devices: s.devicesOf(id), Stale: r.stale})
 	}
 }
 
 // Connect registers the session id, with the chat it belongs to ("" when the client
-// named none). It has no binding yet. It is the session's first event.
+// named none). It is the session's first event.
 func (s *Sessions) Connect(id, chat string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -179,8 +159,8 @@ func (s *Sessions) Connect(id, chat string) {
 }
 
 // ConnectPeer registers the session id of a paired peer's link, named by the peer's
-// configured name (ADR-0104 §1). It has no chat and no binding; what it holds is the devices
-// its calls lease. It is the session's first event.
+// configured name (ADR-0104 §1). It has no chat; what it holds is the devices its calls
+// lease. It is the session's first event.
 func (s *Sessions) ConnectPeer(id, name string) {
 	name = SessionName(name)
 	s.mu.Lock()
@@ -238,185 +218,8 @@ func (s *Sessions) Named(id, name string) {
 	s.publish(id, r)
 }
 
-// Opened sets the session's first binding, the hello's root, and its project (ADR-0082
-// §3). It remembers nothing: the chat's memory is what a move last wrote, which the
-// session may be about to read. A root that is a linked worktree of the project (root is
-// not project) is held when no other live, non-idle session of another chat holds it; a
-// held one is bound, not held, and the hello is never refused (ADR-0094 §2, §5).
-func (s *Sessions) Opened(id, project, workspace, root string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	r := s.byID[id]
-	if r == nil {
-		return
-	}
-	r.project, r.workspace, r.root = project, workspace, root
-	if root != project {
-		if c, hid := s.claimLocked(id, r, root); c == claimFree || c == claimTakeover {
-			s.acquireLocked(id, r, root, workspace, c, hid)
-		}
-	}
-	s.publish(id, r)
-}
-
-// How a session's claim on a linked worktree stands (claimLocked).
-type claim int
-
-const (
-	// claimFree: nobody holds it, or the holder's record is gone.
-	claimFree claim = iota
-	// claimSelf: the session holds it already.
-	claimSelf
-	// claimShared: another live session of the same chat holds it; both are one chat
-	// (ADR-0094 §1), so neither is refused and the second is bound, not holding.
-	claimShared
-	// claimTakeover: an idle session of another chat holds it; entering takes it over
-	// (ADR-0094 §4).
-	claimTakeover
-	// claimBlocked: a live, non-idle session of another chat holds it.
-	claimBlocked
-)
-
-// claimLocked says how root stands for session id, and the holder's id when there is one.
-// mu is held.
-func (s *Sessions) claimLocked(id string, r *sessionRec, root string) (claim, string) {
-	hid, ok := s.holders[root]
-	if !ok {
-		return claimFree, ""
-	}
-	if hid == id {
-		return claimSelf, hid
-	}
-	h := s.byID[hid]
-	if h == nil {
-		return claimFree, ""
-	}
-	switch {
-	case r.chat != "" && r.chat == h.chat:
-		return claimShared, hid
-	case h.stale:
-		return claimTakeover, hid
-	}
-	return claimBlocked, hid
-}
-
-// acquireLocked makes session id the holder of root, taking it from an idle holder when c
-// is claimTakeover (whose row, now without it, is published). It does not publish id's
-// own state: the caller does, once its binding is set. mu is held.
-func (s *Sessions) acquireLocked(id string, r *sessionRec, root, workspace string, c claim, hid string) {
-	if c == claimTakeover {
-		if h := s.byID[hid]; h != nil {
-			h.holdRoot, h.holdWorkspace, h.holdSince = "", "", time.Time{}
-			s.publish(hid, h)
-		}
-	}
-	r.holdRoot, r.holdWorkspace, r.holdSince = root, workspace, s.now().UTC().Truncate(time.Millisecond)
-	s.holders[root] = id
-}
-
-// releaseLocked drops what the session holds, if anything. Another live session of the same
-// chat bound at that root, the most recently seen, is handed the hold at once (its row is
-// published), so a chat that shares a worktree between two connections keeps it while either
-// lives (ADR-0094 §1). mu is held.
-func (s *Sessions) releaseLocked(id string, r *sessionRec) {
-	if r.holdRoot == "" {
-		return
-	}
-	root, workspace := r.holdRoot, r.holdWorkspace
-	r.holdRoot, r.holdWorkspace, r.holdSince = "", "", time.Time{}
-	if s.holders[root] != id {
-		return
-	}
-	delete(s.holders, root)
-	if r.chat == "" {
-		return
-	}
-	var next *sessionRec
-	var nextID string
-	for oid, o := range s.byID {
-		if oid == id || o.chat != r.chat || o.root != root || o.holdRoot != "" {
-			continue
-		}
-		if next == nil || o.seen.After(next.seen) || (o.seen.Equal(next.seen) && o.seq > next.seq) {
-			next, nextID = o, oid
-		}
-	}
-	if next != nil {
-		next.holdRoot, next.holdWorkspace, next.holdSince = root, workspace, s.now().UTC().Truncate(time.Millisecond)
-		s.holders[root] = nextID
-		s.publish(nextID, next)
-	}
-}
-
-// Occupy moves the session's binding to root, workspace being its id, and decides in the
-// same critical section whether the session holds it (ADR-0094 §1 to §6), so two sessions
-// entering one worktree cannot both succeed. linked says root is a linked worktree of the
-// session's project; the main tree is never held. A linked worktree another live,
-// non-idle session of another chat holds is refused unless the configured conflict is
-// allow: refused is then true, held describes the holder, and nothing has changed
-// (ask is refuse, where Droidyard cannot ask: ADR-0094 §6). Under allow it is bound, not
-// held. A free one, or one held by an idle session, is held; a session that moves
-// releases what it held before, the main tree included, which also frees the devices it
-// held (ADR-0094 §3). A session that is not registered is left as it is.
-func (s *Sessions) Occupy(id, workspace, root string, linked bool) (held Holder, refused bool) {
-	conflict, _ := s.occupationNow()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	r := s.byID[id]
-	if r == nil {
-		return Holder{}, false
-	}
-	if linked {
-		c, hid := s.claimLocked(id, r, root)
-		if hook := s.occupyHook.Load(); hook != nil {
-			(*hook)()
-		}
-		if c == claimBlocked && conflict != OccupationAllow {
-			h := s.byID[hid]
-			return Holder{Name: h.name, Since: h.holdSince}, true
-		}
-		if r.holdRoot != root {
-			s.releaseLocked(id, r)
-		}
-		if c == claimFree || c == claimTakeover {
-			s.acquireLocked(id, r, root, workspace, c, hid)
-		}
-	} else {
-		s.releaseLocked(id, r)
-		// Entering the main tree, also when already there, is the skill's "task done":
-		// the devices the session held go with the worktree (ADR-0094 §3).
-		s.releaseDevicesLocked(id)
-	}
-	s.bindLocked(id, r, workspace, root)
-	return Holder{}, false
-}
-
-// bindLocked sets the session's binding, publishes it and remembers it as the chat's
-// last. mu is held.
-func (s *Sessions) bindLocked(id string, r *sessionRec, workspace, root string) {
-	r.workspace, r.root = workspace, root
-	s.publish(id, r)
-	if r.chat == "" {
-		return
-	}
-	if _, ok := s.chats[r.chat]; ok {
-		for i, c := range s.order {
-			if c == r.chat {
-				s.order = append(s.order[:i], s.order[i+1:]...)
-				break
-			}
-		}
-	}
-	s.chats[r.chat] = root
-	s.order = append(s.order, r.chat)
-	for len(s.order) > MaxChats {
-		delete(s.chats, s.order[0])
-		s.order = s.order[1:]
-	}
-}
-
-// End removes the session and publishes its end. Its chat's memory stays: a resumed chat
-// is a new session. A session that is not registered ends nothing.
+// End removes the session and publishes its end, and the devices it held go with it
+// (ADR-0094 §3). A session that is not registered ends nothing.
 func (s *Sessions) End(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -424,7 +227,6 @@ func (s *Sessions) End(id string) {
 	if r == nil {
 		return
 	}
-	s.releaseLocked(id, r)
 	s.releaseDevicesLocked(id)
 	delete(s.byID, id)
 	if s.pub != nil {
@@ -445,7 +247,7 @@ func (s *Sessions) listed() []SessionListed {
 	sort.Slice(recs, func(i, j int) bool { return recs[i].seq < recs[j].seq })
 	out := make([]SessionListed, len(recs))
 	for i, r := range recs {
-		out[i] = SessionListed{ID: ids[r], Name: r.name, Workspace: r.workspace, Occupies: r.holdWorkspace, Devices: s.devicesOf(ids[r]), Stale: r.stale, ConnectedAt: r.at}
+		out[i] = SessionListed{ID: ids[r], Name: r.name, Devices: s.devicesOf(ids[r]), Stale: r.stale, ConnectedAt: r.at}
 	}
 	return out
 }
@@ -476,15 +278,14 @@ func (s *Sessions) seenLocked(id string, r *sessionRec) {
 // Join is the MCP session a non-MCP connection was joined to (ADR-0095 §1): what its
 // requests are attributed to, and nothing else.
 type Join struct {
-	// ID, Name and Root are the session's id, the name its client gave and its bound root,
-	// as they stood when the connection asked.
-	ID, Name, Root string
+	// ID and Name are the session's id and the name its client gave, as they stood when the
+	// connection asked.
+	ID, Name string
 }
 
 // Joined is the live MCP session of the chat, if there is one: the most recently seen when
 // two share it (ADR-0095 §1). A connection joined to it is attributed to it and keeps it
-// from going idle (Seen); it gains no binding and holds nothing. An empty chat joins no
-// one.
+// from going idle (Seen); it holds nothing. An empty chat joins no one.
 func (s *Sessions) Joined(chat string) (Join, bool) {
 	if chat == "" {
 		return Join{}, false
@@ -504,7 +305,7 @@ func (s *Sessions) Joined(chat string) (Join, bool) {
 	if best == nil {
 		return Join{}, false
 	}
-	return Join{ID: bestID, Name: best.name, Root: best.root}, true
+	return Join{ID: bestID, Name: best.name}, true
 }
 
 // Sweep marks idle every session whose last request is older than the configured
@@ -544,30 +345,8 @@ func (s *Sessions) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// HolderOf reports who holds the linked worktree root, for the session asking ("" for
-// the UI or the CLI, which are told of every holder). A holder that is the asking session,
-// or a session of the asking session's chat, is not reported: occupiedBy names another
-// chat (ADR-0094 §1).
-func (s *Sessions) HolderOf(root, asking string) (Holder, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	hid, ok := s.holders[root]
-	if !ok {
-		return Holder{}, false
-	}
-	h := s.byID[hid]
-	if h == nil || hid == asking {
-		return Holder{}, false
-	}
-	if a := s.byID[asking]; a != nil && a.chat != "" && a.chat == h.chat {
-		return Holder{}, false
-	}
-	return Holder{Name: h.name, Since: h.holdSince, Stale: h.stale}, true
-}
-
-// SetOccupyHook makes every Occupy of a linked worktree and every OccupyDevice run f
-// between its decision (the claim) and its effect (the hold), with the registry's lock
-// held. Test-only: it is where a second one can be started, to see that it cannot decide
+// SetOccupyHook makes every OccupyDevice run f between its decision (the claim) and its
+// effect (the hold), with the registry's lock held. Test-only: it is where a second one can be started, to see that it cannot decide
 // in that window. Nil removes it.
 func (s *Sessions) SetOccupyHook(f func()) {
 	if f == nil {
@@ -587,18 +366,6 @@ func (s *Sessions) Registered(id string) bool {
 	return s.byID[id] != nil
 }
 
-// Binding is the root the session's calls address; ok is false for a session that is not
-// registered or not bound.
-func (s *Sessions) Binding(id string) (root string, ok bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	r := s.byID[id]
-	if r == nil || r.root == "" {
-		return "", false
-	}
-	return r.root, true
-}
-
 // Chat is the chat id the session's hello named, "" when it named none or the session is
 // not registered.
 func (s *Sessions) Chat(id string) string {
@@ -608,42 +375,4 @@ func (s *Sessions) Chat(id string) string {
 		return r.chat
 	}
 	return ""
-}
-
-// Project is the session's project root, "" when it has none (not registered, or
-// registered without a hello root).
-func (s *Sessions) Project(id string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if r := s.byID[id]; r != nil {
-		return r.project
-	}
-	return ""
-}
-
-// Remembered is the root the session's chat was last bound to, if the chat is known.
-func (s *Sessions) Remembered(chat string) (root string, ok bool) {
-	if chat == "" {
-		return "", false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	root, ok = s.chats[chat]
-	return root, ok
-}
-
-// Forget drops the chat's memory (ADR-0088 §3: a root that cannot be entered again).
-func (s *Sessions) Forget(chat string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.chats[chat]; !ok {
-		return
-	}
-	delete(s.chats, chat)
-	for i, c := range s.order {
-		if c == chat {
-			s.order = append(s.order[:i], s.order[i+1:]...)
-			break
-		}
-	}
 }

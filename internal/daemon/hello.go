@@ -23,7 +23,6 @@ type Hello struct {
 	Protocol int                   `json:"protocol"`
 	Version  string                `json:"version"`
 	Client   capability.ClientKind `json:"client"`
-	Root     string                `json:"root,omitempty"`
 	Cwd      string                `json:"cwd"`
 	// WaitMs is an MCP session's wait budget, from `droidyard mcp --wait`
 	// (ADR-0020 §Adapter projections). Zero means the default.

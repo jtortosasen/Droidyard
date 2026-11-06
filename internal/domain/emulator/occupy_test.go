@@ -34,7 +34,6 @@ func newOccEmu(t *testing.T, adbFiles map[string]string) *occEmu {
 func (f *occEmu) connect(id, name string) {
 	f.sessions.Connect(id, "chat-"+id)
 	f.sessions.Named(id, name)
-	f.sessions.Opened(id, "/main", "ws-main", "/main")
 }
 
 // as runs a capability as the MCP session id and waits for its outcome.

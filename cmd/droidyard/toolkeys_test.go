@@ -104,9 +104,6 @@ func TestAnInvalidConfigurationAtStartIsReportedByEveryResolution(t *testing.T) 
 	// (ADR-0032 §6).
 	root, _ := gradleProject(t)
 	writeConfig(t, p, `{"schemaVersion":1,"trust":{"roots":["`+root+`"]}}`)
-	if env, code := callIn(t, p.state, root, "workspace.open"); code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
-	}
 	env, code = callIn(t, p.state, root, "build.tasks")
 	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrBuildSidecarUnavailable {
 		t.Fatalf("build.tasks exited %d with %+v; want BUILD_SIDECAR_UNAVAILABLE", code, env)

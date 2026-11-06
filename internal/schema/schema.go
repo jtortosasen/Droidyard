@@ -7,7 +7,9 @@
 //
 // Two rules from the MCP surface shape the output: everything is **inlined** (no
 // "$ref" and no "$defs"), and there is **no top-level union** — a capability that
-// would need one is split instead.
+// would need one is split instead. A third comes from ADR-0137 §3: the input schema of every
+// workspace-scoped capability carries one required `project` property, added here from the
+// descriptor's scope, so no parameter struct declares it and none can leave it out.
 package schema
 
 import (
@@ -29,14 +31,11 @@ type Document struct {
 
 // CapabilitySchema is one capability's published contract.
 type CapabilitySchema struct {
-	Name         string `json:"name"`
-	Kind         string `json:"kind"`
-	Scope        string `json:"scope"`
-	Statefulness string `json:"statefulness"`
-	LongRunning  bool   `json:"longRunning,omitempty"`
-	// Binding marks a capability that acts on the calling MCP session's binding, so only
-	// an MCP session can call it (ADR-0082 §4).
-	Binding      bool     `json:"binding,omitempty"`
+	Name         string   `json:"name"`
+	Kind         string   `json:"kind"`
+	Scope        string   `json:"scope"`
+	Statefulness string   `json:"statefulness"`
+	LongRunning  bool     `json:"longRunning,omitempty"`
 	Audience     string   `json:"audience"`
 	Since        string   `json:"since,omitempty"`
 	Description  string   `json:"description"`
@@ -49,9 +48,8 @@ type CapabilitySchema struct {
 	// through as well (docs/architecture/capability-api.md §Error model).
 	Errors []string `json:"errors,omitempty"`
 
-	// Input is the MCP input schema: the parameter object, and nothing else. The
-	// workspace is an envelope field that the adapter fills, so it never appears
-	// here.
+	// Input is the MCP input schema: the parameter object, with `project` first and
+	// required when the capability is workspace-scoped (ADR-0137 §3).
 	Input json.RawMessage `json:"input"`
 	// Output is the MCP output schema: the result, or the operation view for a
 	// long-running capability.
@@ -248,30 +246,55 @@ func bareRepeats(t goreflect.Type, s *jsonschema.Schema, seen map[goreflect.Type
 	}
 }
 
-// reflectInput is reflect for a tool's input: the same inlined schema, with a repeated
-// object described once.
-func reflectInput(v any) (json.RawMessage, error) {
-	sch, err := inlined(v)
-	if err != nil {
-		return nil, err
+// ProjectDescription is the one description of the `project` property, the same words in
+// every workspace-scoped tool's input (ADR-0137 §3).
+const ProjectDescription = "The absolute path of the folder or worktree of the project you work in, or of a folder inside it."
+
+// withProject puts the `project` property first in an object schema, with the description
+// above, and first among its required ones. A schema that is not an object, or that already
+// has the property, cannot take it: Register refuses both for a workspace-scoped descriptor,
+// so reaching either here is a bug, reported rather than published.
+func withProject(sch *jsonschema.Schema) error {
+	if sch.Type != "object" {
+		return fmt.Errorf("a workspace-scoped capability's input must be an object, not %q", sch.Type)
 	}
-	bareRepeats(goreflect.TypeOf(v), sch, map[goreflect.Type]bool{}, false)
-	raw, err := json.Marshal(sch)
-	if err != nil {
-		return nil, fmt.Errorf("reflecting %T: %w", v, err)
+	if sch.Properties != nil {
+		if _, dup := sch.Properties.Get(capability.ProjectParam); dup {
+			return fmt.Errorf("the input already has a %q property", capability.ProjectParam)
+		}
 	}
-	return raw, nil
+	props := jsonschema.NewProperties()
+	props.Set(capability.ProjectParam, &jsonschema.Schema{Type: "string", Description: ProjectDescription})
+	if sch.Properties != nil {
+		for pair := sch.Properties.Oldest(); pair != nil; pair = pair.Next() {
+			props.Set(pair.Key, pair.Value)
+		}
+	}
+	sch.Properties = props
+	sch.Required = append([]string{capability.ProjectParam}, sch.Required...)
+	return nil
 }
 
 // Input is one capability's input schema, exactly as Generate publishes it: the same
 // reflection, so an adapter that needs a single capability's parameters (the CLI,
-// building one command's flags) does not reflect the whole registry.
+// building one command's flags) does not reflect the whole registry. A repeated object is
+// described once, and a workspace-scoped capability's gains `project`.
 func Input(d capability.Descriptor) (json.RawMessage, error) {
-	input, err := reflectInput(d.Params)
+	sch, err := inlined(d.Params)
 	if err != nil {
 		return nil, fmt.Errorf("capability %s: %w", d.Name, err)
 	}
-	return input, nil
+	bareRepeats(goreflect.TypeOf(d.Params), sch, map[goreflect.Type]bool{}, false)
+	if d.Scope == capability.Workspace {
+		if err := withProject(sch); err != nil {
+			return nil, fmt.Errorf("capability %s: %w", d.Name, err)
+		}
+	}
+	raw, err := json.Marshal(sch)
+	if err != nil {
+		return nil, fmt.Errorf("capability %s: reflecting %T: %w", d.Name, d.Params, err)
+	}
+	return raw, nil
 }
 
 // operationView is the output of a long-running capability: the operation view, with
@@ -343,7 +366,6 @@ func Generate(reg *capability.Registry, version string) (*Document, error) {
 			Scope:        d.Scope.String(),
 			Statefulness: d.Statefulness.String(),
 			LongRunning:  d.LongRunning,
-			Binding:      d.Binding,
 			Audience:     d.Audience.String(),
 			Since:        d.Since,
 			Description:  d.Description,

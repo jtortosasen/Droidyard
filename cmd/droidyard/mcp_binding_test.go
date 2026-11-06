@@ -6,32 +6,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
-	"github.com/jtortosasen/droidyard/internal/testtime"
-	"github.com/jtortosasen/droidyard/internal/workspace"
+	"github.com/jtortosasen/droidyard/internal/schema"
 )
 
-// boundCall is a tools/call answer as the wire has it: the workspace object for a
+// boundCall is a tools/call answer as the wire has it: the structured result for a
 // success, the error object for an isError result.
 type boundCall struct {
 	isError bool
-	info    workspace.Info
+	result  json.RawMessage
 	err     capability.Error
 	raw     []byte
 }
 
-// workspaceTool calls a workspace tool with {} and decodes its answer.
-func (s *shim) workspaceTool(id int, name string) boundCall {
-	s.t.Helper()
-	return s.toolWith(id, name, `{}`)
-}
-
-// toolWith is workspaceTool with arguments: the answer of any tool whose success is read
-// as a workspace object (a tool of another shape decodes to the zero value, its isError
-// still set).
+// toolWith is the answer of any tool called with args.
 func (s *shim) toolWith(id int, name, args string) boundCall {
 	s.t.Helper()
 	s.callTool(id, name, args)
@@ -47,7 +37,7 @@ func (s *shim) toolWith(id int, name, args string) boundCall {
 	if err := json.Unmarshal(line, &msg); err != nil || msg.ID != id {
 		s.t.Fatalf("%s: expected the answer to %d, got %s", s.name, id, line)
 	}
-	c := boundCall{isError: msg.Result.IsError, raw: line}
+	c := boundCall{isError: msg.Result.IsError, raw: line, result: msg.Result.StructuredContent}
 	if c.isError {
 		if len(msg.Result.StructuredContent) != 0 || len(msg.Result.Content) != 1 {
 			s.t.Fatalf("%s: an error result with structured content or no text: %s", s.name, line)
@@ -56,14 +46,18 @@ func (s *shim) toolWith(id int, name, args string) boundCall {
 		if err := json.Unmarshal([]byte(text), &c.err); err != nil {
 			s.t.Fatalf("%s: the error text is not the error object: %s", s.name, line)
 		}
-		return c
-	}
-	if len(msg.Result.StructuredContent) > 0 {
-		if err := json.Unmarshal(msg.Result.StructuredContent, &c.info); err != nil {
-			s.t.Fatalf("%s: structuredContent is not a workspace: %s", s.name, line)
-		}
 	}
 	return c
+}
+
+// touchedBy is a fixture_touch answer decoded.
+func touchedBy(t *testing.T, c boundCall) touched {
+	t.Helper()
+	var got touched
+	if c.isError || json.Unmarshal(c.result, &got) != nil || got.ID == "" {
+		t.Fatalf("fixture_touch answered %s; want the workspace it opened", c.raw)
+	}
+	return got
 }
 
 // project makes a project root holding settingsFile, by its canonical path, and a
@@ -81,184 +75,106 @@ func projectWith(t *testing.T, settingsFile string) (root, sub string) {
 	return root, sub
 }
 
-// boundReady asserts a workspace_describe answer is the bound root, ready, untrusted.
-func boundReady(t *testing.T, what string, c boundCall, root string) {
-	t.Helper()
-	id, _ := platform.Current().WorkspaceID(root)
-	if c.isError || c.info.Root != root || c.info.ID != id || c.info.State != workspace.Ready || c.info.Trusted {
-		t.Errorf("%s: %s; want root %s, ready, trusted false", what, c.raw, root)
-	}
-}
-
-// TestMCPSessionBindsAndOpensItsRoot: an MCP session is bound to --root, else to the
-// project of the shim's cwd (the nearest ancestor holding settings.gradle(.kts)), else it
-// has no workspace and no tools (ADR-0124 §2); it opens that root before it answers anything; workspace tools take no workspace
-// argument; the binding grants no trust
-// (ADR-0019 §Sessions; ADR-0020 §Adapter projections; ADR-0015 §5).
-// Real shims over the real socket, under -race.
-func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
+// TestMCPSessionBindsNothing holds ADR-0137 §2, §3: an MCP session is the machine's. Started
+// in one project's folder it lists the same tools it would anywhere, none of them a
+// `workspace_` tool; each tool of a project capability has one required `project` property
+// with one description, and no other tool has it; a project call names its project, which may
+// be any folder, and is opened by that call, not by the session; two sessions started in
+// different folders that name one project meet in one workspace; a call that names none, or a
+// global tool that is sent one, is REQUEST_INVALID_PARAMS and runs nothing. Real shims over
+// the real socket, under -race.
+func TestMCPSessionBindsNothing(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
+	rootA, subA := projectWith(t, "settings.gradle")
+	rootB, subB := projectWith(t, "settings.gradle.kts")
 
-	// (a) The cwd is a subdirectory of a project with settings.gradle: describe, the
-	// first call after initialize, answers ready.
-	groovy, sub := projectWith(t, "settings.gradle")
-	a := startShimIn(t, p.state, sub, "a", []string{"mcp", "--no-autostart"})
+	a := startShimIn(t, p.state, subA, "a", []string{"mcp", "--no-autostart"})
 	a.initialize("binding")
-	boundReady(t, "(a) describe right after initialize", a.workspaceTool(1, "workspace_describe"), groovy)
-	a.send(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+	a.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var list struct {
 		Result struct {
 			Tools []struct {
 				Name        string `json:"name"`
 				InputSchema struct {
-					Properties map[string]any `json:"properties"`
+					Properties map[string]struct {
+						Description string `json:"description"`
+					} `json:"properties"`
+					Required []string `json:"required"`
 				} `json:"inputSchema"`
 			} `json:"tools"`
 		} `json:"result"`
 	}
 	json.Unmarshal(a.recv(), &list)
-	seen := 0
+	scoped := map[string]bool{}
+	for _, d := range p.reg.All() {
+		if d.Scope == capability.Workspace {
+			scoped[strings.Replace(d.Name, ".", "_", 1)] = true
+		}
+	}
+	withProject := 0
 	for _, tool := range list.Result.Tools {
-		if !strings.HasPrefix(tool.Name, "workspace_") {
-			continue
+		if strings.HasPrefix(tool.Name, "workspace_") {
+			t.Errorf("the session lists %s: the workspace tools left with the binding", tool.Name)
 		}
-		seen++
-		for prop := range tool.InputSchema.Properties {
-			// workspace_enter's root is where the session moves to, not the workspace a
-			// call addresses (ADR-0082 §3): it is the one parameter of that name.
-			if tool.Name == "workspace_enter" && prop == "root" {
-				continue
-			}
-			if strings.Contains(strings.ToLower(prop), "workspace") || prop == "root" {
-				t.Errorf("(a) %s takes %q: agents never pass a workspace", tool.Name, prop)
+		prop, has := tool.InputSchema.Properties["project"]
+		switch {
+		case scoped[tool.Name] && !has:
+			t.Errorf("%s is a project tool and has no project property", tool.Name)
+		case has && !scoped[tool.Name]:
+			t.Errorf("%s takes a project and is no project tool", tool.Name)
+		case has:
+			withProject++
+			if prop.Description != schema.ProjectDescription || len(tool.InputSchema.Required) == 0 || tool.InputSchema.Required[0] != "project" {
+				t.Errorf("%s: project is %+v, required %v; want the one description and first among the required", tool.Name, prop, tool.InputSchema.Required)
 			}
 		}
 	}
-	if seen != 4 {
-		t.Errorf("(a) tools/list has %d workspace tools; want 4", seen)
+	if withProject == 0 {
+		t.Fatalf("no tool takes a project: %d tools listed", len(list.Result.Tools))
 	}
 
-	// (b) --root wins over the cwd.
-	kts, _ := projectWith(t, "settings.gradle.kts")
-	b := startShimIn(t, p.state, sub, "b", []string{"mcp", "--no-autostart", "--root", kts})
-	b.initialize("binding")
-	boundReady(t, "(b) --root over the cwd", b.workspaceTool(1, "workspace_describe"), kts)
-
-	// (c) No ancestor holds a settings file: the cwd is no project, so the session has no
-	// tools and the shim opens no workspace (ADR-0124 §2).
-	bare := platform.Current().Canonical(t.TempDir())
-	c := startShimIn(t, p.state, bare, "c", []string{"mcp", "--no-autostart"})
+	// The session started in project A names project B, and the call opens B.
+	inB := touchedBy(t, a.toolWith(2, "fixture_touch", `{"project":`+quote(subB)+`}`))
+	idB, _ := platform.Current().WorkspaceID(rootB)
+	if inB.ID != idB || inB.Root != rootB {
+		t.Errorf("a call naming %s ran in %+v; want workspace %s at %s", subB, inB, idB, rootB)
+	}
+	// A second session, started in neither project, naming A and B: A and B are two workspaces,
+	// and the one B is the same for both.
+	c := startShimIn(t, p.state, nonProject(t), "c", []string{"mcp", "--no-autostart", "--root", rootB})
 	c.initialize("binding")
-	c.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
-	if got := c.recv(); !strings.Contains(string(got), `"tools":[]`) {
-		t.Errorf("(c) tools/list outside a project = %s; want no tools", got)
+	again := touchedBy(t, c.toolWith(1, "fixture_touch", `{"project":`+quote(rootB)+`}`))
+	if again != inB {
+		t.Errorf("a second session naming B ran in %+v; the first ran in %+v; want one workspace", again, inB)
+	}
+	idA, _ := platform.Current().WorkspaceID(rootA)
+	if inA := touchedBy(t, c.toolWith(2, "fixture_touch", `{"project":`+quote(subA)+`}`)); inA.ID != idA || inA.ID == inB.ID {
+		t.Errorf("a call naming %s ran in %+v; want its own workspace %s", subA, inA, idA)
 	}
 
-	// (e) A second session bound to the same root shares the workspace: its open changes
-	// no state but the recency (ADR-0045 §3 refreshes lastOpenedAt on every open), so
-	// workspace.json is not rewritten, createdAt is the same, and the index entry moved.
-	first := a.workspaceTool(3, "workspace_describe")
-	config := filepath.Join(p.state, "ws", first.info.ID, "workspace.json")
-	before, err := os.Stat(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	openedBefore := lastOpenedAt(t, p.state, first.info.ID)
-	a2 := startShimIn(t, p.state, groovy, "a2", []string{"mcp", "--no-autostart"})
-	a2.initialize("binding")
-	second := a2.workspaceTool(1, "workspace_describe")
-	boundReady(t, "(e) the second session", second, groovy)
-	if second.info.CreatedAt == nil || first.info.CreatedAt == nil || !second.info.CreatedAt.Equal(*first.info.CreatedAt) {
-		t.Errorf("(e) the second session sees createdAt %v; the first %v", second.info.CreatedAt, first.info.CreatedAt)
-	}
-	if after, _ := os.Stat(config); !after.ModTime().Equal(before.ModTime()) {
-		t.Errorf("(e) workspace.json was rewritten by the second session's open")
-	}
-	if openedAfter := lastOpenedAt(t, p.state, first.info.ID); !openedAfter.After(openedBefore) {
-		t.Errorf("(e) lastOpenedAt is %v after the second session's open, %v before: an open of an open workspace must refresh it", openedAfter, openedBefore)
+	// No project, and a project where none belongs.
+	for _, tc := range []struct{ name, tool, args string }{
+		{"a project tool with no project", "fixture_touch", `{}`},
+		{"a project tool with an empty project", "fixture_touch", `{"project":""}`},
+		{"a project tool with a relative project", "fixture_touch", `{"project":"app/src"}`},
+		{"a global tool sent a project", "system_health", `{"project":` + quote(rootA) + `}`},
+	} {
+		got := a.toolWith(10, tc.tool, tc.args)
+		if !got.isError || got.err.Code != capability.ErrInvalidParams || got.err.NextStep == "" {
+			t.Errorf("%s: %s; want isError REQUEST_INVALID_PARAMS with a nextStep", tc.name, got.raw)
+		}
 	}
 
-	// (d) Another client closes the workspace: the sessions' next call reopens it, with no
-	// workspace_open between (ADR-0137 §3: a call that names a root opens it).
-	if env, code := p.call(t, "--workspace", groovy, "workspace.close"); code != 0 {
-		t.Fatalf("(d) the CLI's close exited %d: %+v", code, env.Error)
-	}
-	for i, s := range []*shim{a, a2} {
-		boundReady(t, "(d) "+s.name+" after the close", s.workspaceTool(10+i, "workspace_describe"), groovy)
-	}
-	boundReady(t, "(d) workspace_open", a.workspaceTool(20, "workspace_open"), groovy)
-	boundReady(t, "(d) describe after the reopen", a2.workspaceTool(21, "workspace_describe"), groovy)
-
-	for _, s := range []*shim{a, b, c, a2} {
+	for _, s := range []*shim{a, c} {
 		if code := s.exit(); code != 0 {
 			t.Errorf("%s exited %d", s.name, code)
 		}
 	}
 }
 
-// TestMCPBadBoundRootDegrades: a bound root that cannot be opened does not fail the
-// session: initialize and tools/list succeed, workspace tools are refused at Start
-// (REQUEST_INVALID_PARAMS: the root is no directory), and workspace_open shows the cause, WORKSPACE_ROOT_INVALID with the bound root as
-// its target; the failure is in the daemon log (ADR-0026 §Decision; plan m1c, R13).
-func TestMCPBadBoundRootDegrades(t *testing.T) {
-	t.Parallel()
-	p := startInProcess(t)
-	s := startShim(t, p.state, "bad", "--root", "/nonexistent")
-	s.initialize("binding")
-	s.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
-	if res := response(t, s.recv(), 1); len(res["tools"].([]any)) == 0 {
-		t.Fatal("tools/list is empty")
-	}
-	if got := s.workspaceTool(2, "workspace_describe"); !got.isError || got.err.Code != capability.ErrInvalidParams {
-		t.Errorf("describe: %s; want isError REQUEST_INVALID_PARAMS (the root is no directory)", got.raw)
-	}
-	got := s.workspaceTool(3, "workspace_open")
-	if !got.isError || got.err.Code != workspace.ErrRootInvalid || got.err.Details["target"] != "/nonexistent" {
-		t.Errorf("open: %s; want isError WORKSPACE_ROOT_INVALID, target /nonexistent", got.raw)
-	}
-	if log := p.log.String(); !strings.Contains(log, "session bound to /nonexistent") || !strings.Contains(log, string(workspace.ErrRootInvalid)) {
-		t.Errorf("the daemon log does not record the failed bound open:\n%s", log)
-	}
-	if code := s.exit(); code != 0 {
-		t.Errorf("the shim exited %d", code)
-	}
-}
-
-// TestMCPBoundOpenPrecedesTheFirstAnswer: the adapter opens the bound root before it
-// reads the first MCP message, so no tool call can precede the open (plan m1c, R4).
-// The open is held on the test hook: initialize gets no answer meanwhile; released,
-// initialize is answered, and the first tool call finds the workspace ready.
-func TestMCPBoundOpenPrecedesTheFirstAnswer(t *testing.T) {
-	t.Parallel()
-	p := startInProcess(t)
-	root, _ := projectWith(t, "settings.gradle")
-	held, release := make(chan struct{}), make(chan struct{})
-	p.mcp.SetBoundOpenHook(func() {
-		close(held)
-		<-release
-	})
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
-	s := startShim(t, p.state, "held", "--root", root)
-	s.send(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"held","version":"0"}}}`)
-	select {
-	case <-held:
-	case <-time.After(testtime.Bound(processGuard)):
-		t.Fatal("the bound open never reached the hook")
-	}
-	s.silent(300 * time.Millisecond)
-	p.mcp.SetBoundOpenHook(nil)
-	close(release)
-	response(t, s.recv(), 0)
-	s.send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
-	boundReady(t, "describe after the held open", s.workspaceTool(1, "workspace_describe"), root)
-	if code := s.exit(); code != 0 {
-		t.Errorf("the shim exited %d", code)
-	}
+// quote is s as a JSON string.
+func quote(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
 }

@@ -1,22 +1,15 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/coder/websocket"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/platform"
-	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // gitIn runs git in dir with the caller's GIT_* and global configuration kept out, as
@@ -41,80 +34,24 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// wsToDaemon connects a WebSocket to the daemon serving state and authenticates it.
-func wsToDaemon(t *testing.T, state string) *wsClient {
-	t.Helper()
-	info, err := daemon.ReadLock(state)
-	if err != nil || info.HTTP == nil {
-		t.Fatalf("daemon.lock says (%+v, %v) once serve listens", info, err)
-	}
-	addr := *info.HTTP
-	raw, err := os.ReadFile(filepath.Join(state, daemon.TokenFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	c, resp, err := websocket.Dial(ctx, "ws://"+addr+"/v1/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"http://" + addr}}})
-	if err != nil {
-		t.Fatalf("the upgrade: %v (response %v)", err, resp)
-	}
-	w := pump(t, c)
-	w.writeText(`{"auth":"` + strings.TrimSpace(string(raw)) + `"}`)
-	return w
-}
-
-// watchRows connects a WebSocket to the daemon serving state, calls workspace.watch and
-// returns its rows.
-func watchRows(t *testing.T, state string) []workspace.Listed {
-	t.Helper()
-	w := wsToDaemon(t, state)
-	w.send("w", "workspace.watch", "", "", nil)
-	_, f := w.collect("w")
-	if f.Error != nil {
-		t.Fatalf("workspace.watch: %+v", f.Error)
-	}
-	var res workspace.WatchResult
-	if err := json.Unmarshal(f.Result, &res); err != nil {
-		t.Fatalf("workspace.watch result %s: %v", f.Result, err)
-	}
-	return res.Workspaces
-}
-
-func rowFor(rows []workspace.Listed, root string) (workspace.Listed, bool) {
-	for _, r := range rows {
-		if r.Root == root {
-			return r, true
-		}
-	}
-	return workspace.Listed{}, false
-}
-
-// TestWorktreeOfATrustedProject is ADR-0081 §1, §5 and ADR-0082 §6 end to end, on a real
-// `serve`, a real `git worktree add` and the fake sidecar. The project is the main tree,
-// the worktree one of its workspaces. Untrusted, the worktree opens with trusted false and
-// the main tree as mainRoot, and build.tasks answers WORKSPACE_UNTRUSTED naming the main
-// tree, with no sidecar started. After `droidyard trust` on the MAIN tree only,
-// build.tasks on the worktree lists the tasks and the sidecar opens the worktree, never
-// the main tree: trust is the project's, the Gradle root the worktree's own. Closed,
-// workspace.watch lists the worktree's row with mainRoot; removed from disk, it is gone,
-// while a closed plain project whose directory is gone is still listed.
-//
-// Seen failing: before step 2 (policy.Trusted by path only) the trusted build.tasks was
-// WORKSPACE_UNTRUSTED; with workspace.watch's existence test removed the removed worktree
-// stayed listed.
-func TestWorktreeOfATrustedProject(t *testing.T) {
+// TestLinkedWorktreeInheritsTrust holds ADR-0081 through the `project` parameter
+// (ADR-0137 §3): a project named by a folder inside a linked worktree is judged by the
+// worktree's root, which is trusted when its main tree is, and never by the path the caller
+// passed, which no configuration names. Untrusted, a call on the worktree is refused with the
+// nextStep that names the main tree and spawns nothing; once the main tree is trusted, the
+// same call by the worktree's root and by a folder deep inside it runs the Gradle capabilities
+// in the worktree, never in the main tree. Seen failing with the trust gate given the path the
+// caller passed (a subdirectory of the worktree) instead of the resolved root:
+// WORKSPACE_UNTRUSTED for the subdirectory of a worktree of a trusted project.
+func TestLinkedWorktreeInheritsTrust(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
 	cfg, events := fakeSidecar(t, gradleRootModel)
 	base := platform.Current().Canonical(t.TempDir())
 	main := filepath.Join(base, "main")
 	wt := filepath.Join(base, "wt")
-	plain := filepath.Join(base, "plain")
-	for _, d := range []string{main, plain} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(main, 0o700); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(main, "settings.gradle.kts"), nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -123,24 +60,22 @@ func TestWorktreeOfATrustedProject(t *testing.T) {
 	gitIn(t, main, "add", "-A")
 	gitIn(t, main, "commit", "-q", "-m", "c")
 	gitIn(t, main, "worktree", "add", "-q", "../wt", "-b", "task")
+	deep := filepath.Join(wt, "app", "src", "main")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
 	srv.expect(t, "listening")
 
-	env, code := callIn(t, state, wt, "workspace.open")
-	if code != 0 {
-		t.Fatalf("open of the worktree exited %d: %+v", code, env.Error)
-	}
-	if info := workspaceOf(t, env); info.Trusted || info.MainRoot != main || info.Root != wt {
-		t.Errorf("worktree open = %+v; want untrusted, root %s, mainRoot %s", info, wt, main)
-	}
-
-	env, code = callIn(t, state, wt, "build.tasks")
-	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
-		t.Fatalf("an untrusted worktree's build.tasks = (%+v, %d); want WORKSPACE_UNTRUSTED", env.Error, code)
-	}
-	if !strings.Contains(env.Error.NextStep, main) {
-		t.Errorf("the nextStep is %q; want it to name the main tree %s", env.Error.NextStep, main)
+	for _, project := range []string{wt, deep} {
+		env, code := callIn(t, state, "/", "build.tasks", "--project", project)
+		if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
+			t.Fatalf("an untrusted worktree's build.tasks by %s = (%+v, %d); want WORKSPACE_UNTRUSTED", project, env.Error, code)
+		}
+		if !strings.Contains(env.Error.NextStep, main) {
+			t.Errorf("the nextStep is %q; want it to name the main tree %s", env.Error.NextStep, main)
+		}
 	}
 	if n := starts(t, events); n != 0 {
 		t.Errorf("a sidecar was spawned for an untrusted worktree (%d starts); want none", n)
@@ -149,62 +84,81 @@ func TestWorktreeOfATrustedProject(t *testing.T) {
 	if code := droidyard(t, state, "trust", main).wait(t); code != 0 {
 		t.Fatalf("droidyard trust %s exited %d", main, code)
 	}
-	env, code = callIn(t, state, wt, "build.tasks")
-	if code != 0 || env.Error != nil {
-		t.Fatalf("a trusted worktree's build.tasks exited %d: %+v", code, env.Error)
-	}
-	var res struct {
-		Tasks []struct {
-			Path string `json:"path"`
-		} `json:"tasks"`
-	}
-	if err := json.Unmarshal(env.Result, &res); err != nil {
-		t.Fatal(err)
-	}
-	if len(res.Tasks) != 1 || res.Tasks[0].Path != ":app:assembleDebug" {
-		t.Errorf("build.tasks = %+v; want the fake's :app:assembleDebug", res.Tasks)
-	}
-	lines := eventLines(t, events)
-	if !contains(lines, "opened "+wt) || contains(lines, "opened "+main) {
-		t.Errorf("the sidecar's log is %q; want it to have opened %s and never %s", lines, wt, main)
-	}
-	if env, code = callIn(t, state, wt, "workspace.describe"); code != 0 {
-		t.Fatalf("describe exited %d: %+v", code, env.Error)
-	} else if info := workspaceOf(t, env); !info.Trusted || info.MainRoot != main {
-		t.Errorf("worktree describe = %+v; want trusted and mainRoot %s", info, main)
-	}
-
-	// A plain project, closed and then deleted, to compare with the worktree.
-	if env, code := callIn(t, state, plain, "workspace.open"); code != 0 {
-		t.Fatalf("open of the plain project exited %d: %+v", code, env.Error)
-	}
-	for _, d := range []string{wt, plain} {
-		if env, code := callIn(t, state, d, "workspace.close"); code != 0 {
-			t.Fatalf("close of %s exited %d: %+v", d, code, env.Error)
+	for _, project := range []string{wt, deep} {
+		env, code := callIn(t, state, "/", "build.tasks", "--project", project)
+		if code != 0 || env.Error != nil {
+			t.Fatalf("a trusted worktree's build.tasks by %s exited %d: %+v", project, code, env.Error)
+		}
+		var res struct {
+			Tasks []struct {
+				Path string `json:"path"`
+			} `json:"tasks"`
+		}
+		if err := json.Unmarshal(env.Result, &res); err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Tasks) != 1 || res.Tasks[0].Path != ":app:assembleDebug" {
+			t.Errorf("build.tasks by %s = %+v; want the fake's :app:assembleDebug", project, res.Tasks)
 		}
 	}
-	row, ok := rowFor(watchRows(t, state), wt)
-	if !ok || row.MainRoot != main || row.State != workspace.Closed {
-		t.Errorf("the closed worktree's row = (%+v, %v); want it listed, closed, with mainRoot %s", row, ok, main)
-	}
-	if row, ok := rowFor(watchRows(t, state), plain); !ok || row.MainRoot != "" {
-		t.Errorf("the plain project's row = (%+v, %v); want it listed without mainRoot", row, ok)
+	lines := eventLines(t, events)
+	if !contains(lines, "opened "+wt) || contains(lines, "opened "+main) || contains(lines, "opened "+deep) {
+		t.Errorf("the sidecar's log is %q; want it to have opened %s and never %s or %s", lines, wt, main, deep)
 	}
 
-	if err := os.RemoveAll(wt); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(plain); err != nil {
-		t.Fatal(err)
-	}
-	rows := watchRows(t, state)
-	if r, ok := rowFor(rows, wt); ok {
-		t.Errorf("the removed worktree is still listed: %+v", r)
-	}
-	if _, ok := rowFor(rows, plain); !ok {
-		t.Errorf("the closed plain project whose directory is gone is not listed; want it, as before")
+	// A folder of a repository nobody trusted stays untrusted, whatever its spelling.
+	other := topWith(t, "settings.gradle.kts", "app/src/")
+	if env, code := callIn(t, state, "/", "build.tasks", "--project", filepath.Join(other, "app", "src")); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
+		t.Errorf("an untrusted project's subfolder = (%+v, %d); want WORKSPACE_UNTRUSTED", env.Error, code)
 	}
 
+	if code := droidyard(t, state, "stop").wait(t); code != 0 {
+		t.Errorf("stop exited %d", code)
+	}
+	srv.wait(t)
+}
+
+// TestUntrustedProjectSpawnsNothing holds ADR-0015 §5 and ADR-0137 §3: a call that names an
+// untrusted project, by its root or by a folder inside it, is refused WORKSPACE_UNTRUSTED
+// before anything is spawned (the fake Gradle sidecar records every start), and the
+// refusal is the root's, so trusting the root, never the passed folder, lets the next call
+// through. The deciding fact is the resolved root: a folder two levels inside a project is
+// refused when its root is untrusted and admitted when it is trusted, with no trust ever
+// written for the folder itself. Seen failing with the gate given the passed path: trusting
+// the root did not admit the folder.
+func TestUntrustedProjectSpawnsNothing(t *testing.T) {
+	t.Parallel()
+	state := shortDir(t)
+	cfg, events := fakeSidecar(t, gradleRootModel)
+	top := topWith(t, "settings.gradle.kts", "app/src/main/")
+	inside := filepath.Join(top, "app", "src", "main")
+
+	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
+	srv.expect(t, "listening")
+
+	for _, c := range [][]string{
+		{"build.tasks", "--project", top}, {"build.tasks", "--project", inside},
+		{"project.modules", "--project", inside}, {"project.variants", "--project", inside},
+		{"sdk.requirements", "--project", inside},
+	} {
+		env, code := callIn(t, state, "/", c...)
+		if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
+			t.Errorf("%v on an untrusted project = (%+v, %d); want WORKSPACE_UNTRUSTED", c, env.Error, code)
+		}
+	}
+	if n := starts(t, events); n != 0 {
+		t.Errorf("a sidecar was spawned for an untrusted project (%d starts); want none", n)
+	}
+
+	if code := droidyard(t, state, "trust", top).wait(t); code != 0 {
+		t.Fatalf("droidyard trust %s exited %d", top, code)
+	}
+	if env, code := callIn(t, state, "/", "build.tasks", "--project", inside); code != 0 || env.Error != nil {
+		t.Fatalf("a folder inside a trusted project exited %d: %+v", code, env.Error)
+	}
+	if n := starts(t, events); n != 1 {
+		t.Errorf("the trusted call started the sidecar %d times; want once", n)
+	}
 	if code := droidyard(t, state, "stop").wait(t); code != 0 {
 		t.Errorf("stop exited %d", code)
 	}

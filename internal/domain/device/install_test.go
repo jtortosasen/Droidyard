@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -29,26 +30,34 @@ func (s *stubResolver) ResolveBuild(wsid, buildID, module, variant string) (buil
 	return s.out, s.err
 }
 
-// admitInstall admits installWS and nothing else, the way the workspace registry admits
-// an open one.
+// admitInstall admits the project installWS and nothing else, the way the workspace registry
+// admits a project.
 type admitInstall struct{}
 
-func (admitInstall) Admit(target string, record func(string)) bool {
-	if target != installWS {
-		return false
+func (admitInstall) Enter(project string, record func(capability.Entered)) error {
+	if project != installWS {
+		return capability.Errorf(capability.ErrInvalidParams, "the project %q cannot be used", project)
 	}
-	record(installWS)
-	return true
-}
-
-func (a admitInstall) Enter(target string, record func(string)) error {
-	if !a.Admit(target, record) {
-		return capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", target)
-	}
+	record(capability.Entered{ID: installWS, Root: "/root/" + installWS, GradleRoot: "/gradle/" + installWS})
 	return nil
 }
 
 func (admitInstall) Ended(string) {}
+
+// withProject is the parameter object params with `project` added, as an adapter sends it
+// for a call of a project capability.
+func withProject(params, project string) []byte {
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal([]byte(params), &fields); err != nil {
+		panic(err)
+	}
+	fields[capability.ProjectParam], _ = json.Marshal(project)
+	out, err := json.Marshal(fields)
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
 
 type installFixture struct {
 	dir string
@@ -79,14 +88,14 @@ func newInstallFixture(t *testing.T, resolver BuildResolver, files map[string]st
 
 func (f *installFixture) call(t *testing.T, name, params string) capability.Outcome {
 	t.Helper()
-	// device.install is workspace-scoped and needs the workspace; device.uninstall is
-	// global and must not carry one.
-	ws := ""
+	// device.install is workspace-scoped and needs its project; device.uninstall is global
+	// and must not carry one.
+	raw := []byte(params)
 	if name == "device.install" {
-		ws = installWS
+		raw = withProject(params, installWS)
 	}
 	id, err := f.ops.Start(context.Background(), capability.Request{
-		Capability: name, Workspace: ws, Params: []byte(params),
+		Capability: name, Params: raw,
 	})
 	if err != nil {
 		t.Fatalf("%s Start: %v", name, err)

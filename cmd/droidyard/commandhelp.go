@@ -34,12 +34,13 @@ Run the core daemon in the foreground, until SIGTERM or SIGINT; --detach runs it
 session of its own, logging to daemon.log.
 `
 
-const callHelp = `droidyard call <capability> [--workspace <id|root>] [--params <json>] [--detach] [--no-autostart]
+const callHelp = `droidyard call <capability> [--project <path>] [--params <json>] [--detach] [--no-autostart]
 
 Call one capability and print its response envelope. This is the raw door: every
 capability is also a command of its own, droidyard <domain> <verb>.
---workspace names the workspace; without it, a workspace call uses the project root of
-the current directory.
+--project names the project a build, project or SDK-requirements call acts on, by the
+path of its folder or of a folder inside it (a relative path is made absolute against the
+current directory); without it, the current directory is the project.
 Ctrl-C cancels the operation; --detach prints its id and returns.
 call and mcp start a daemon when none answers, unless --no-autostart.
 `

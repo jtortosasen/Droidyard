@@ -46,8 +46,8 @@ func newWatchedSessions() (*Sessions, *sessionRecorder) {
 }
 
 // TestSessionStateFollowsEveryChange holds ADR-0083 §1: a session's events are, in order,
-// its connect (the id alone), the name its client gave, each binding (the hello's and every
-// move) and its end (the id and ended, nothing else); the state each carries is the whole
+// its connect (the id alone), the name its client gave, each device it takes and its end
+// (the id and ended, nothing else); the state each carries is the whole
 // state after the change. A name is bounded as ADR-0048 §1 says, one that is empty once
 // bounded or is the one already recorded publishes nothing, and nothing is published for a
 // session that is not registered or after its end. The decision it guards: a consumer that
@@ -59,23 +59,20 @@ func TestSessionStateFollowsEveryChange(t *testing.T) {
 	s.Named("a", "  claude‮-code\x00  ")
 	s.Named("a", "claude-code") // the same name once bounded
 	s.Named("a", "‮ ")          // nothing once bounded
-	s.Opened("a", "/main", "ws-main", "/main")
-	s.Occupy("a", "ws-wt", "/wt", true)
+	s.OccupyDevice("a", "emulator-5554")
 	s.End("a")
 	// Nothing follows the end, and nothing is published for a session never connected.
 	s.Named("a", "late")
-	s.Occupy("a", "ws-late", "/late", false)
-	s.Opened("a", "/main", "ws-late", "/late")
+	s.OccupyDevice("a", "emulator-5556")
 	s.End("a")
 	s.Named("never", "x")
-	s.Occupy("never", "ws", "/x", false)
+	s.OccupyDevice("never", "emulator-5558")
 	s.End("never")
 
 	want := []SessionState{
 		{ID: "a"},
 		{ID: "a", Name: "claude-code"},
-		{ID: "a", Name: "claude-code", Workspace: "ws-main"},
-		{ID: "a", Name: "claude-code", Workspace: "ws-wt", Occupies: "ws-wt"},
+		{ID: "a", Name: "claude-code", Devices: []string{"emulator-5554"}},
 		{ID: "a", Ended: true},
 	}
 	if got := rec.events(); !reflect.DeepEqual(got, want) {
@@ -90,7 +87,7 @@ func TestSessionStateFollowsEveryChange(t *testing.T) {
 
 // TestSessionListedIsOldestFirstWithoutTheChat holds ADR-0083 §1's snapshot: the sessions
 // in progress, the oldest connection first (not by id, and not by the last change), with the
-// name and workspace they have now, and no chat id; an ended session is not listed, and an
+// name and devices they have now, and no chat id; an ended session is not listed, and an
 // empty registry lists an empty (not null) array.
 func TestSessionListedIsOldestFirstWithoutTheChat(t *testing.T) {
 	s, _ := newWatchedSessions()
@@ -102,7 +99,7 @@ func TestSessionListedIsOldestFirstWithoutTheChat(t *testing.T) {
 	for _, id := range []string{"z", "m", "a"} {
 		s.Connect(id, "chat-"+id)
 	}
-	s.Occupy("z", "ws-z", "/z", false) // the oldest changes last: it stays first
+	s.OccupyDevice("z", "emulator-5554") // the oldest changes last: it stays first
 	s.Named("m", "agent")
 	s.Connect("gone", "")
 	s.End("gone")
@@ -118,7 +115,7 @@ func TestSessionListedIsOldestFirstWithoutTheChat(t *testing.T) {
 	if !slices.Equal(ids, []string{"z", "m", "a"}) {
 		t.Errorf("listed %v; want z, m, a: the connection order", ids)
 	}
-	if list[0].Workspace != "ws-z" || list[1].Name != "agent" || list[2].Name != "" || list[2].Workspace != "" {
+	if !slices.Equal(list[0].Devices, []string{"emulator-5554"}) || list[1].Name != "agent" || list[2].Name != "" || list[2].Devices != nil {
 		t.Errorf("rows %+v do not carry the state each session has", list)
 	}
 	raw, _ := json.Marshal(list)
@@ -130,7 +127,7 @@ func TestSessionListedIsOldestFirstWithoutTheChat(t *testing.T) {
 // TestSessionStatesNeverFollowAnEnd is the claim the stream rested on: whatever the
 // interleaving, the events of one session are its connect, then changes, then one end, and
 // nothing after it, because the change and its event are made under one lock. Many sessions
-// are driven at once, each by a connect, two goroutines that bind and name it, and an
+// are driven at once, each by a connect, two goroutines that hold devices and name it, and an
 // end; the recorder keeps the order the bus would have seen (Broadcast is called under the
 // registry's lock). Run with -race.
 func TestSessionStatesNeverFollowAnEnd(t *testing.T) {
@@ -144,13 +141,13 @@ func TestSessionStatesNeverFollowAnEnd(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 5; j++ {
-				s.Occupy(id, "ws", "/r", false)
+				s.OccupyDevice(id, "dev-"+id)
 			}
 		}()
 		go func() {
 			defer wg.Done()
 			s.Named(id, "name")
-			s.Opened(id, "/p", "ws2", "/r2")
+			s.OccupyDevice(id, "dev2-"+id)
 		}()
 		go func() {
 			defer wg.Done()
@@ -163,7 +160,7 @@ func TestSessionStatesNeverFollowAnEnd(t *testing.T) {
 	for _, e := range rec.events() {
 		switch state[e.ID] {
 		case "":
-			if e.Name != "" || e.Workspace != "" || e.Ended {
+			if e.Name != "" || len(e.Devices) != 0 || e.Ended {
 				t.Fatalf("%s: the first event is %+v; want the connect, the id alone", e.ID, e)
 			}
 			state[e.ID] = "open"

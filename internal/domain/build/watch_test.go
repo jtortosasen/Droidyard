@@ -51,7 +51,7 @@ func watchBytes(from, to int) int64 {
 func (f *buildFixture) openWatch(t *testing.T, s *event.Session, workspace string) (WatchOutputResult, *event.Subscription) {
 	t.Helper()
 	out, err := f.ops.Invoke(context.Background(), capability.Request{
-		Capability: "build.watchOutput", Workspace: workspace, Params: []byte(`{}`), Session: s,
+		Capability: "build.watchOutput", Params: projectParams(workspace, ""), Session: s,
 	})
 	if err != nil {
 		t.Fatalf("build.watchOutput: %v", err)

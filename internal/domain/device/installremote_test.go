@@ -171,8 +171,8 @@ func newRemoteInstallFixture(t *testing.T, h *scriptedUploadHost) *remoteInstall
 
 func (f *remoteInstallFixture) install(t *testing.T) capability.Outcome {
 	t.Helper()
-	out, err := f.ops.Invoke(context.Background(), capability.Request{Capability: "device.install", Workspace: installWS, Client: capability.ClientCLI,
-		Params: []byte(`{"device":"qa/R58M001","build":{"module":":app","variant":"debug"}}`)})
+	out, err := f.ops.Invoke(context.Background(), capability.Request{Capability: "device.install", Client: capability.ClientCLI,
+		Params: withProject(`{"device":"qa/R58M001","build":{"module":":app","variant":"debug"}}`, installWS)})
 	if err != nil {
 		t.Fatal(err)
 	}

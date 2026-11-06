@@ -44,7 +44,7 @@ type Session interface {
 }
 
 // Follower is a session that can open a subscription of its own to a capability's
-// stream, the topic of which events.subscribe does not serve (workspace.watch,
+// stream, the topic of which events.subscribe does not serve (operation.watch,
 // ADR-0045 §3). The event layer implements it, as it does Session; capability and the
 // domains do not import it, and a handler asserts the session it needs.
 type Follower interface {
@@ -71,10 +71,9 @@ const queueBound = 20 * time.Second
 // Request is one call as the core sees it, whichever adapter carried it.
 type Request struct {
 	Capability string
-	// Workspace is required iff the capability is workspace-scoped, and rejected
-	// otherwise (ADR-0020 §Scope).
-	Workspace string
-	// Params is the raw parameter object; empty means {}.
+	// Params is the raw parameter object; empty means {}. A workspace-scoped capability's
+	// carries `project` (ProjectParam), which the core takes off before it decodes the rest;
+	// a global capability's carries none.
 	Params json.RawMessage
 	// Client is the calling session's kind.
 	Client ClientKind
@@ -87,9 +86,9 @@ type Request struct {
 	Origin Origin
 }
 
-// Origin is who made a call, as an adapter knows it: the daemon's id for the session, the
-// name the client gave itself, and the root the session is bound to. It is recorded with
-// the operation and appears on operation.state as SessionRef (ADR-0048). It is not a
+// Origin is who made a call, as an adapter knows it: the daemon's id for the session and the
+// name the client gave itself. It is recorded with the operation and appears on
+// operation.state as SessionRef (ADR-0048). It is not a
 // Session: it cannot carry events, and no capability takes it.
 type Origin struct {
 	// ID is the daemon session's id; empty means the call has no session.
@@ -98,8 +97,6 @@ type Origin struct {
 	// is known. For a peer it is the name the host's configuration gives it, never one the
 	// peer sends (ADR-0098 §5). The store bounds it (SessionName).
 	Name string
-	// Root is the session's bound root; empty for an unbound session.
-	Root string
 	// Client is the kind of the connection the call came in on. Invoke and Start set it
 	// from Request.Client, so the core never reads a kind the adapter did not state. A
 	// capability that holds something for a session (a device, ADR-0094) acts for a
@@ -110,9 +107,9 @@ type Origin struct {
 	// otherwise.
 	Chat string
 	// Joined is the id of the MCP session a non-MCP connection was joined to by its chat
-	// (ADR-0095 §1); empty when none. ID stays the connection's own, so a joined call
-	// moves no binding: Joined only attributes the call to the session (the operation's
-	// session ref) and keeps the session from going idle.
+	// (ADR-0095 §1); empty when none. ID stays the connection's own, so a joined call holds
+	// no device for the session: Joined only attributes the call to the session (the
+	// operation's session ref) and keeps the session from going idle.
 	Joined string
 }
 
@@ -166,7 +163,7 @@ type operation struct {
 	id         string
 	capability string
 	// workspace is the canonical id of the workspace the operation runs in; empty for
-	// a global call and for workspace.open and workspace.close.
+	// a global call.
 	workspace string
 	// client is the kind of the session that made the call, and started when the
 	// operation was recorded: both only for the trace line.
@@ -216,27 +213,25 @@ type opOwner struct {
 	peer    string // a peer's configured name
 }
 
+// Entered is what the admission of a workspace-scoped call resolved its `project` to: the
+// workspace's canonical id, the project root and the Gradle root inside it, both canonical
+// (ADR-0137 §3; plan m3j Q2). Trust and the workspace's state are the root's, never the
+// path the caller passed.
+type Entered struct {
+	ID, Root, GradleRoot string
+}
+
 // Workspaces admits workspace-scoped calls. The workspace registry implements it;
 // capability does not import it, so the store is given one (UseWorkspaces).
 type Workspaces interface {
-	// Admit resolves target, a workspace id or an absolute root, to its canonical
-	// id and, if that workspace is open (ready or degraded), calls record with the
-	// id and returns true. The check and record run under the lock that a close
-	// takes to enter closing, so every admitted call is recorded before a close
-	// collects the workspace's operations to cancel them (ADR-0027). Otherwise it
-	// returns false and does not call record. It opens nothing: it is the session's
-	// stamp (sessionRef) until step 6 of plan m3j removes the binding; a call is
-	// admitted by Enter.
-	Admit(target string, record func(id string)) bool
-
-	// Enter is the admission of a workspace-scoped call (ADR-0137 §3): it resolves target,
-	// a project path or a workspace id, opens that workspace if it is not open, and calls
-	// record with its canonical id under the lock that a release or a close takes to enter
-	// closing, so every admitted call is recorded before either collects the workspace's
+	// Enter is the admission of a workspace-scoped call (ADR-0137 §3): it resolves project,
+	// an absolute path, to its root and Gradle root, opens that workspace if it is not open,
+	// and calls record with what it resolved under the lock that a release takes to enter
+	// closing, so every admitted call is recorded before the release collects the workspace's
 	// operations (ADR-0027). It returns the error that refuses the call, and then does not
 	// call record. It may read and write the files of the workspace's state; it starts no
 	// process.
-	Enter(target string, record func(id string)) error
+	Enter(project string, record func(Entered)) error
 
 	// Ended tells the registry that an operation of workspace id has reached its terminal
 	// state, so the registry's idle clock for that workspace starts from there. It is called
@@ -314,8 +309,7 @@ type Operations struct {
 	// queueBound is the queued-call bound; a field so a test can shorten it.
 	queueBound time.Duration
 
-	// sessions are the MCP sessions in progress, which a Binding capability's caller must
-	// be one of (Descriptor.Binding).
+	// sessions are the MCP sessions in progress and what they hold (ADR-0094).
 	sessions *Sessions
 
 	// disconnects are the hooks Disconnected runs, in the order they were registered. Guarded
@@ -353,7 +347,7 @@ func NewOperations(reg *Registry) *Operations {
 }
 
 // Sessions is the registry of MCP sessions: the adapter registers each connection in it,
-// and a Binding capability moves the calling session's binding through it.
+// and the device capabilities take and release the devices it holds through it.
 func (o *Operations) Sessions() *Sessions { return o.sessions }
 
 // OnDisconnect registers f to run whenever Disconnected is told that a native connection
@@ -416,14 +410,14 @@ func (o *Operations) UseTrace(logf func(format string, v ...any)) {
 // the operation id without waiting. A call rejected here gets a typed error and
 // creates no operation (ADR-0020 §Core primitives).
 func (o *Operations) Start(ctx context.Context, req Request) (string, error) {
-	d, params, err := o.prepare(req)
+	d, params, project, err := o.prepare(req)
 	if err != nil {
 		return "", err
 	}
 	if !d.Recorded() {
 		return "", fmt.Errorf("capability %s is not an operation: call it through Invoke", d.Name)
 	}
-	return o.start(ctx, d, params, req.Workspace, req.Session, req.Client, req.Origin.stamped(req.Client))
+	return o.start(ctx, d, params, project, req.Session, req.Client, req.Origin.stamped(req.Client))
 }
 
 // stamped is the origin with Client set to the request's client: the core, not the
@@ -495,9 +489,7 @@ func OwnerReaches(client ClientKind, session, chat, peer string, who Origin, cha
 }
 
 // sessionRef is the SessionRef an origin becomes when its operation is recorded: nil
-// without an id; the name bounded; the workspace the bound root's canonical id, only
-// while that workspace is open (ADR-0048 §1). Admit does the lookup and records nothing
-// here.
+// without an id; the name bounded (ADR-0048 §1).
 func (o *Operations) sessionRef(origin Origin) *SessionRef {
 	if origin.ID == "" {
 		return nil
@@ -506,18 +498,14 @@ func (o *Operations) sessionRef(origin Origin) *SessionRef {
 	if origin.Joined != "" {
 		id = origin.Joined
 	}
-	ref := &SessionRef{ID: id, Name: SessionName(origin.Name)}
-	if origin.Root != "" && o.ws != nil {
-		o.ws.Admit(origin.Root, func(id string) { ref.Workspace = id })
-	}
-	return ref
+	return &SessionRef{ID: id, Name: SessionName(origin.Name)}
 }
 
 // start records the operation and runs its handler. A workspace-scoped call is
-// admitted first (Workspaces.Enter): its target is opened if it is not open, and the call
-// runs with the workspace's canonical id (ADR-0020 §Scope and workspace addressing;
-// ADR-0137 §3).
-func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session, client ClientKind, origin Origin) (string, error) {
+// admitted first (Workspaces.Enter): its project is resolved and its root opened if it is
+// not open, and the call runs with the workspace's canonical id, root and Gradle root
+// (ADR-0137 §3).
+func (o *Operations) start(ctx context.Context, d Descriptor, params any, project string, session Session, client ClientKind, origin Origin) (string, error) {
 	id := newID()
 	// The handler's context carries the caller's values but not its cancellation:
 	// only Cancel ends it.
@@ -529,7 +517,6 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 	op := &operation{id: id, capability: d.Name, client: client, session: o.sessionRef(origin), target: tgt, owner: o.ownerOf(client, origin), started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
 	call := &Call{
 		OperationID: id,
-		Workspace:   target,
 		Params:      params,
 		Session:     session,
 		Origin:      origin,
@@ -546,30 +533,28 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 			}
 		},
 	}
-	record := func(workspace string) {
-		op.workspace = workspace
-		call.Workspace = workspace
+	record := func(e Entered) {
+		op.workspace = e.ID
+		call.Workspace, call.Root, call.GradleRoot = e.ID, e.Root, e.GradleRoot
 		o.mu.Lock()
 		o.ops[id] = op
 		o.mu.Unlock()
 	}
 
-	if d.Scope == Workspace && !d.RawTarget {
-		// The root is resolved and opened here, at Start, and the call admitted under the
-		// registry's admission lock (ADR-0137 §3; plan m3j Q1). A refusal records no
-		// operation.
+	if d.Scope == Workspace {
+		// The project is resolved and its root opened here, at Start, and the call admitted
+		// under the registry's admission lock (ADR-0137 §3; plan m3j Q1). A refusal records
+		// no operation.
 		if o.ws == nil {
 			cancel()
-			return "", Errorf(ErrWorkspaceNotOpen, "workspace %q is not open", target).
-				WithNextStep("call workspace.open on it, then retry")
+			return "", NewError(ErrInvalidParams, "this daemon has no project registry, so a project call cannot run")
 		}
-		if err := o.ws.Enter(target, record); err != nil {
+		if err := o.ws.Enter(project, record); err != nil {
 			cancel()
 			return "", err
 		}
 	} else {
-		record("")
-		call.Workspace = target
+		record(Entered{})
 	}
 
 	// The lock is taken, or the place in its queue, before Start returns and in
@@ -1084,13 +1069,13 @@ func (o *Operations) Shutdown(ctx context.Context) error {
 // with no record. For operation.wait the outcome is the waited operation's; for
 // operation.cancel it carries no operation id, because the call is not an operation.
 func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
-	d, params, err := o.prepare(req)
+	d, params, project, err := o.prepare(req)
 	if err != nil {
 		return Outcome{}, err
 	}
 	origin := req.Origin.stamped(req.Client)
 	if d.Recorded() {
-		id, err := o.start(ctx, d, params, req.Workspace, req.Session, req.Client, origin)
+		id, err := o.start(ctx, d, params, project, req.Session, req.Client, origin)
 		if err != nil {
 			return Outcome{}, err
 		}
@@ -1116,47 +1101,85 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 	return Outcome{Capability: d.Name, State: StateCompleted, Result: res, Untrusted: untrusted}, nil
 }
 
-// prepare runs every check that rejects a call before it becomes an operation.
-func (o *Operations) prepare(req Request) (Descriptor, any, error) {
+// prepare runs every check that rejects a call before it becomes an operation. For a
+// workspace-scoped capability it also takes `project` off the parameters (ProjectParam,
+// ADR-0137 §3; plan m3j Q3) and returns it, so the handler's parameter struct never has it
+// and a global capability that is sent one fails the strict decode as any unknown field.
+func (o *Operations) prepare(req Request) (Descriptor, any, string, error) {
 	d, ok := o.reg.Lookup(req.Capability)
 	if !ok {
-		return Descriptor{}, nil, Errorf(ErrCapabilityNotFound, "no capability named %q", req.Capability).
+		return Descriptor{}, nil, "", Errorf(ErrCapabilityNotFound, "no capability named %q", req.Capability).
 			WithNextStep("call system.capabilities to list what exists")
 	}
 	if req.Client == ClientPeer && !d.Lendable {
 		// Before anything is recorded, for every adapter, as the audience check below is for
 		// MCP: a peer reaches the capabilities a host lends and no other (ADR-0098 §3).
-		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is not lent to peers", d.Name).
+		return Descriptor{}, nil, "", Errorf(ErrNotAllowedHere, "%s is not lent to peers", d.Name).
 			WithNextStep("a peer can call only the capabilities a host lends; this one runs on the host's own channels")
 	}
 	if d.Audience == AudienceHuman && req.Client == ClientMCP {
-		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is for humans and cannot be called over MCP", d.Name).
+		return Descriptor{}, nil, "", Errorf(ErrNotAllowedHere, "%s is for humans and cannot be called over MCP", d.Name).
 			WithNextStep("ask the user to run it from the UI or the CLI")
-	}
-	if d.Binding && (req.Client != ClientMCP || !o.sessions.Registered(req.Origin.ID)) {
-		// Before anything is recorded, for every adapter: the CLI, the WebSocket and plain
-		// HTTP have no MCP session whose binding could move (ADR-0082 §4), and a CLI
-		// connection joined to one (ADR-0095 §1) is not it.
-		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s moves the calling MCP session's binding, and only an MCP session can call it", d.Name).
-			WithNextStep("call it from the agent's MCP session; the UI and the CLI cannot move a session")
 	}
 	if d.Statefulness != Stateless && noSession(req.Session) {
 		// Before anything is recorded, for every adapter: a stateful or streaming
 		// capability is rejected rather than silently degraded (ADR-0010).
-		return Descriptor{}, nil, Errorf(ErrSessionRequired, "%s is %s: it needs a session that can carry its state, and this connection is not one", d.Name, d.Statefulness).
+		return Descriptor{}, nil, "", Errorf(ErrSessionRequired, "%s is %s: it needs a session that can carry its state, and this connection is not one", d.Name, d.Statefulness).
 			WithNextStep("subscribe over the WebSocket session, GET /v1/ws")
 	}
-	switch {
-	case d.Scope == Workspace && req.Workspace == "":
-		return Descriptor{}, nil, Errorf(ErrMissingWorkspace, "%s is workspace-scoped and the request names no workspace", d.Name)
-	case d.Scope == Global && req.Workspace != "":
-		return Descriptor{}, nil, Errorf(ErrUnexpectedWorkspace, "%s is global and takes no workspace", d.Name)
+	raw, project := req.Params, ""
+	if d.Scope == Workspace {
+		var err error
+		if project, raw, err = takeProject(d, req.Params); err != nil {
+			return Descriptor{}, nil, "", err
+		}
 	}
-	params, err := decodeParams(d.Params, req.Params)
+	params, err := decodeParams(d.Params, raw)
 	if err != nil {
-		return Descriptor{}, nil, invalidParamsError(d, err)
+		return Descriptor{}, nil, "", invalidParamsError(d, err)
 	}
-	return d, params, nil
+	return d, params, project, nil
+}
+
+// takeProject splits a workspace-scoped call's parameters into its `project` and the rest,
+// which is what the handler's parameter struct is decoded from. A call that sends no
+// project, or one that is not a non-empty string, is REQUEST_INVALID_PARAMS and records no
+// operation; whether the path names a project is the registry's to judge at admission
+// (Workspaces.Enter). Parameters that are not an object are left for the strict decode to
+// reject, with the message it gives any caller.
+func takeProject(d Descriptor, raw json.RawMessage) (string, json.RawMessage, error) {
+	missing := func(why string) error {
+		return Errorf(ErrInvalidParams, "%s takes `%s`, %s", d.Name, ProjectParam, why).
+			WithNextStep("pass the absolute path of the project's folder, or of a folder inside it, as " + ProjectParam).
+			WithDetails(map[string]any{"parameter": ProjectParam})
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return "", nil, missing("and the call sends none")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		if _, derr := decodeParams(d.Params, raw); derr != nil {
+			return "", nil, invalidParamsError(d, derr)
+		}
+		return "", nil, invalidParamsError(d, err)
+	}
+	value, ok := fields[ProjectParam]
+	if !ok {
+		return "", nil, missing("and the call sends none")
+	}
+	var project string
+	if err := json.Unmarshal(value, &project); err != nil {
+		return "", nil, missing("a string: the absolute path of the project's folder")
+	}
+	if project == "" {
+		return "", nil, missing("and the one sent is empty")
+	}
+	delete(fields, ProjectParam)
+	rest, err := json.Marshal(fields)
+	if err != nil {
+		return "", nil, invalidParamsError(d, err)
+	}
+	return project, rest, nil
 }
 
 // invalidParamsError turns a strict-decode failure into REQUEST_INVALID_PARAMS that names
@@ -1199,18 +1222,21 @@ func unknownField(err error) string {
 }
 
 // unknownParamHint tells a caller what to send instead of the unknown field: the
-// parameters the capability takes, or — for one that takes none — where the value
-// belongs. workspace.open is the case that prompted it: its workspace is named by the
-// request's workspace field, not by a parameter (plan m1n step 8, main-session note 4).
+// parameters the capability takes (`project` among them for a workspace-scoped one), or,
+// for one that takes none, that it takes none. A project sent to a global capability, which
+// takes none, is told so: the device, emulator and SDK tools name no project.
 func unknownParamHint(d Descriptor, field string) string {
-	if names := paramNames(d.Params); len(names) > 0 {
+	names := paramNames(d.Params)
+	if d.Scope == Workspace {
+		names = append([]string{ProjectParam}, names...)
+	}
+	if field == ProjectParam && d.Scope == Global {
+		return "remove " + strconv.Quote(field) + ": " + d.Name + " is not a project capability and takes no project"
+	}
+	if len(names) > 0 {
 		return "remove " + strconv.Quote(field) + ", or pass one of " + d.Name + "'s parameters: " + strings.Join(names, ", ")
 	}
-	hint := "remove " + strconv.Quote(field) + ": " + d.Name + " takes no parameters"
-	if d.Scope == Workspace {
-		hint += ", and the workspace is named by the request's workspace field (the CLI's --workspace), not by a parameter"
-	}
-	return hint + "."
+	return "remove " + strconv.Quote(field) + ": " + d.Name + " takes no parameters."
 }
 
 // jsonTypeWord names a JSON value's type as Go's json decoder reports it, in prose.

@@ -169,7 +169,7 @@ func startFakeDaemon(t *testing.T, state string, answerError bool) *fakeDaemon {
 					f.requests <- req
 					if answerError {
 						b, _ := json.Marshal(capability.ResponseEnvelope{ID: req.ID,
-							Error: &capability.Error{Code: capability.ErrWorkspaceNotOpen, Message: "the fake daemon refuses"}})
+							Error: &capability.Error{Code: capability.ErrInvalidParams, Message: "the fake daemon refuses"}})
 						c.Write(append(b, '\n'))
 					}
 				}

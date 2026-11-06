@@ -24,7 +24,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
-	"github.com/jtortosasen/droidyard/internal/workspace"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -149,13 +148,15 @@ func reportDialError(cmd, socket string, err error) {
 }
 
 // call runs `droidyard call`, starting a daemon if none answers, unless
-// --no-autostart.
-func call(args []string) int {
+// --no-autostart. A capability that takes a project gets --project, or the current
+// directory (ADR-0137 §5).
+func call(ct *cmdTree, args []string) int {
 	c, err := cli.Parse(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard call: %v\n%s\n", err, cli.Usage)
 		return cli.ExitUsage
 	}
+	ct.defaultProject(&c)
 	return runCapability("call", c)
 }
 
@@ -178,8 +179,8 @@ var stderrTerminal = func() bool {
 
 // runCapability makes one capability call as `droidyard call` does, and a derived command
 // (`droidyard device list`) the same way: it starts a daemon when none answers, unless the
-// call says NoAutostart, sends the current directory's project root in the hello, and prints
-// the response envelope. who names the command in its own messages.
+// call says NoAutostart, and prints the response envelope. who names the command in its own
+// messages.
 func runCapability(who string, c cli.Call) int {
 	// Installed before the request goes out, so a Ctrl-C is never lost to the default
 	// action. The first one asks the adapter to cancel; a second one, if cancelling
@@ -193,13 +194,9 @@ func runCapability(who string, c cli.Call) int {
 		close(interrupt)
 	}()
 
-	// The cwd's root goes in the hello; the daemon uses it for a workspace-scoped call
-	// without --workspace (plan m1c, R3).
-	cwd, _ := os.Getwd()
+	// The hello names no project: a call that takes one carries it as `project`, which the
+	// command line defaults to the current directory (ADR-0137 §5).
 	hello := daemon.Hello{Client: capability.ClientCLI}
-	if cwd != "" {
-		hello.Root = resolveRoot("", cwd)
-	}
 	conn, r, socket, err := connectOrStart(hello, !c.NoAutostart, interrupt)
 	if errors.Is(err, errInterrupted) {
 		fmt.Fprintln(os.Stderr, "droidyard "+who+":", err)
@@ -307,15 +304,8 @@ func mcpShim(args []string) int {
 	// The session's binding (ADR-0019 §Sessions, as ADR-0124 §2 changes it): --root,
 	// made absolute against the cwd; else the project of --from or the cwd. The daemon
 	// opens it and canonicalises it.
-	cwd, cwdErr := os.Getwd()
-	switch {
-	case explicitRoot != "" && cwdErr == nil:
-		hello.Root = resolveRoot(explicitRoot, cwd)
-	case explicitRoot != "":
-		if filepath.IsAbs(explicitRoot) {
-			hello.Root = filepath.Clean(explicitRoot)
-		}
-	default:
+	cwd, _ := os.Getwd()
+	if explicitRoot == "" {
 		dir := cwd
 		if from != "" && !strings.Contains(from, "${") {
 			dir = from
@@ -323,14 +313,13 @@ func mcpShim(args []string) int {
 				dir = filepath.Join(cwd, dir)
 			}
 		}
-		root, ok := "", false
+		ok := false
 		if dir != "" {
-			root, ok = projectOf(filepath.Clean(dir))
+			_, ok = projectOf(filepath.Clean(dir))
 		}
 		if !ok {
 			return serveNoTools(dir)
 		}
-		hello.Root = root
 	}
 	conn, r, socket, err := connectOrStart(hello, autostart, nil)
 	if err != nil {
@@ -466,23 +455,6 @@ func runCall(conn net.Conn, r *bufio.Reader, call cli.Call) (capability.Response
 		return env, fmt.Errorf("the daemon's answer is not an envelope: %w", err)
 	}
 	return env, nil
-}
-
-// openProject calls workspace.open on root over the connection and returns the
-// workspace's id.
-func openProject(conn net.Conn, r *bufio.Reader, root string) (string, error) {
-	env, err := runCall(conn, r, cli.Call{Capability: workspace.CapOpen, Workspace: root})
-	if err != nil {
-		return "", err
-	}
-	if env.Error != nil {
-		return "", fmt.Errorf("%s: %s", env.Error.Code, env.Error.Message)
-	}
-	var info workspace.Info
-	if err := json.Unmarshal(env.Result, &info); err != nil || info.ID == "" {
-		return "", fmt.Errorf("workspace.open answered no workspace id")
-	}
-	return info.ID, nil
 }
 
 // stop sends SIGTERM to the daemon that holds the lock and waits for the lock's

@@ -1,68 +1,43 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
-// registerProjectFixture registers fixture.project, a workspace-scoped capability
-// whose handler runs project code, gated by the policy the daemon itself reads (plan
-// m1g step 3). The channel receives once per run of the handler, so a test can prove
-// the handler never ran (an untrusted root) and then did (after `droidyard trust`).
-func registerProjectFixture(reg *capability.Registry, env platform.Env, root string, ran chan<- struct{}) {
-	pol := policy.New(env)
-	reg.MustRegister(capability.Descriptor{
-		Name: "fixture.project", Kind: capability.Command, Scope: capability.Workspace,
-		Description: "Runs project code, gated by trust.", Params: struct{}{}, Result: struct{}{},
-		Authorize: pol.Authorize(func(*capability.Call) (string, bool) { return root, true }),
-		Handler: func(_ context.Context, _ *capability.Call) (any, error) {
-			ran <- struct{}{}
-			return struct{}{}, nil
-		},
-	})
-}
-
 // TestTrustGatesProjectCodeWithoutARestart is the authorization boundary end to end
 // (ADR-0015 §5; plan m1g D2, D3): a project-code capability on an untrusted root fails
 // WORKSPACE_UNTRUSTED with the exact nextStep and its handler never runs; the real
 // `droidyard trust <root>` binary then makes the same in-process daemon admit the call
-// with no restart; workspace.describe flips to trusted.
+// with no restart. The root is the one the call's `project` resolved to (ADR-0137 §3):
+// the call names a folder inside the project, and trust written for the project's root
+// admits it.
 func TestTrustGatesProjectCodeWithoutARestart(t *testing.T) {
 	root := platform.Current().Canonical(t.TempDir())
 	writeSettings(t, root) // a call naming the root resolves it by its build (ADR-0137 §3)
-	ran := make(chan struct{}, 4)
-	p := startInProcessEnv(t, func(reg *capability.Registry, env platform.Env) {
-		registerProjectFixture(reg, env, root, ran)
-	})
-
-	if env, code := p.call(t, "workspace.open", "--workspace", root); code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
+	inside := filepath.Join(root, "app", "src")
+	if err := os.MkdirAll(inside, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if info := workspaceOf(t, mustCall(t, p, "workspace.describe", "--workspace", root)); info.Trusted {
-		t.Error("workspace.describe reports a fresh root trusted")
-	}
+	p := startInProcess(t)
 
-	env, code := p.call(t, "fixture.project", "--workspace", root)
+	env, code := p.call(t, "fixture.trusted", "--project", inside)
 	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
 		t.Fatalf("an untrusted project call = (%+v, %d); want WORKSPACE_UNTRUSTED", env, code)
 	}
 	if want := policy.UntrustedError(root).NextStep; env.Error.NextStep != want {
-		t.Errorf("nextStep = %q; want %q", env.Error.NextStep, want)
+		t.Errorf("nextStep = %q; want %q, which names the root %s and not the folder passed", env.Error.NextStep, want, root)
 	}
-	select {
-	case <-ran:
-		t.Fatal("the handler ran on an untrusted root")
-	case <-time.After(200 * time.Millisecond):
+	if env.Result != nil {
+		t.Errorf("the untrusted call carries a result %s: its handler ran", env.Result)
 	}
 
 	// The real binary, against the running daemon, with no restart of anything.
@@ -70,18 +45,12 @@ func TestTrustGatesProjectCodeWithoutARestart(t *testing.T) {
 		t.Fatalf("droidyard trust exited %d", code)
 	}
 
-	env, code = p.call(t, "fixture.project", "--workspace", root)
+	env, code = p.call(t, "fixture.trusted", "--project", inside)
 	if code != 0 || env.Operation == nil || env.Operation.State != capability.StateCompleted {
 		t.Fatalf("a trusted project call = (%+v, %d); want completed", env, code)
 	}
-	select {
-	case <-ran:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the handler never ran after trust")
-	}
-
-	if info := workspaceOf(t, mustCall(t, p, "workspace.describe", "--workspace", root)); !info.Trusted {
-		t.Error("workspace.describe still reports the root untrusted after `droidyard trust`")
+	if got := touchedOf(t, env); got.Root != root {
+		t.Errorf("the call ran in %+v; want the project root %s", got, root)
 	}
 }
 
@@ -133,11 +102,8 @@ func TestTrustFollowsTheStateDirAndNeverTheHome(t *testing.T) {
 		t.Helper()
 		return droidyardProc(t, env, "", append([]string{"call", "--no-autostart"}, args...)...).envelope(t)
 	}
-	if env, code := run("workspace.open", "--workspace", root); code != 0 {
-		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
-	}
-	if info := workspaceOf(t, mustEnvelope(t, run, "workspace.describe", "--workspace", root)); info.Trusted {
-		t.Error("the daemon trusts the root before `droidyard trust`")
+	if env, code := run("fixture.trusted", "--project", root); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
+		t.Fatalf("the daemon trusts the root before `droidyard trust`: exit %d, %+v", code, env.Error)
 	}
 
 	if code := droidyardProc(t, env, "", "trust", root).wait(t); code != 0 {
@@ -164,8 +130,8 @@ func TestTrustFollowsTheStateDirAndNeverTheHome(t *testing.T) {
 	}
 
 	// The daemon re-reads the file: no restart, a second process sees the change.
-	if info := workspaceOf(t, mustEnvelope(t, run, "workspace.describe", "--workspace", root)); !info.Trusted {
-		t.Error("the running daemon did not pick up `droidyard trust`")
+	if env, code := run("fixture.trusted", "--project", root); code != 0 || env.Error != nil {
+		t.Errorf("the running daemon did not pick up `droidyard trust`: exit %d, %+v", code, env.Error)
 	}
 }
 

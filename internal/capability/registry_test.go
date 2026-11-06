@@ -57,6 +57,48 @@ func TestRegisterRequiresWhatTheSchemaNeeds(t *testing.T) {
 	}
 }
 
+// TestRegisterRefusesWhatTheProjectParameterCannotTake: the schema package adds `project` to
+// the input of every workspace-scoped capability (ADR-0137 §3), so a descriptor whose
+// parameters cannot take it is a startup failure, never a schema that cannot be generated
+// or a handler that finds its own parameter gone. The three refusals: a parameter struct that
+// declares `project` itself (embedded or tagged differently included), parameters that are
+// not a struct, and Lendable on a workspace-scoped capability. A global capability may
+// declare a parameter of that name: it is not the project parameter there.
+func TestRegisterRefusesWhatTheProjectParameterCannotTake(t *testing.T) {
+	type own struct {
+		Project string `json:"project"`
+	}
+	type renamed struct {
+		Where string `json:"project,omitempty"`
+	}
+	type inner struct{ Project string }
+	type embedded struct{ inner }
+	cases := map[string]Descriptor{}
+	for name, p := range map[string]any{"declares project": own{}, "declares it under another field name": renamed{}, "embeds it": embedded{}, "not a struct": "x", "a map": map[string]string{}} {
+		d := valid()
+		d.Scope, d.Params = Workspace, p
+		cases[name] = d
+	}
+	lend := valid()
+	lend.Scope, lend.Lendable = Workspace, true
+	cases["lendable"] = lend
+	for name, d := range cases {
+		if err := NewRegistry().Register(d); err == nil {
+			t.Errorf("a workspace-scoped descriptor that %s was accepted", name)
+		}
+	}
+	fine := valid()
+	fine.Scope = Workspace
+	if err := NewRegistry().Register(fine); err != nil {
+		t.Errorf("a workspace-scoped descriptor with ordinary parameters: %v", err)
+	}
+	global := valid()
+	global.Params = own{}
+	if err := NewRegistry().Register(global); err != nil {
+		t.Errorf("a global capability with its own `project` parameter: %v", err)
+	}
+}
+
 func TestRegisterRefusesDuplicates(t *testing.T) {
 	r := NewRegistry()
 	if err := r.Register(valid()); err != nil {
@@ -133,7 +175,7 @@ func TestRegistryAllIsSorted(t *testing.T) {
 }
 
 func TestAsErrorKeepsTypedErrorsAndWrapsTheRest(t *testing.T) {
-	typed := Errorf(ErrWorkspaceNotOpen, "workspace %s is not open", "x")
+	typed := Errorf(ErrProjectNoGradleRoot, "the project at %s has no Gradle root", "x")
 	if got := AsError(typed); got != typed {
 		t.Error("a typed error was not passed through")
 	}

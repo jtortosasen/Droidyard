@@ -29,15 +29,16 @@ func (k Kind) String() string {
 	}
 }
 
-// Scope says whether a call targets a workspace, and therefore whether the request
-// envelope must carry one (ADR-0020).
+// Scope says whether a call targets a project, and therefore whether its parameters must
+// carry `project` (ADR-0137 §3).
 type Scope uint8
 
 const (
-	// Global capabilities read or write no workspace state.
+	// Global capabilities read or write no project state, and take no `project`.
 	Global Scope = iota
-	// Workspace capabilities require a workspace in the envelope, and reject one
-	// otherwise.
+	// Workspace capabilities take `project` (ProjectParam), the path of the project they
+	// act on: the schema package adds the property, and the core takes it off the
+	// parameters before it decodes the rest.
 	Workspace
 )
 
@@ -106,8 +107,6 @@ const (
 	RequiresEmulator Requirement = "emulator"
 	RequiresSDK      Requirement = "sdk"
 	RequiresGradle   Requirement = "gradle"
-	// RequiresFolderDialog is the operating system's folder dialog (ADR-0045 §4).
-	RequiresFolderDialog Requirement = "folderDialog"
 )
 
 // Annotations are hints for a client's approval interface. They are never
@@ -150,9 +149,17 @@ type Call struct {
 	// (ADR-0020 §Operation capabilities). Empty for operation.wait and
 	// operation.cancel, which are not operations.
 	OperationID string
-	// Workspace is the canonical workspace id. Empty for global capabilities; the
-	// target as the envelope gave it for a RawTarget capability.
+	// Workspace is the canonical id of the project's workspace; empty for a global
+	// capability. Root and GradleRoot are what the call's `project` resolved to.
 	Workspace string
+	// Root is the project root `project` resolved to (ADR-0137 §3; plan m3j Q2), canonical:
+	// what trust, the workspace id and every published path are judged on, never the path
+	// the caller passed. Empty for a global capability.
+	Root string
+	// GradleRoot is the canonical Gradle root inside Root, resolved at Start with it: the
+	// folder the build lock is keyed on, so two spellings of one project queue. Empty for a
+	// global capability.
+	GradleRoot string
 	// Params is the decoded parameter struct.
 	Params any
 	// Session is the request's session; nil for a Stateless capability's call made
@@ -172,8 +179,8 @@ type Call struct {
 	// the handler to use instead of reading it again. Nil without a hook.
 	Authorized any
 	// Origin is the session the call came from, as the adapter named it (Request.Origin).
-	// A Binding capability reads the session's id from it; the zero Origin is a call
-	// without a session.
+	// A capability that holds something for a session (a device) reads its id from it; the
+	// zero Origin is a call without a session.
 	Origin Origin
 }
 
@@ -192,14 +199,6 @@ type Descriptor struct {
 	// does not make the call stateful.
 	LongRunning bool
 
-	// Binding says the capability acts on the calling MCP session's binding, the root
-	// its calls address (ADR-0082 §4). It stays Stateless: the binding is ADR-0019's
-	// addressing, which the MCP session already holds, not state the session carries to
-	// a push channel. Start refuses such a call, and records no operation, unless its
-	// Origin.ID is a session registered in the core's Sessions: a CLI, WebSocket or
-	// plain HTTP connection has none.
-	Binding bool
-
 	// Occupies says the capability acts on a device the calling MCP session then holds
 	// (ADR-0094 §2): OccupiesAct for an acting call, which holds a free device and is
 	// refused one another live session holds; OccupiesBoot for a call that boots the
@@ -214,26 +213,19 @@ type Descriptor struct {
 	// AcceptsIdempotencyKey says the call dedupes retries on the envelope's key.
 	AcceptsIdempotencyKey bool
 
-	// RawTarget marks workspace.open and workspace.close: Start admits the call
-	// whether or not its workspace is open, and the handler receives the envelope's
-	// target as given, to judge it itself (ADR-0026: validation is the handler's).
-	// Such a call is not an operation of the workspace, so a close never cancels or
-	// waits on an open or a close (ADR-0027). Not published.
-	RawTarget bool
-
 	Audience Audience
 
 	// Lendable says a host serves the capability to a paired peer (ADR-0098 §3; ADR-0099
 	// §2). A peer's call to any other capability is REQUEST_NOT_ALLOWED_HERE, before
-	// anything is recorded. A host-global capability only: a peer names no workspace of
-	// the host's, holds no binding, and Register refuses the flag on any other. Not
-	// published: the peer protocol is internal to the two daemons.
+	// anything is recorded. A host-global capability only: a peer names no project of the
+	// host's, and Register refuses the flag on any other. Not published: the peer protocol
+	// is internal to the two daemons.
 	Lendable bool
 
 	// Resource names the per-resource lock a call holds while it runs, as a function
 	// of the call: its decoded params (Call.Params) and, for a workspace-scoped
-	// capability, the canonical workspace id (Call.Workspace) — the key a build takes
-	// is per workspace, "gradle.root:<wsid>" (plan m1g R5). "" takes none. One key per
+	// capability, the canonical Gradle root (Call.GradleRoot) — the key a build takes is
+	// "gradle.root:<root>", so two spellings of one project queue (plan m3j step 6). "" takes none. One key per
 	// call, so acquisition cannot deadlock. Calls on one key run one at a time, in the
 	// order they were started; a call behind another is queued and names it in
 	// blockedBy (ADR-0020 §Core primitives). The scheduler takes the lock, not the
@@ -337,3 +329,10 @@ type Deprecation struct {
 	Since       string
 	Replacement string
 }
+
+// ProjectParam is the name of the parameter every workspace-scoped capability takes (ADR-0137
+// §3): the absolute path of the project's folder, or of a folder inside it. The schema
+// package adds the property to the input schema of each such descriptor, so no parameter
+// struct declares it, and Register refuses one that does; the core takes it off the
+// parameters before it decodes the rest, so no handler sees it.
+const ProjectParam = "project"

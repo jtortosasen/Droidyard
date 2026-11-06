@@ -72,18 +72,19 @@ func seedBuild(t *testing.T, clientState string) seededBuild {
 	return seededBuild{root: root, wid: wid, id: seedBuildID, apk: apk}
 }
 
-// openOn opens the build's workspace on the client, for the workspace-scoped device.install.
+// openOn opens the build's workspace on the client, for the workspace-scoped device.install:
+// a call that names the project opens it (ADR-0137 §3).
 func (l *remoteLab) openOn(t *testing.T, root string) {
 	t.Helper()
-	if out, err := l.client.ops.Invoke(context.Background(), capability.Request{Capability: "workspace.open", Workspace: root, Params: json.RawMessage(`{}`), Client: capability.ClientUI}); err != nil || out.State != capability.StateCompleted {
-		t.Fatalf("workspace.open: %+v, %v", out, err)
+	if out, err := l.client.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.touch", Params: withProject("", root), Client: capability.ClientUI}); err != nil || out.State != capability.StateCompleted {
+		t.Fatalf("fixture.touch: %+v, %v", out, err)
 	}
 }
 
 func (l *remoteLab) install(t *testing.T, b seededBuild, id string) capability.Outcome {
 	t.Helper()
-	out, err := l.client.ops.Invoke(context.Background(), capability.Request{Capability: "device.install", Workspace: b.wid, Client: capability.ClientUI,
-		Params: json.RawMessage(`{` + dev(id) + `,"build":{"buildId":"` + b.id + `","module":":app","variant":"debug"}}`)})
+	out, err := l.client.ops.Invoke(context.Background(), capability.Request{Capability: "device.install", Client: capability.ClientUI,
+		Params: withProject(`{`+dev(id)+`,"build":{"buildId":"`+b.id+`","module":":app","variant":"debug"}}`, b.root)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,8 +242,8 @@ func TestRemoteInstall(t *testing.T) {
 		devicetest.Write(t, lab.hostDir, phone1+".install.hang", nil)
 		defer os.Remove(filepath.Join(lab.hostDir, phone1+".install.hang"))
 		installsBefore := installCount(lab.hostCalls(t))
-		id, err := lab.client.ops.Start(context.Background(), capability.Request{Capability: "device.install", Workspace: b.wid, Client: capability.ClientUI,
-			Params: json.RawMessage(`{` + dev(remotePhone) + `,"build":{"buildId":"` + b.id + `","module":":app","variant":"debug"}}`)})
+		id, err := lab.client.ops.Start(context.Background(), capability.Request{Capability: "device.install", Client: capability.ClientUI,
+			Params: withProject(`{`+dev(remotePhone)+`,"build":{"buildId":"`+b.id+`","module":":app","variant":"debug"}}`, b.root)})
 		if err != nil {
 			t.Fatal(err)
 		}

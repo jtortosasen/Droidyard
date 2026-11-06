@@ -151,36 +151,14 @@ func TestOccupyDeviceAllowProceedsAndKeepsTheHolder(t *testing.T) {
 	}
 }
 
-// TestDeviceOccupationEnds holds ADR-0094 §3: a hold ends with the session, when its binding
-// moves to the main tree (also when it is already there: the skill's "task done"), by
-// ReleaseDevice, and when a listing no longer holds the serial; but not when the binding
-// moves to another worktree, and not for a hold taken after the listing was read. A
-// registry that released the devices at every move, or kept them at the main tree, fails
-// here.
+// TestDeviceOccupationEnds holds ADR-0094 §3: a hold ends with the session, by
+// ReleaseDevice, and when a listing no longer holds the serial; but not for a hold taken
+// after the listing was read. (The release on a session's return to the main tree left with
+// the worktree occupation, ADR-0137 §1.)
 func TestDeviceOccupationEnds(t *testing.T) {
 	s, rec, _ := occupied(OccupationRefuse)
-	for _, id := range []string{"a", "b", "c", "d", "e"} {
+	for _, id := range []string{"c", "d", "e"} {
 		connectAt(s, id, "chat-"+id, "agent")
-	}
-
-	s.OccupyDevice("a", "emulator-5554")
-	s.OccupyDevice("a", "emulator-5556")
-	s.Occupy("a", "ws-wt", "/wt1", true) // another worktree: keeps the devices
-	if got := devicesOfLast(rec, "a"); !slices.Equal(got, []string{"emulator-5554", "emulator-5556"}) {
-		t.Errorf("entering a linked worktree changed a's devices to %v", got)
-	}
-	s.Occupy("a", "ws-main", "/main", false) // the main tree: task done
-	if got := devicesOfLast(rec, "a"); len(got) != 0 {
-		t.Errorf("a back at the main tree still carries %v", got)
-	}
-	if _, refused := s.OccupyDevice("b", "emulator-5554"); refused {
-		t.Error("the serial was still held after the holder returned to the main tree")
-	}
-
-	// Already at the main tree: workspace_enter of it again releases.
-	s.Occupy("b", "ws-main", "/main", false)
-	if got := devicesOfLast(rec, "b"); len(got) != 0 {
-		t.Errorf("b entering the main tree it is in kept %v", got)
 	}
 
 	// The session's end.
@@ -196,14 +174,11 @@ func TestDeviceOccupationEnds(t *testing.T) {
 		t.Error("an ended session's serial is still held")
 	}
 
-	// ReleaseDevice, which moves no binding.
+	// ReleaseDevice.
 	s.OccupyDevice("e", "emulator-5560")
 	s.ReleaseDevice("emulator-5560")
 	if got := devicesOfLast(rec, "e"); len(got) != 0 {
 		t.Errorf("ReleaseDevice left e carrying %v", got)
-	}
-	if r, ok := s.Binding("e"); !ok || r != "/main" {
-		t.Errorf("ReleaseDevice moved e's binding to %q", r)
 	}
 	s.ReleaseDevice("emulator-9999") // a free serial is already released
 

@@ -25,9 +25,3 @@ func (h Holder) Who() string {
 	}
 	return "another chat"
 }
-
-// OccupiedWayOut is what a session that met an occupied worktree is told to do: the same
-// words for workspace.enter's refusal and for a refused write (ADR-0094 §5).
-func OccupiedWayOut(root string) string {
-	return fmt.Sprintf("make a worktree of your own (git worktree add) and workspace_enter it, or ask the user to release %s in Droidyard's sessions panel", root)
-}

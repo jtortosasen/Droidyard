@@ -111,10 +111,12 @@ var errorsErrors = []capability.ErrorCode{
 	capability.ErrWorkspaceStateUnreadable,
 }
 
-// resource is the scheduler key every build of a workspace holds (R5,
-// overview.md §Concurrency): one build per workspace at a time, and a model fetch
-// answered from the cache while one runs.
-func resource(call *capability.Call) string { return "gradle.root:" + call.Workspace }
+// resource is the scheduler key every build holds (R5, overview.md §Concurrency): one build
+// per Gradle root at a time, and a model fetch answered from the cache while one runs. The
+// key is the canonical Gradle root the call's project resolved to at Start (plan m3j step
+// 6), not the workspace's id: two spellings of one project, its top and its dev/, are two
+// workspaces and one Gradle root, and their builds queue.
+func resource(call *capability.Call) string { return "gradle.root:" + call.GradleRoot }
 
 func registerBuilds(reg *capability.Registry, o Options) {
 	reg.MustRegister(capability.Descriptor{

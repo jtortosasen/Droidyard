@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -34,7 +35,6 @@ func specs(reg *capability.Registry) []cli.Spec {
 			Scope:           d.Scope,
 			Statefulness:    d.Statefulness,
 			LongRunning:     d.LongRunning,
-			Binding:         d.Binding,
 			Audience:        d.Audience,
 			Annotations:     d.ResolveAnnotations(),
 			Description:     d.Description,
@@ -137,6 +137,7 @@ func (ct *cmdTree) dispatch(args []string, out, errOut io.Writer) int {
 // else the generic one. `droidyard call` stays the envelope.
 func (ct *cmdTree) runDerived(d cli.Derived) int {
 	c := d.Call
+	ct.defaultProject(&c)
 	if !d.JSON {
 		c.Human = true
 		c.Who = strings.ReplaceAll(c.Capability, ".", " ")
@@ -146,6 +147,36 @@ func (ct *cmdTree) runDerived(d cli.Derived) int {
 		}
 	}
 	return runCapability(strings.ReplaceAll(d.Call.Capability, ".", " "), c)
+}
+
+// defaultProject gives a call that takes a project the one the command line names, as an
+// absolute path, or the current directory when it names none (ADR-0137 §5): the daemon has
+// no cwd of this process, so the path goes in the call. A capability that takes none, and
+// one the registry does not know (the daemon answers it), are left as they are.
+func (ct *cmdTree) defaultProject(c *cli.Call) {
+	if ct == nil || ct.reg == nil {
+		return
+	}
+	if d, ok := ct.reg.Lookup(c.Capability); !ok || d.Scope != capability.Workspace {
+		return
+	}
+	if c.Project == "" {
+		// A project in --params is the call's project: the current directory does not stand in
+		// beside it, and a --project given too is refused by the adapter.
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(c.Params, &fields) == nil {
+			if _, ok := fields[capability.ProjectParam]; ok {
+				return
+			}
+		}
+		if cwd, err := os.Getwd(); err == nil {
+			c.Project = cwd
+		}
+		return
+	}
+	if abs, err := filepath.Abs(c.Project); err == nil {
+		c.Project = abs
+	}
 }
 
 // help prints the help for a path: the index, a domain, a verb or a hand command.
@@ -200,7 +231,7 @@ func handCommands(ct *cmdTree) []handCommand {
 		{name: "serve", summary: "Run the core daemon in the foreground, until SIGTERM or SIGINT.", help: serveHelp,
 			run: serve},
 		{name: "call", summary: "Call one capability by its name and print its response envelope.", help: callHelp,
-			run: call},
+			run: func(args []string) int { return call(ct, args) }},
 		{name: "status", summary: "Report on the running daemon: its socket and the HTTP API's address.", help: statusHelp,
 			run: func([]string) int { return status() }},
 		{name: "stop", summary: "Stop the running daemon.", help: stopHelp,

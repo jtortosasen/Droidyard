@@ -334,11 +334,11 @@ func TestMCPTranscript(t *testing.T) {
 			t.Errorf("tools/list has %s: events.* are not tools", name)
 		}
 	}
-	if shipped != 47 || stateless != 47 {
-		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 47 of each", shipped, stateless)
+	if shipped != 43 || stateless != 43 {
+		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 43 of each", shipped, stateless)
 	}
 	for name := range listed {
-		if _, ok := golden[strings.Replace(name, "_", ".", 1)]; !ok && name != "fixture_block" && name != "fixture_slow" {
+		if _, ok := golden[strings.Replace(name, "_", ".", 1)]; !ok && name != "fixture_block" && name != "fixture_slow" && name != "fixture_touch" && name != "fixture_trusted" {
 			t.Errorf("tools/list has %s, which is neither published nor the test fixture", name)
 		}
 	}

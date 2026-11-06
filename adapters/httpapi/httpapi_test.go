@@ -163,3 +163,40 @@ func TestArtifactRouteAnswers500ForAResultItCannotServe(t *testing.T) {
 		}
 	}
 }
+
+// TestEnvelopeHasNoWorkspace holds ADR-0137 §3 over HTTP (the WebSocket decodes with the same
+// answer): the request envelope has no workspace field, so a client of the old contract that
+// still sends one is refused as an unknown field, a rejection with no operation, whether the
+// capability takes a project or not; the project is the call's own `project` parameter, which
+// the route passes to the core as it came. Seen failing with the field still in the envelope.
+func TestEnvelopeHasNoWorkspace(t *testing.T) {
+	reg := capability.NewRegistry()
+	ops := capability.NewOperations(reg)
+	type none struct{}
+	ran := 0
+	for name, scope := range map[string]capability.Scope{"fixture.global": capability.Global, "fixture.scoped": capability.Workspace} {
+		reg.MustRegister(capability.Descriptor{
+			Name: name, Kind: capability.Query, Scope: scope, Description: "A fixture.",
+			Params: none{}, Result: none{},
+			Handler: func(context.Context, *capability.Call) (any, error) { ran++; return none{}, nil },
+		})
+	}
+	ops.RegisterCapabilities()
+	c := &caller{reg: reg, ops: ops}
+
+	for _, name := range []string{"fixture.global", "fixture.scoped"} {
+		body := `{"id":"w","capability":"` + name + `","workspace":"/some/project"}`
+		env, ok := c.answer(context.Background(), []byte(body), nil, requester{client: capability.ClientUI})
+		if !ok || env.Error == nil || env.Error.Code != capability.ErrInvalidParams || env.Operation != nil || env.ID != "w" ||
+			!strings.Contains(env.Error.Cause, `"workspace"`) {
+			t.Errorf("%s with a workspace field: %+v (error %+v); want REQUEST_INVALID_PARAMS naming the unknown field, no operation", name, env, env.Error)
+		}
+	}
+	if ran != 0 {
+		t.Fatalf("a request with a workspace field ran a handler %d times", ran)
+	}
+	env, _ := c.answer(context.Background(), []byte(`{"id":"p","capability":"fixture.scoped"}`), nil, requester{client: capability.ClientUI})
+	if env.Error == nil || env.Error.Code != capability.ErrInvalidParams || env.Operation != nil || !strings.Contains(env.Error.NextStep, "project") {
+		t.Errorf("a project capability with no project: %+v; want REQUEST_INVALID_PARAMS naming project", env.Error)
+	}
+}

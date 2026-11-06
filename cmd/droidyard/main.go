@@ -96,9 +96,6 @@ type requirements struct {
 	adb      *device.ADB
 	emulator *emulator.Emulator
 	gradle   *gradle.Client
-	// dialog answers folderDialog: workspace.chooseRoot's macOS folder dialog
-	// (ADR-0045 §4).
-	dialog workspace.Dialog
 }
 
 func (r requirements) Missing(req capability.Requirement) (string, bool) {
@@ -123,8 +120,6 @@ func (r requirements) Missing(req capability.Requirement) (string, bool) {
 			return "no Gradle sidecar client is configured", true
 		}
 		return r.gradle.Missing(req)
-	case capability.RequiresFolderDialog:
-		return r.dialog.Missing()
 	default:
 		return string(req) + " was not found on this machine", true
 	}
@@ -141,7 +136,8 @@ var (
 	// joinSeam, when set, stands in for the host a hosting.join dials, so a test can have a host
 	// whose answer is hostile. The shipped binary never sets it.
 	joinSeam sharing.JoinFunc
-	// testDrain replaces workspace.close's drain bound; zero keeps the default.
+	// testDrain replaces the drain bound an idle release waits for its workspace's operations;
+	// zero keeps the default.
 	testDrain time.Duration
 	// adbEnviron is the environment adb is resolved in and its clients run with: the
 	// daemon's own. Tests replace it so none finds or runs this machine's adb or
@@ -170,10 +166,6 @@ var (
 	// embedded jars on the discovered JVM: the fake sidecar of a test. Nil runs the
 	// real one.
 	gradleLaunch gradle.Launch
-	// dialogSeam, when set, adjusts the folder dialog before the daemon uses it: a test
-	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
-	// sets it.
-	dialogSeam func(d *workspace.Dialog)
 	// sessionClock, when set, is the clock the session registry reads (a session's last
 	// request and the idle sweep): a test advances it to make a holder idle. The shipped
 	// binary never sets it.
@@ -181,6 +173,11 @@ var (
 	// sessionSweep, when > 0, is how often the idle sweep runs, in place of the minute
 	// (capability.SweepInterval). The shipped binary never sets it.
 	sessionSweep time.Duration
+	// workspaceClock, when set, is the idle clock of the workspace registry, and
+	// workspaceSweep, when > 0, the interval of its idle sweep: a test moves the clock past
+	// workspace.IdleAfter to release a root (ADR-0137 §3). The shipped binary never sets them.
+	workspaceClock func() time.Time
+	workspaceSweep time.Duration
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -321,27 +318,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// hosting.lend, read live as the policy is, says which of this machine's devices a
 	// paired peer may use (ADR-0099 §1).
 	adb.SetLending(pol)
-	// Who occupies which device (ADR-0094): the one registry of MCP sessions, which also holds
-	// the worktrees, so a session that ends or returns to the main tree frees both.
+	// Who occupies which device (ADR-0094): the one registry of MCP sessions, so a session that
+	// ends frees the devices it held.
 	adb.SetOccupation(ops.Sessions())
-	// workspace.chooseRoot's folder dialog is started through the supervisor's recorded
-	// spawner (ADR-0045 §4; ADR-0021 §Pid records), so a daemon killed while it is up leaves
-	// a record the next start reaps; a test replaces the osascript it runs and the platform
-	// it asks on. Without a supervisor (caps, schema) the dialog has no spawner.
-	var dialogSpawn func(cmd *exec.Cmd) (func() error, error)
-	if sup != nil {
-		dialogSpawn = func(cmd *exec.Cmd) (func() error, error) {
-			r, err := sup.SpawnRecorded(cmd, proc.FolderDialog)
-			if err != nil {
-				return nil, err
-			}
-			return r.Wait, nil
-		}
-	}
-	dialog := workspace.NewDialog(dialogSpawn)
-	if dialogSeam != nil {
-		dialogSeam(&dialog)
-	}
 	// The peer link (ADR-0098): the daemon's identity, the links it dials and what its
 	// listener reports. Nothing is read or written until serve starts it, once the daemon
 	// holds the lock, since the identity has one writer. Without a state store (caps,
@@ -377,7 +356,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		base := problems
 		problems = func() []store.Problem { return append(base(), host.Problems()...) }
 	}
-	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient, dialog: dialog}, adb, ops, problems, gradleClient, pol, hostHealth)
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient, pol, hostHealth)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch
@@ -396,50 +375,52 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {
-		// workspace.close stops the workspace's sidecars after its drain and before it
-		// marks the workspace closed (ADR-0027 §Decision).
+		// A released workspace's sidecars are stopped after its drain and before it is
+		// marked closed (ADR-0027 §Decision).
 		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
 	}
-	// A closing workspace releases its root's Gradle connection, so Gradle's daemon
+	// A released workspace gives up its root's Gradle connection, so Gradle's daemon
 	// connection is not left to the sidecar's idle timeout (gradle.md §Protocol). Any
-	// failure here is not the close's business: the sidecar is stopped with the daemon.
+	// failure here is not the release's business: the sidecar is stopped with the daemon.
 	closeRoot := func(root string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		gradleClient.Close(ctx, root)
 	}
-	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
+	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain,
+		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus,
 		OnOpen: func(id, root string) { history.Sweep(id) }})
-	// The trust hook: a call's root comes from its workspace, and an untrusted root
-	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
+	if workspaceClock != nil {
+		ws.UseClock(workspaceClock)
+	}
+	if workspaceSweep > 0 {
+		ws.UseIdleEvery(workspaceSweep)
+	}
+	// The trust hook: a call's root is the project root its `project` resolved to at Start
+	// (Registry.Enter, workspace.ResolveProject), never the path the caller passed: a folder
+	// inside a linked worktree is judged by the worktree's root, and so inherits its
+	// project's trust (ADR-0081). An untrusted root fails WORKSPACE_UNTRUSTED before the
+	// handler runs (plan m1g step 3, R4).
 	authorize := pol.Authorize(func(call *capability.Call) (string, bool) {
-		info, err := ws.Describe(call.Workspace)
-		if err != nil {
-			return "", false
-		}
-		return info.Root, true
+		return call.Root, call.Root != ""
 	})
 	// The Gradle capabilities run on the Gradle root, a directory inside the project root
-	// (ADR-0075 §3): the project is resolved to its root at Start (Registry.Enter,
-	// workspace.ResolveProject), and trust is decided on that resolved root, before
-	// anything is spawned; the Gradle root is then resolved again at every call, without a
-	// cache. A project with none fails PROJECT_NO_GRADLE_ROOT, the candidates in its
-	// details.
+	// (ADR-0075 §3), resolved at Start with the project root (call.GradleRoot, the key the
+	// build lock is held on): trust is decided on the resolved project root before anything
+	// is spawned. A project with no Gradle root, or several, was refused at Start
+	// (PROJECT_NO_GRADLE_ROOT, the candidates in its details).
 	authorizeGradle := func(ctx context.Context, call *capability.Call) (any, error) {
 		v, err := authorize(ctx, call)
 		if err != nil {
 			return nil, err
 		}
 		projectRoot := v.(string)
-		// Without candidates: a failure lists them anyway, and a valid key skips the scan.
-		r := workspace.ResolveGradleRoot(projectRoot, false)
-		// The workspace's current root, also when there is none, so a crash of this root
-		// degrades it and its close releases the connection (ADR-0075 §8). A root it
-		// switched away from that no other workspace remembers is closed once no operation
-		// holds it (ADR-0092 §2), each in a goroutine of its own: the wait has no deadline.
-		// A workspace that began closing since the trust check refuses the call.
-		forgotten, err := ws.UseGradleRoot(call.Workspace, r.Abs)
+		// The workspace's current root, so a crash of this root degrades it and its release
+		// closes the connection (ADR-0075 §8). A root it switched away from that no other
+		// workspace remembers is closed once no operation holds it (ADR-0092 §2), each in a
+		// goroutine of its own: the wait has no deadline. A workspace that began closing since
+		// the trust check refuses the call.
+		forgotten, err := ws.UseGradleRoot(call.Workspace, call.GradleRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -448,10 +429,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			// workspace may have taken the root meanwhile.
 			go gradleClient.CloseWhenFree(g, func() bool { return ws.GradleRootInUse(g) })
 		}
-		if r.Abs == "" {
-			return nil, r.Err
-		}
-		return gradle.Roots{Project: projectRoot, Gradle: r.Abs}, nil
+		return gradle.Roots{Project: projectRoot, Gradle: call.GradleRoot}, nil
 	}
 	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
 	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
@@ -464,7 +442,6 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		InUse: sdk.SystemInUse(ops.Active)})
 	project.Register(reg, gradleClient, authorizeGradle)
 	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize, AuthorizeGradle: authorizeGradle})
-	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)

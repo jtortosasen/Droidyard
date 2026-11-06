@@ -26,11 +26,12 @@ func (s State) Terminal() bool {
 }
 
 // RequestEnvelope is one call on the wire (docs/architecture/capability-api.md
-// §Request envelope). Workspace is an envelope field, never a parameter.
+// §Request envelope). It names no project: a workspace-scoped capability takes `project`
+// as a parameter (ADR-0137 §3), so an envelope with a `workspace` field is refused as an
+// unknown one.
 type RequestEnvelope struct {
 	ID         string          `json:"id"`
 	Capability string          `json:"capability"`
-	Workspace  string          `json:"workspace,omitempty"`
 	Params     json.RawMessage `json:"params,omitempty"`
 	// WaitMs is how long to wait before returning a still-running operation.
 	// Omitted: wait to completion.
@@ -192,10 +193,6 @@ type SessionRef struct {
 	// Name is what the client calls itself: for MCP, clientInfo.name from initialize,
 	// at most 64 runes with control and format characters removed; absent before it.
 	Name string `json:"name,omitempty" jsonschema_description:"What the client calls itself: for MCP, clientInfo.name from initialize (at most 64 characters, control and format characters removed); absent before it."`
-	// Workspace is the session's bound workspace id, if that workspace was open when the
-	// call was recorded. It is taken once: under the store's lock it could not be, since
-	// admission takes the store's lock inside the workspace's.
-	Workspace string `json:"workspace,omitempty" jsonschema_description:"The session's bound workspace id, if that workspace was open when the call was recorded."`
 }
 
 // copy returns a copy of the reference, so no event shares memory with the record; nil

@@ -76,22 +76,19 @@ func TestDerivedCommandIsTheCall(t *testing.T) {
 		}
 	})
 
-	t.Run("workspace describe from a project directory", func(t *testing.T) {
+	t.Run("a project call from a project directory", func(t *testing.T) {
 		p := startInProcess(t)
 		root, sub := gradleProject(t)
-		if _, code := callIn(t, p.state, sub, "workspace.open"); code != 0 {
-			t.Fatalf("workspace.open exited %d", code)
-		}
-		viaCall := droidyardIn(t, p.state, sub, "call", "--no-autostart", "workspace.describe")
+		viaCall := droidyardIn(t, p.state, sub, "call", "--no-autostart", "fixture.touch")
 		viaCall.wait(t)
-		derived := droidyardIn(t, p.state, sub, "workspace", "describe", "--json", "--no-autostart")
+		derived := droidyardIn(t, p.state, sub, "fixture", "touch", "--json", "--no-autostart")
 		if code := derived.wait(t); code != 0 {
-			t.Fatalf("workspace describe exited %d: %s %s", code, derived.stdout.String(), derived.stderr.String())
+			t.Fatalf("fixture touch exited %d: %s %s", code, derived.stdout.String(), derived.stderr.String())
 		}
 		a, sa := blankedEnvelope(t, viaCall.stdout.Bytes())
 		_, sb := blankedEnvelope(t, derived.stdout.Bytes())
-		if info := workspaceOf(t, a); info.Root != root {
-			t.Fatalf("describe addressed %q; want the project root %q", info.Root, root)
+		if got := workspaceOf(t, a); got.Root != root {
+			t.Fatalf("the call addressed %q; want the project root %q", got.Root, root)
 		}
 		if sa != sb {
 			t.Errorf("the envelopes differ:\n call    %s\n derived %s", sa, sb)

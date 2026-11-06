@@ -35,29 +35,6 @@ const (
 	// (ADR-0019).
 	ErrDaemonVersionMismatch ErrorCode = "DAEMON_VERSION_MISMATCH"
 
-	// ErrWorkspaceNotOpen: a workspace was asked of that is not open (Describe, UseGradleRoot),
-	// or a call's admission found it still not open after one reopen. A workspace-scoped
-	// call opens its root itself at Start (ADR-0137 §3); step 6 of plan m3j retires this
-	// code. nextStep: workspace.open (ADR-0020 §Scope and workspace addressing).
-	ErrWorkspaceNotOpen ErrorCode = "WORKSPACE_NOT_OPEN"
-	// ErrWorkspaceNotAWorktree: workspace.enter's root is neither the calling session's
-	// project root nor a linked git worktree of it by ADR-0081 §2 (a worktree of another
-	// repository included), so the binding did not move. nextStep: pass the project's root
-	// or a worktree of it (ADR-0082 §3). Beside WORKSPACE_NOT_OPEN: both say a root is not
-	// one the call may address.
-	ErrWorkspaceNotAWorktree ErrorCode = "WORKSPACE_NOT_A_WORKTREE"
-	// ErrWorkspaceOccupied: workspace.enter's root is a linked git worktree another live,
-	// non-idle MCP session of another chat holds (ADR-0094 §1, §5), and the configuration's
-	// occupation.conflict is refuse or ask (ask is refuse where Droidyard cannot ask,
-	// ADR-0094 §6), so the binding did not move. The message names the holder as
-	// "another chat" with its client's name and since when; nextStep: make a worktree of
-	// its own and enter that, or ask the user to release this one. The main tree is never
-	// occupied.
-	ErrWorkspaceOccupied ErrorCode = "WORKSPACE_OCCUPIED"
-	// ErrWorkspaceOpen: workspace.forget named a workspace that is not closed (opening, open or closing), so its index entry
-	// stayed: removing a project from the recent list must not stop what runs in it
-	// (ADR-0086 §3). nextStep: close it first. The opposite of WORKSPACE_NOT_OPEN.
-	ErrWorkspaceOpen ErrorCode = "WORKSPACE_OPEN"
 	// ErrWorkspaceUntrusted: the workspace opened in restricted mode and the capability
 	// touches project code (ADR-0015 §5).
 	ErrWorkspaceUntrusted ErrorCode = "WORKSPACE_UNTRUSTED"
@@ -104,28 +81,25 @@ const (
 	// cause.
 	ErrProjectModelFailed ErrorCode = "PROJECT_MODEL_FAILED"
 	// ErrProjectNoGradleRoot: the project has no Gradle root to run in: none of the
-	// places ADR-0075 §2 looks holds a settings file, several do and none was chosen, or
-	// the `gradleRoot` key of .droidyard/project.json names a folder that is not a Gradle
-	// root inside the project root. The cause says which; details.candidates lists the
-	// Gradle roots found, relative to the project root; nextStep names the UI's choice and
-	// the key (ADR-0075 §4).
+	// places ADR-0075 §2 looks holds a settings file, or several do and none contains the
+	// folder passed. The cause says which; details.candidates lists the Gradle roots found,
+	// relative to the folder; nextStep says to pass the absolute path of one of them as the
+	// project (ADR-0137 §3).
 	ErrProjectNoGradleRoot ErrorCode = "PROJECT_NO_GRADLE_ROOT"
 	// ErrBuildNotFound: an unknown buildId, or a workspace whose registry holds no
 	// finished build (gradle.md §Persistence; plan m1g D9).
 	ErrBuildNotFound ErrorCode = "BUILD_NOT_FOUND"
 
 	// The request codes. Start rejects a call with them, and creates no operation, for an
-	// unknown capability, parameters that fail strict decoding, a workspace-scoped call with
-	// no workspace, a global call that names one, and a capability this connection may not
-	// call: a human-audience one over MCP, or a Binding one from a connection that is not an
-	// MCP session (ADR-0020 §Core primitives; ADR-0082 §4). REQUEST_INVALID_PARAMS is also a handler's code for a
+	// unknown capability, parameters that fail strict decoding (a workspace-scoped call with
+	// no `project`, or a global call that sends one, included), and a capability this
+	// connection may not call: a human-audience one over MCP, or one a peer is not lent
+	// (ADR-0020 §Core primitives). REQUEST_INVALID_PARAMS is also a handler's code for a
 	// parameter it finds invalid while running, and AsError's fallback for an untyped error:
 	// then it ends a failed operation.
-	ErrCapabilityNotFound  ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"
-	ErrInvalidParams       ErrorCode = "REQUEST_INVALID_PARAMS"
-	ErrMissingWorkspace    ErrorCode = "REQUEST_MISSING_WORKSPACE"
-	ErrUnexpectedWorkspace ErrorCode = "REQUEST_UNEXPECTED_WORKSPACE"
-	ErrNotAllowedHere      ErrorCode = "REQUEST_NOT_ALLOWED_HERE"
+	ErrCapabilityNotFound ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"
+	ErrInvalidParams      ErrorCode = "REQUEST_INVALID_PARAMS"
+	ErrNotAllowedHere     ErrorCode = "REQUEST_NOT_ALLOWED_HERE"
 )
 
 // Error is the one error shape: the envelope, MCP error results (isError: true) and CLI

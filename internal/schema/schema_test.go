@@ -28,7 +28,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/schema"
-	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // update rewrites the golden file instead of comparing against it.
@@ -83,7 +82,6 @@ func registry() *capability.Registry {
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing, AuthorizeGradle: trustNothing})
-	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg, ops.Active)
 	return reg
 }
@@ -426,4 +424,80 @@ func namesDevice(params any) bool {
 		}
 	}
 	return false
+}
+
+// TestEveryProjectCapabilityTakesOneRequiredProject is the decision of ADR-0137 §3, plan m3j
+// Q3: `project` is a parameter the generator adds, from the descriptor's scope, to the input
+// of every workspace-scoped capability, and to none else: one property, with the one
+// description, first among the properties and among the required ones, an absolute path as a
+// string. A descriptor cannot leave it out (the scope decides) and none declares it itself
+// (Register refuses one that does). Seen failing with the property added by scope but left
+// off the required list, and with a global capability that took one.
+func TestEveryProjectCapabilityTakesOneRequiredProject(t *testing.T) {
+	reg := registry()
+	doc, err := schema.Generate(reg, system.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeOf := map[string]capability.Scope{}
+	for _, d := range reg.All() {
+		scopeOf[d.Name] = d.Scope
+	}
+	scoped := 0
+	for _, c := range doc.Capabilities {
+		var in struct {
+			Properties map[string]struct {
+				Type        string `json:"type"`
+				Description string `json:"description"`
+			} `json:"properties"`
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(c.Input, &in); err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		prop, has := in.Properties[capability.ProjectParam]
+		if scopeOf[c.Name] != capability.Workspace {
+			if has {
+				t.Errorf("%s is %s and has a %q property", c.Name, scopeOf[c.Name], capability.ProjectParam)
+			}
+			continue
+		}
+		scoped++
+		if !has || prop.Type != "string" || prop.Description != schema.ProjectDescription {
+			t.Errorf("%s: project is %+v; want a string with the one description", c.Name, prop)
+		}
+		if len(in.Required) == 0 || in.Required[0] != capability.ProjectParam {
+			t.Errorf("%s: required is %v; want project first", c.Name, in.Required)
+		}
+		// Its place among the properties is first, in the published order.
+		var raw struct {
+			Properties json.RawMessage `json:"properties"`
+		}
+		json.Unmarshal(c.Input, &raw)
+		if !strings.HasPrefix(strings.TrimSpace(string(raw.Properties)), `{"`+capability.ProjectParam+`"`) {
+			t.Errorf("%s: properties begin %.40s; want project first", c.Name, raw.Properties)
+		}
+	}
+	if scoped < 8 {
+		t.Fatalf("only %d capabilities are workspace-scoped; the check proved nothing", scoped)
+	}
+
+	// A descriptor whose parameters cannot take the property is an error of the generator
+	// too, never a published schema without it.
+	type clash struct {
+		Project string `json:"project"`
+	}
+	bad := capability.NewRegistry()
+	bad.MustRegister(capability.Descriptor{Name: "fixture.clash", Kind: capability.Query, Scope: capability.Global,
+		Description: "A global capability with a project parameter of its own.", Params: clash{}, Result: struct{}{},
+		Handler: func(context.Context, *capability.Call) (any, error) { return struct{}{}, nil }})
+	d, _ := bad.Lookup("fixture.clash")
+	d.Scope = capability.Workspace // as if Register had let it through
+	if _, err := schema.Input(d); err == nil {
+		t.Error("a workspace-scoped input that already has a project property was published")
+	}
+	d.Params = struct{}{}
+	if raw, err := schema.Input(d); err != nil || !strings.Contains(string(raw), `"required":["project"]`) {
+		t.Errorf("an empty parameter struct in a project scope: %s, %v; want project required", raw, err)
+	}
 }

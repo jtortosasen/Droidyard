@@ -154,8 +154,16 @@ func TestStartRejectsWithATypedErrorAndNoOperation(t *testing.T) {
 		{"parameters that are not an object", Request{Capability: "fixture.noop", Params: json.RawMessage(`[1]`)}, ErrInvalidParams},
 		{"trailing data after the parameters", Request{Capability: "fixture.noop", Params: json.RawMessage(`{} {}`)}, ErrInvalidParams},
 		{"missing required parameter", Request{Capability: "operation.wait", Params: json.RawMessage(`{"timeoutMs":0}`)}, ErrInvalidParams},
-		{"superfluous workspace", Request{Capability: "fixture.noop", Workspace: "/home/me/app"}, ErrUnexpectedWorkspace},
-		{"missing workspace", Request{Capability: "fixture.scoped"}, ErrMissingWorkspace},
+		// The decision of ADR-0137 §3: a project is a parameter, refused as one. A project sent
+		// to a global capability is an unknown field, and a project capability with none, or
+		// with one that is not a non-empty string, is invalid params; nothing is recorded.
+		{"a project sent to a global capability", Request{Capability: "fixture.noop", Params: withProject(nil, "/home/me/app")}, ErrInvalidParams},
+		{"a project capability with no project", Request{Capability: "fixture.scoped"}, ErrInvalidParams},
+		{"a project capability with empty parameters", Request{Capability: "fixture.scoped", Params: json.RawMessage(`{}`)}, ErrInvalidParams},
+		{"an empty project", Request{Capability: "fixture.scoped", Params: json.RawMessage(`{"project":""}`)}, ErrInvalidParams},
+		{"a project that is not a string", Request{Capability: "fixture.scoped", Params: json.RawMessage(`{"project":7}`)}, ErrInvalidParams},
+		{"a project capability with parameters that are not an object", Request{Capability: "fixture.scoped", Params: json.RawMessage(`[1]`)}, ErrInvalidParams},
+		{"a project beside an unknown field", Request{Capability: "fixture.scoped", Params: json.RawMessage(`{"project":"/a","bogus":1}`)}, ErrInvalidParams},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -188,8 +196,7 @@ func TestInvalidParamsNamesTheFieldAndShape(t *testing.T) {
 		Params: installLikeParams{}, Result: result{},
 		Handler: func(context.Context, *Call) (any, error) { return result{}, nil },
 	})
-	// An empty params struct in a workspace scope: a value like the workspace belongs in
-	// the request, not in a parameter (note 4, the workspace.open case).
+	// An empty params struct in a workspace scope: the one parameter it takes is `project`.
 	reg.MustRegister(Descriptor{
 		Name: "test.open", Kind: Command, Scope: Workspace, Description: "opens a workspace.",
 		Params: struct{}{}, Result: result{},
@@ -214,18 +221,26 @@ func TestInvalidParamsNamesTheFieldAndShape(t *testing.T) {
 		t.Errorf("nextStep = %q; want it to say what shape build takes", ce.NextStep)
 	}
 
-	// An unknown field, in a capability that takes none: the nextStep says where the value
-	// belongs — the request's workspace field, the CLI's --workspace (note 4).
+	// An unknown field in a project capability that takes only `project`: the nextStep says
+	// which parameters there are, project among them.
 	_, err = ops.Start(context.Background(), Request{
-		Capability: "test.open", Workspace: "/w", Params: json.RawMessage(`{"root":"/w"}`),
+		Capability: "test.open", Params: json.RawMessage(`{"project":"/w","root":"/w"}`),
 	})
 	ce = AsError(err)
 	if ce.Code != ErrInvalidParams {
 		t.Fatalf("code = %s; want %s", ce.Code, ErrInvalidParams)
 	}
-	if !strings.Contains(ce.NextStep, `"root"`) || !strings.Contains(ce.NextStep, "takes no parameters") ||
-		!strings.Contains(ce.NextStep, "--workspace") {
-		t.Errorf("nextStep = %q; want it to name root and say the workspace is not a parameter", ce.NextStep)
+	if !strings.Contains(ce.NextStep, `"root"`) || !strings.Contains(ce.NextStep, "project") {
+		t.Errorf("nextStep = %q; want it to name root and the project parameter", ce.NextStep)
+	}
+
+	// A project sent to a global capability is told it takes none.
+	_, err = ops.Start(context.Background(), Request{
+		Capability: "test.install", Params: json.RawMessage(`{"project":"/w","build":{"module":"app","variant":"debug"}}`),
+	})
+	ce = AsError(err)
+	if ce.Code != ErrInvalidParams || !strings.Contains(ce.NextStep, `"project"`) || !strings.Contains(ce.NextStep, "takes no project") {
+		t.Errorf("a project sent to a global capability: %s, nextStep %q; want REQUEST_INVALID_PARAMS saying it takes no project", ce.Code, ce.NextStep)
 	}
 }
 
@@ -528,19 +543,32 @@ func (r *recordingPublisher) Publish(topic, typ, workspace, operation string, pa
 	r.got = append(r.got, published{topic, typ, workspace, operation, payload})
 }
 
+// admitAs is a Workspaces that admits every project as the workspace it names.
 type admitAs string
 
-func (a admitAs) Admit(target string, record func(id string)) bool {
-	record(string(a))
-	return true
-}
-
-func (a admitAs) Enter(target string, record func(id string)) error {
-	record(string(a))
+func (a admitAs) Enter(project string, record func(Entered)) error {
+	record(Entered{ID: string(a), Root: "/root/" + string(a), GradleRoot: "/gradle/" + string(a)})
 	return nil
 }
 
 func (admitAs) Ended(string) {}
+
+// withProject is the parameter object raw (empty means {}) with `project` added: what an
+// adapter sends for a call of a project capability.
+func withProject(raw json.RawMessage, project string) json.RawMessage {
+	fields := map[string]json.RawMessage{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			panic(err)
+		}
+	}
+	fields[ProjectParam], _ = json.Marshal(project)
+	out, err := json.Marshal(fields)
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
 
 // TestProgressIsPublished: a report through Call.Progress is kept on the operation and
 // published, before Progress returns, on operation.progress with type progress, the
@@ -569,7 +597,11 @@ func TestProgressIsPublished(t *testing.T) {
 		pub.mu.Lock()
 		pub.got = nil
 		pub.mu.Unlock()
-		id, err := ops.Start(context.Background(), Request{Capability: c.name, Workspace: c.target})
+		var params json.RawMessage
+		if c.target != "" {
+			params = withProject(nil, c.target)
+		}
+		id, err := ops.Start(context.Background(), Request{Capability: c.name, Params: params})
 		if err != nil {
 			t.Fatal(err)
 		}

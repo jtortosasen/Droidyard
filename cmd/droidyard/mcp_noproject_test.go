@@ -155,40 +155,43 @@ func TestMCPFrom(t *testing.T) {
 			t.Errorf("the daemon was dialled %d time(s); want 0", n)
 		}
 	})
-	t.Run("a subfolder of a project binds the project, whatever the cwd", func(t *testing.T) {
+	// The shim still decides, from --from or the cwd, whether it has a project at all (step 7
+	// of plan m3j removes the decision); where it has one, the session lists the tools. What a
+	// folder means to a call is its `project`, not the folder the shim started in.
+	listsTools := func(t *testing.T, s *shim) {
+		t.Helper()
+		s.initialize("from")
+		s.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+		if res := response(t, s.recv(), 1); len(res["tools"].([]any)) == 0 {
+			t.Errorf("the session lists no tools")
+		}
+	}
+	t.Run("a subfolder of a project gives the session its tools, whatever the cwd", func(t *testing.T) {
 		t.Parallel()
 		p := startInProcess(t)
-		root, sub := projectWith(t, "settings.gradle")
-		s := startShimIn(t, p.state, nonProject(t), "from", []string{"mcp", "--no-autostart", "--from", sub})
-		s.initialize("from")
-		boundReady(t, "--from a project subfolder", s.workspaceTool(1, "workspace_describe"), root)
+		_, sub := projectWith(t, "settings.gradle")
+		listsTools(t, startShimIn(t, p.state, nonProject(t), "from", []string{"mcp", "--no-autostart", "--from", sub}))
 	})
 	t.Run("--from=<dir> is the same flag", func(t *testing.T) {
 		t.Parallel()
 		p := startInProcess(t)
-		root, sub := projectWith(t, "settings.gradle")
-		s := startShimIn(t, p.state, nonProject(t), "from", []string{"mcp", "--no-autostart", "--from=" + sub})
-		s.initialize("from")
-		boundReady(t, "--from=", s.workspaceTool(1, "workspace_describe"), root)
+		_, sub := projectWith(t, "settings.gradle")
+		listsTools(t, startShimIn(t, p.state, nonProject(t), "from", []string{"mcp", "--no-autostart", "--from=" + sub}))
 	})
 	t.Run("a relative --from is resolved against the cwd", func(t *testing.T) {
 		t.Parallel()
 		p := startInProcess(t)
 		root, _ := projectWith(t, "settings.gradle")
-		s := startShimIn(t, p.state, filepath.Dir(root), "from", []string{"mcp", "--no-autostart", "--from", filepath.Join(filepath.Base(root), "app", "src")})
-		s.initialize("from")
-		boundReady(t, "a relative --from", s.workspaceTool(1, "workspace_describe"), root)
+		listsTools(t, startShimIn(t, p.state, filepath.Dir(root), "from", []string{"mcp", "--no-autostart", "--from", filepath.Join(filepath.Base(root), "app", "src")}))
 	})
 	// A client variable it did not expand, or the empty value an IDE window with no
-	// folder expands to, names no folder: the cwd's project is bound, else no tools.
+	// folder expands to, names no folder: the cwd's project decides, else no tools.
 	for _, from := range []string{"${workspaceFolder}", ""} {
-		t.Run("--from "+strings.TrimSpace(from+" (ignored)")+" binds the cwd's project", func(t *testing.T) {
+		t.Run("--from "+strings.TrimSpace(from+" (ignored)")+" falls back on the cwd's project", func(t *testing.T) {
 			t.Parallel()
 			p := startInProcess(t)
-			root, sub := projectWith(t, "settings.gradle")
-			s := startShimIn(t, p.state, sub, "from", []string{"mcp", "--no-autostart", "--from", from})
-			s.initialize("from")
-			boundReady(t, "an ignored --from in a project", s.workspaceTool(1, "workspace_describe"), root)
+			_, sub := projectWith(t, "settings.gradle")
+			listsTools(t, startShimIn(t, p.state, sub, "from", []string{"mcp", "--no-autostart", "--from", from}))
 		})
 		t.Run("--from "+strings.TrimSpace(from+" (ignored)")+" outside a project gives a session with no tools", func(t *testing.T) {
 			t.Parallel()
@@ -220,55 +223,4 @@ func TestMCPFrom(t *testing.T) {
 			t.Errorf("the refusal left %v in the state directory; want nothing started", entries)
 		}
 	})
-}
-
-// worktreeRepo is a git repository with one commit holding a.txt and a Gradle settings
-// file (at the top, or only in dev/ for the ADR-0075 layout), under a fresh canonical
-// directory; it returns that directory and the main tree.
-func worktreeRepo(t *testing.T, settingsInDev bool) (base, main string) {
-	t.Helper()
-	base = platform.Current().Canonical(t.TempDir())
-	main = filepath.Join(base, "M")
-	settings := filepath.Join(main, "settings.gradle.kts")
-	if settingsInDev {
-		settings = filepath.Join(main, "dev", "settings.gradle.kts")
-	}
-	for _, f := range []string{settings, filepath.Join(main, "a.txt")} {
-		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	gitIn(t, main, "init", "-q", "-b", "main")
-	gitIn(t, main, "add", ".")
-	gitIn(t, main, "commit", "-q", "-m", "one")
-	return base, main
-}
-
-// addWT adds a linked worktree of main at path and returns it canonical.
-func addWT(t *testing.T, main, path string) string {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, main, "worktree", "add", "-q", "-b", filepath.Base(path), path)
-	return platform.Current().Canonical(path)
-}
-
-// TestMCPInALinkedWorktreeBindsTheWorktree holds that with no --root a session started
-// in a `git worktree add` worktree is bound to that worktree, whose mainRoot is the main
-// tree (ADR-0082 §6): the project of the cwd, not the main tree.
-func TestMCPInALinkedWorktreeBindsTheWorktree(t *testing.T) {
-	t.Parallel()
-	p := startInProcess(t)
-	base, main := worktreeRepo(t, false)
-	wt := addWT(t, main, filepath.Join(base, "wt"))
-	s := startShimIn(t, p.state, wt, "wt", []string{"mcp", "--no-autostart"})
-	s.initialize("worktree")
-	got := s.workspaceTool(1, "workspace_describe")
-	if got.isError || got.info.Root != wt || got.info.MainRoot != main {
-		t.Errorf("workspace_describe = %s; want root %s with mainRoot %s", got.raw, wt, main)
-	}
 }

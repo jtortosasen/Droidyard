@@ -125,12 +125,16 @@ func (w *wsClient) writeFrame(typ websocket.MessageType, s string) {
 	}
 }
 
-// send writes one request envelope.
-func (w *wsClient) send(id, name, workspace, params string, waitMs *int64) {
+// send writes one request envelope. project, when not empty, is the project a project
+// capability's call names, sent as its `project` parameter (ADR-0137 §3).
+func (w *wsClient) send(id, name, project, params string, waitMs *int64) {
 	w.t.Helper()
-	req := capability.RequestEnvelope{ID: id, Capability: name, Workspace: workspace, WaitMs: waitMs}
+	req := capability.RequestEnvelope{ID: id, Capability: name, WaitMs: waitMs}
 	if params != "" {
 		req.Params = json.RawMessage(params)
+	}
+	if project != "" {
+		req.Params = withProject(params, project)
 	}
 	raw, err := json.Marshal(req)
 	if err != nil {
@@ -368,7 +372,7 @@ func TestWSAuthDeadline(t *testing.T) {
 
 // TestWSSession: after the auth frame, a request envelope gets its response envelope
 // by id; a subscription's events arrive as frames naming it, in seq order, around a
-// real workspace.open's own response (the order between them is not asserted).
+// real fixture.touch's own response (the order between them is not asserted).
 func TestWSSession(t *testing.T) {
 	t.Parallel()
 	p := startWS(t)
@@ -382,11 +386,11 @@ func TestWSSession(t *testing.T) {
 	sub := w.subscribed("s1", lifecycleSubscribe)
 	root, _ := gradleProject(t)
 	wid, _ := platform.Current().WorkspaceID(root)
-	w.send("o1", "workspace.open", root, "{}", nil)
+	w.send("o1", "fixture.touch", root, "", nil)
 	var events []*event.Event
 	opened := false
 	for len(events) < 2 || !opened {
-		f := w.must("workspace.open's frames")
+		f := w.must("fixture.touch's frames")
 		switch {
 		case f.Event != nil:
 			if f.SubscriptionID != sub {
@@ -395,7 +399,7 @@ func TestWSSession(t *testing.T) {
 			events = append(events, f.Event)
 		case f.ID == "o1":
 			if f.Operation == nil || f.Operation.State != capability.StateCompleted {
-				t.Fatalf("workspace.open: %+v", f)
+				t.Fatalf("fixture.touch: %+v", f)
 			}
 			opened = true
 		default:
@@ -427,7 +431,7 @@ func TestWSResume(t *testing.T) {
 	a := wsConnect(t, p)
 	a.subscribed("s1", lifecycleSubscribe)
 	root, _ := gradleProject(t)
-	a.send("o1", "workspace.open", root, "{}", nil)
+	a.send("o1", "fixture.touch", root, "", nil)
 	var opening *event.Event
 	for seen := 0; seen < 3; {
 		f := a.must("the first connection's frames")
@@ -493,7 +497,7 @@ func TestWSResume(t *testing.T) {
 // TestWSSubscriptionIDFirst: a subscription's first frame follows a response that
 // carries its id, even when the subscribe's own response did not (its waitMs ran out
 // with the operation running). A hook inside the events.subscribe handler holds it
-// after the subscription exists; workspace.open publishes meanwhile; the hook is
+// after the subscription exists; fixture.touch publishes meanwhile; the hook is
 // released and nothing arrives for 500 ms although the subscribe has completed; then
 // operation.wait answers with the id and the held events follow that response, never
 // before it (plan m1d, D5).
@@ -521,9 +525,9 @@ func TestWSSubscriptionIDFirst(t *testing.T) {
 	<-created // the subscription exists
 
 	root, _ := gradleProject(t)
-	w.send("o1", "workspace.open", root, "{}", nil)
-	if f = w.must("workspace.open"); f.ID != "o1" || f.Event != nil {
-		t.Fatalf("with the subscription held, %+v arrived; want only workspace.open's response", f)
+	w.send("o1", "fixture.touch", root, "", nil)
+	if f = w.must("fixture.touch"); f.ID != "o1" || f.Event != nil {
+		t.Fatalf("with the subscription held, %+v arrived; want only fixture.touch's response", f)
 	}
 	release()
 	// The subscribe completes; its response had no id to give, so nothing is released.
@@ -661,7 +665,7 @@ func TestWSTwoSubscriptions(t *testing.T) {
 		t.Fatalf("two subscriptions share the id %s", a)
 	}
 	root, _ := gradleProject(t)
-	w.send("o1", "workspace.open", root, "{}", nil)
+	w.send("o1", "fixture.touch", root, "", nil)
 	got := map[string][]string{}
 	for opened := false; !opened || len(got[a]) < 2 || len(got[b]) < 2; {
 		f := w.must("the frames of two subscriptions")

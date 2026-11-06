@@ -2,7 +2,6 @@ package capability
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
@@ -19,8 +18,8 @@ func TestJoinedIsTheChatsMostRecentlySeenSession(t *testing.T) {
 	connectAt(s, "a2", "chat-a", "claude-code")
 	connectAt(s, "b1", "chat-b", "other")
 
-	if j, ok := s.Joined("chat-a"); !ok || j.ID != "a2" || j.Name != "claude-code" || j.Root != "/main" {
-		t.Errorf("Joined(chat-a) = %+v, %v; want a2, the later connection, with its name and root", j, ok)
+	if j, ok := s.Joined("chat-a"); !ok || j.ID != "a2" || j.Name != "claude-code" {
+		t.Errorf("Joined(chat-a) = %+v, %v; want a2, the later connection, with its name", j, ok)
 	}
 	clk.advance(time.Second)
 	s.Seen("a1")
@@ -42,17 +41,13 @@ func TestJoinedIsTheChatsMostRecentlySeenSession(t *testing.T) {
 	}
 }
 
-// TestJoinedCallIsAttributedAndMovesNothing holds ADR-0095 §2 in the core: a call whose
-// Origin is joined to a session records that session's ref (its id, its name), not the
-// connection's own, and a Binding capability still refuses a call whose connection is
-// not an MCP one, though the registry knows its Origin.ID. The mutations that prove it:
-// with the Joined field ignored by sessionRef the operation carries the connection's id;
-// with the client test removed from the Binding check, a registered Origin.ID of a CLI
-// call reached the handler.
-func TestJoinedCallIsAttributedAndMovesNothing(t *testing.T) {
-	ops, ran := bindingFixture(t)
-	reg := ops.reg
-	reg.MustRegister(Descriptor{
+// TestJoinedCallIsAttributed holds ADR-0095 §2 in the core: a call whose Origin is joined to
+// a session records that session's ref (its id, its name), not the connection's own. The
+// mutation that proves it: with the Joined field ignored by sessionRef the operation
+// carries the connection's id.
+func TestJoinedCallIsAttributed(t *testing.T) {
+	ops := NewOperations(NewRegistry())
+	ops.reg.MustRegister(Descriptor{
 		Name: "fixture.read", Kind: Query, Scope: Global, Idempotent: true,
 		Description: "Reads.", Params: struct{}{}, Result: struct{}{},
 		Handler: func(_ context.Context, call *Call) (any, error) { return struct{}{}, nil },
@@ -70,13 +65,5 @@ func TestJoinedCallIsAttributedAndMovesNothing(t *testing.T) {
 	ops.mu.Unlock()
 	if op == nil || op.session == nil || op.session.ID != "mcp-1" || op.session.Name != "claude-code" {
 		t.Fatalf("the joined call's operation carries the session %+v; want mcp-1, claude-code", op)
-	}
-
-	// A CLI connection whose Origin.ID is a registered session is still not that session.
-	_, err = ops.Invoke(context.Background(), Request{Capability: "fixture.enter", Client: ClientCLI,
-		Origin: Origin{ID: "mcp-1", Client: ClientCLI}})
-	var e *Error
-	if !errors.As(err, &e) || e.Code != ErrNotAllowedHere || ran.Load() != 0 {
-		t.Errorf("a CLI call naming a registered session: err %v, handler ran %d times; want REQUEST_NOT_ALLOWED_HERE and none", err, ran.Load())
 	}
 }

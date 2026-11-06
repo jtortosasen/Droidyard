@@ -142,10 +142,10 @@ func initCmd(args []string, out, errw io.Writer) int {
 		p, ok := projectOf(cwd)
 		if !ok {
 			cause := "no Gradle root"
-			if g := workspace.ResolveGradleRoot(cwd, false); g.Err != nil {
+			if g := workspace.ResolveGradleRoot(cwd); g.Err != nil {
 				cause = g.Err.Cause
 			}
-			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, and %s; choose one with \"gradleRoot\" in its .droidyard/project.json, or name the project with --root\n%s\n", cwd, cause, initUsage)
+			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, and %s; name the project with --root\n%s\n", cwd, cause, initUsage)
 			return 2
 		}
 		root = p
@@ -195,7 +195,7 @@ func initCmd(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "droidyard init: the ignore block:", ignoreErr)
 		return 1
 	}
-	if g := workspace.ResolveGradleRoot(root, true); g.Err == nil {
+	if g := workspace.ResolveGradleRoot(root); g.Err == nil {
 		fmt.Fprintf(out, "Gradle root: %s\n", g.Abs)
 	} else {
 		fmt.Fprintf(out, "Gradle root: none (%s). %s\n", g.Err.Cause, g.Err.NextStep)

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,7 +31,6 @@ type Spec struct {
 	Scope        capability.Scope
 	Statefulness capability.Statefulness
 	LongRunning  bool
-	Binding      bool
 	Audience     capability.Audience
 	Annotations  capability.ResolvedAnnotations
 	Description  string
@@ -87,13 +87,12 @@ type domain struct {
 }
 
 // hidden says whether a capability is left out of the listings (it still runs): the
-// MCP-only binding capabilities, the stateful ones that are not streams (a CLI
-// command is one connection, so there is nothing of its own to end), the hooks'
-// channel (the agent domain) and the live screen, whose video travels only over HTTP.
+// stateful ones that are not streams (a CLI command is one connection, so there is
+// nothing of its own to end), the hooks' channel (the agent domain) and the live screen,
+// whose video travels only over HTTP.
 func hidden(s Spec) bool {
 	d, _ := splitName(s.Name)
-	return s.Binding ||
-		s.Statefulness == capability.Stateful ||
+	return s.Statefulness == capability.Stateful ||
 		d == "agent" ||
 		s.Name == "device.watchScreen"
 }
@@ -472,6 +471,12 @@ func derive(s Spec) (*input, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", s.Name, err)
 	}
+	if s.Scope == capability.Workspace {
+		// `project` is the CLI's own --project, which defaults to the current directory, not
+		// a flag derived from the schema (ADR-0137 §5).
+		root.props = slices.DeleteFunc(root.props, func(p schemaProp) bool { return p.name == capability.ProjectParam })
+		root.required = slices.DeleteFunc(root.required, func(r string) bool { return r == capability.ProjectParam })
+	}
 	in.root = root
 	for _, p := range root.props {
 		key, n := p.name, p.node
@@ -511,7 +516,7 @@ func (in *input) add(f *flagDef) {
 func reserved(s Spec) []string {
 	names := []string{"json", "params", "no-autostart", "help"}
 	if s.Scope == capability.Workspace {
-		names = append(names, "workspace")
+		names = append(names, capability.ProjectParam)
 	}
 	if s.LongRunning {
 		names = append(names, "detach")
@@ -573,9 +578,9 @@ func ParseDerived(s Spec, args []string, getenv func(string) string) (Derived, e
 		given     = map[string]bool{}
 		helpSeen  bool
 	)
-	// A workspace parameter on a global capability is --workspace, a parameter; on a
-	// workspace-scoped one it is the envelope's.
-	envWorkspace := s.Scope == capability.Workspace
+	// A project parameter on a global capability is --project, a parameter; on a
+	// workspace-scoped one it is the project the call acts on.
+	takesProject := s.Scope == capability.Workspace
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "-h" {
@@ -655,16 +660,16 @@ func ParseDerived(s Spec, args []string, getenv func(string) string) (Derived, e
 			}
 			paramsRaw = json.RawMessage(v)
 			continue
-		case "workspace":
-			if envWorkspace {
+		case "project":
+			if takesProject {
 				v, err := value()
 				if err != nil {
 					return Derived{}, err
 				}
 				if v == "" {
-					return Derived{}, usagef("--workspace needs a workspace id or an absolute project root")
+					return Derived{}, usagef("--project needs the path of a project folder")
 				}
-				d.Call.Workspace = v
+				d.Call.Project = v
 				continue
 			}
 		}
@@ -1081,7 +1086,7 @@ func verbHelp(s Spec) (string, error) {
 	}
 	b.WriteString("\nEvery command takes: --json (the envelope), --params <json object> (the base for the flags above), --no-autostart (do not start a daemon), --help")
 	if s.Scope == capability.Workspace {
-		b.WriteString(", --workspace <id|root> (default: the current project)")
+		b.WriteString(", --project <path> (default: the current directory)")
 	}
 	if s.LongRunning {
 		b.WriteString(", --detach (print the operation id and leave it running)")

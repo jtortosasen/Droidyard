@@ -260,11 +260,12 @@ func TestMCPProgress(t *testing.T) {
 		f.next(t, 3)
 		before := p.bus.Position()
 		root := platform.Current().Canonical(t.TempDir())
-		if out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "workspace.open", Workspace: root, Client: capability.ClientCLI}); err != nil || out.State != capability.StateCompleted {
-			t.Fatalf("workspace.open: %+v, %v", out, err)
+		writeSettings(t, root)
+		if out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.touch", Params: withProject("", root), Client: capability.ClientCLI}); err != nil || out.State != capability.StateCompleted {
+			t.Fatalf("fixture.touch: %+v, %v", out, err)
 		}
 		if after := p.bus.Position(); after.Seq < before.Seq+2 {
-			t.Fatalf("workspace.open moved the bus from %d to %d; want its opening and ready after report 3", before.Seq, after.Seq)
+			t.Fatalf("a call that opens a project moved the bus from %d to %d; want its opening and ready after report 3", before.Seq, after.Seq)
 		}
 		released := time.Now()
 		f.next(t, 0)

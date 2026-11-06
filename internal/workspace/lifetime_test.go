@@ -122,7 +122,7 @@ func TestEnterOpensOnceUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			outs[i], errs[i] = l.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: spellings[i%len(spellings)]})
+			outs[i], errs[i] = l.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(spellings[i%len(spellings)])})
 		}()
 	}
 	close(start)
@@ -136,8 +136,8 @@ func TestEnterOpensOnceUnderConcurrency(t *testing.T) {
 	if n := l.opened.Load(); n != 1 {
 		t.Errorf("OnOpen ran %d times; want once", n)
 	}
-	if n := l.ran.Load(); n != calls || l.saw.Load() != id {
-		t.Errorf("%d admissions, the handler saw workspace %v; want %d on %s", n, l.saw.Load(), calls, id)
+	if n := l.ran.Load(); n != calls || l.sawWorkspace() != id {
+		t.Errorf("%d admissions, the handler saw workspace %v; want %d on %s", n, l.sawWorkspace(), calls, id)
 	}
 	l.ws.allMu.RLock()
 	entries := len(l.ws.all)
@@ -240,7 +240,7 @@ func TestReleaseNeverCancelsAnAdmittedCall(t *testing.T) {
 	l.gradleRootOf(t, id)
 
 	call := func() (capability.Outcome, error) {
-		return l.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root})
+		return l.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(root)})
 	}
 	// sweepIn runs one sweep, once, from inside hook.
 	sweepIn := func(hook *atomic.Pointer[func(string)]) {
@@ -330,6 +330,7 @@ func TestEnterDuringRelease(t *testing.T) {
 	l.open(t, root)
 	l.gradleRootOf(t, id)
 	l.events.take()
+	ranBefore := l.ran.Load() // the call that opened the root
 	l.clock.advance(IdleAfter + time.Minute)
 
 	held, resume := make(chan string), make(chan struct{})
@@ -347,7 +348,7 @@ func TestEnterDuringRelease(t *testing.T) {
 	l.ws.openHook.Store(&enter)
 	done := make(chan capability.Outcome, 1)
 	go func() {
-		out, _ := l.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root})
+		out, _ := l.ops.Invoke(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(root)})
 		done <- out
 	}()
 	recv(t, reached, "the call's Open")
@@ -356,15 +357,15 @@ func TestEnterDuringRelease(t *testing.T) {
 		t.Fatalf("the call completed while the release was held in closing: %+v", out)
 	case <-time.After(100 * time.Millisecond):
 	}
-	if l.ran.Load() != 0 {
-		t.Fatalf("the handler ran %d times during the release; want none", l.ran.Load())
+	if n := l.ran.Load() - ranBefore; n != 0 {
+		t.Fatalf("the handler ran %d times during the release; want none", n)
 	}
 
 	close(resume)
 	<-swept
 	out := recv(t, done, "the call")
-	if out.State != capability.StateCompleted || l.ran.Load() != 1 || l.ws.State(id) != Ready {
-		t.Fatalf("after the release: %+v, ran %d, state %s; want one admission on a reopened root", out, l.ran.Load(), l.ws.State(id))
+	if out.State != capability.StateCompleted || l.ran.Load()-ranBefore != 1 || l.ws.State(id) != Ready {
+		t.Fatalf("after the release: %+v, ran %d, state %s; want one admission on a reopened root", out, l.ran.Load()-ranBefore, l.ws.State(id))
 	}
 	var states []string
 	for _, e := range l.events.take() {
@@ -381,8 +382,8 @@ func TestEnterDuringRelease(t *testing.T) {
 }
 
 // TestRootRemovedWhileOpen: the project's folder is deleted while its workspace is open. A
-// call naming it, by path or by id, is refused at Start and opens and records nothing; the
-// sweep releases the old entry like any idle one (ADR-0137 §3).
+// call naming it is refused at Start and opens and records nothing; the sweep releases the
+// old entry like any idle one (ADR-0137 §3).
 func TestRootRemovedWhileOpen(t *testing.T) {
 	l := newLifeHarness(t)
 	root := lifeProject(t)
@@ -396,11 +397,9 @@ func TestRootRemovedWhileOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, target := range []string{root, id} {
-		opID, err := l.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: target})
-		if opID != "" || codeOf(err) != capability.ErrInvalidParams {
-			t.Errorf("a call naming the removed project as %s: %q, %v; want REQUEST_INVALID_PARAMS", target, opID, err)
-		}
+	opID, err := l.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(root)})
+	if opID != "" || codeOf(err) != capability.ErrInvalidParams {
+		t.Errorf("a call naming the removed project: %q, %v; want REQUEST_INVALID_PARAMS", opID, err)
 	}
 	if l.ran.Load() != 1 || l.ops.Running() != 0 || l.opened.Load() != 1 {
 		t.Errorf("handler ran %d times, %d operations running, %d opens; want the first call's only", l.ran.Load(), l.ops.Running(), l.opened.Load())
@@ -419,16 +418,14 @@ func TestRootRemovedWhileOpen(t *testing.T) {
 
 // TestFolderGoneBetweenResolveAndOpen: the project's folder disappears after ResolveProject
 // and before the open. The refusal is REQUEST_INVALID_PARAMS, as for a folder that was
-// never there, not the WORKSPACE_ROOT_INVALID of the open, which is no Start refusal; no
-// operation is recorded and nothing is registered. Seen failing without the mapping
-// (WORKSPACE_ROOT_INVALID).
+// never there; no operation is recorded and nothing is registered.
 func TestFolderGoneBetweenResolveAndOpen(t *testing.T) {
 	l := newLifeHarness(t)
 	root := lifeProject(t)
 	gone := func(r string) { os.RemoveAll(r) }
 	l.ws.resolvedHook.Store(&gone)
 
-	opID, err := l.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root})
+	opID, err := l.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Params: projectParams(root)})
 	if opID != "" || codeOf(err) != capability.ErrInvalidParams {
 		t.Fatalf("a call whose folder went before the open: %q, %v; want REQUEST_INVALID_PARAMS", opID, err)
 	}
@@ -473,7 +470,7 @@ func TestLastResultSurvivesRelease(t *testing.T) {
 	}
 	last := func(when string) string {
 		t.Helper()
-		out, err := l.ops.Invoke(context.Background(), capability.Request{Capability: "build.lastResult", Workspace: root})
+		out, err := l.ops.Invoke(context.Background(), capability.Request{Capability: "build.lastResult", Params: projectParams(root)})
 		if err != nil || out.State != capability.StateCompleted {
 			t.Fatalf("build.lastResult %s: %v %+v %+v", when, err, out, out.Error)
 		}
@@ -513,24 +510,4 @@ func TestRunIdleSweepsUntilItsContextEnds(t *testing.T) {
 	}
 	cancel()
 	recv(t, stopped, "RunIdle after its context ended")
-}
-
-// TestEnterByIdAfterARestart: an id the state root's index holds names its root for a call
-// to a daemon that never opened it (ADR-0137 §3: an id target resolves through the index),
-// and opens it; an id the index does not hold is refused at Start.
-func TestEnterByIdAfterARestart(t *testing.T) {
-	first := newHarness(t, 200*time.Millisecond)
-	root := gradleProject(t)
-	id := first.open(t, root).ID
-
-	again := newHarnessOn(t, mustStore(t, first.st.Root()), 200*time.Millisecond)
-	if s := again.ws.State(id); s != "" {
-		t.Fatalf("a new daemon knows %s as %q before any call", id, s)
-	}
-	if out := again.invoke(t, "fixture.scoped", id); out.State != capability.StateCompleted || again.ws.State(id) != Ready || again.saw.Load() != id {
-		t.Errorf("a call by id on a restarted daemon: %+v, state %s, saw %v; want completed on %s", out, again.ws.State(id), again.saw.Load(), id)
-	}
-	if _, err := again.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: "nothing-0123456789ab"}); codeOf(err) != capability.ErrInvalidParams {
-		t.Errorf("a call by an unknown id: %v; want REQUEST_INVALID_PARAMS", err)
-	}
 }

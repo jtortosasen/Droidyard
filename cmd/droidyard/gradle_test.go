@@ -89,10 +89,6 @@ func TestProjectModulesRequiresTrustThenSharesOneSidecar(t *testing.T) {
 
 	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, subA, "workspace.open"); code != 0 {
-		t.Fatalf("open exited %d: %+v", code, env.Error)
-	}
-
 	// Untrusted: the trust re-check refuses before anything is spawned (ADR-0015 §5).
 	env, code := callIn(t, state, subA, "project.modules")
 	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceUntrusted {
@@ -144,11 +140,8 @@ func TestProjectModulesRequiresTrustThenSharesOneSidecar(t *testing.T) {
 		t.Errorf("project.modules = %v; want the fake's : and :app", paths)
 	}
 
-	// The second root opens its workspace and calls project.modules; the one sidecar
+	// The second root calls project.modules, which opens its workspace; the one sidecar
 	// process serves both (ADR-0019). Its model is per root, but its process is not.
-	if env, code := callIn(t, state, rootB, "workspace.open"); code != 0 {
-		t.Fatalf("open B exited %d: %+v", code, env.Error)
-	}
 	if env, code := callIn(t, state, rootB, "project.modules"); code != 0 {
 		t.Fatalf("project.modules on the second root exited %d: %+v", code, env.Error)
 	}
@@ -184,9 +177,6 @@ func TestBelowFloorHatchIsReadFromTheDaemonConfiguration(t *testing.T) {
 		env := []string{"DROIDYARD_CONFIG_DIR=" + configDir, gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}
 		srv := droidyardEnv(t, state, "", env, "serve")
 		srv.expect(t, "listening")
-		if _, code := callIn(t, state, sub, "workspace.open"); code != 0 {
-			t.Fatalf("workspace.open exited %d", code)
-		}
 		res, code := callIn(t, state, sub, "project.modules")
 		if c := droidyardEnv(t, state, "", env, "stop").wait(t); c != 0 {
 			t.Errorf("stop exited %d", c)

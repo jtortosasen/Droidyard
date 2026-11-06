@@ -6,8 +6,7 @@ import (
 )
 
 // TestCLIOpensItsProject is ADR-0137 §3's end to end through a real daemon: `droidyard call
-// build.tasks` in a trusted project that no workspace.open ever named runs, on the first
-// call, and a second from a folder inside the project is the same workspace. The root is
+// build.tasks` in a trusted project that nothing ever opened runs, on the first call, and a second from a folder inside the project is the same workspace. The root is
 // opened by the call that names it. Seen failing on step 4's tree (WORKSPACE_NOT_OPEN).
 func TestCLIOpensItsProject(t *testing.T) {
 	t.Parallel()
@@ -48,12 +47,18 @@ func TestCLIOpensItsProject(t *testing.T) {
 	if n := starts(t, events); n != 1 {
 		t.Errorf("%d sidecar starts after the second call; want the one sidecar of the first", n)
 	}
-	// The workspace it opened is the project's, and is open.
-	env, code := callIn(t, state, top, "workspace.describe")
+	// The workspace it opened is the project's.
+	env, code := callIn(t, state, top, "fixture.touch")
 	if code != 0 || env.Error != nil {
-		t.Fatalf("describe exited %d: %+v", code, env.Error)
+		t.Fatalf("fixture.touch exited %d: %+v", code, env.Error)
 	}
-	if info := workspaceOf(t, env); info.Root != top || string(info.State) != "ready" {
-		t.Errorf("the workspace the call opened = %+v; want %s, ready", info, top)
+	if got := workspaceOf(t, env); got.Root != top {
+		t.Errorf("the workspace the call opened = %+v; want %s", got, top)
 	}
+
+	// Stopped here, so the fake sidecar's last event is written before its directory goes.
+	if code := droidyard(t, state, "stop").wait(t); code != 0 {
+		t.Errorf("stop exited %d", code)
+	}
+	srv.wait(t)
 }

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
@@ -12,7 +13,7 @@ import (
 // recovery from the crash must not clear another cause), and Recover clears only the
 // code it is given.
 func TestDegradeOnlyTouchesAReadyWorkspace(t *testing.T) {
-	h := newWatchHarness(t, nil)
+	h := newHarness(t, 200*time.Millisecond)
 	root := gradleProject(t)
 	crash := capability.Errorf(capability.ErrBuildSidecarCrashed, "the sidecar died")
 
@@ -25,9 +26,9 @@ func TestDegradeOnlyTouchesAReadyWorkspace(t *testing.T) {
 	h.ws.Degrade(root, crash)
 	other := capability.Errorf(ErrStateNewer, "a newer file")
 	h.ws.Degrade(root, other) // already degraded: keeps the first cause
-	info, err := h.ws.Describe(h.open(t, root).ID)
-	if err != nil || info.State != Degraded || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
-		t.Fatalf("after two reports the workspace is %+v (%v); want degraded by the first cause", info, err)
+	info := h.infoOf(t, root)
+	if info.State != Degraded || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
+		t.Fatalf("after two reports the workspace is %+v; want degraded by the first cause", info)
 	}
 
 	h.ws.Recover(ErrStateNewer) // another cause's recovery leaves it alone
@@ -35,7 +36,7 @@ func TestDegradeOnlyTouchesAReadyWorkspace(t *testing.T) {
 		t.Fatalf("Recover(WORKSPACE_STATE_NEWER) returned a crash-degraded workspace to %q", got)
 	}
 	h.ws.Recover(capability.ErrBuildSidecarCrashed)
-	if info, _ := h.ws.Describe(info.ID); info.State != Ready || info.DegradedBy != nil {
+	if info := h.infoOf(t, root); info.State != Ready || info.DegradedBy != nil {
 		t.Fatalf("after Recover the workspace is %+v; want ready with no degradedBy", info)
 	}
 

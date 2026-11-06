@@ -14,36 +14,29 @@ projection and the verdict on every MCP feature beyond tool calls.
   JSON-RPC over the daemon's socket
   ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)); one shim connection is
   one MCP session.
-- **A session is bound to one project root** at attach: `--root`, else the project of
-  `--from` or the cwd (the nearest ancestor holding `settings.gradle(.kts)`). With no
-  project the shim serves a session with no tools itself and starts nothing
-  ([ADR-0124](../adr/0124-init-once-per-user.md)). The adapter
-  fills the envelope's `workspace` from this binding, so no tool takes a workspace
-  argument. An agent that needs two projects configures two servers. Binding does not
-  grant trust ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
-- **`workspace_enter` moves the session within its project**
-  ([ADR-0082](../adr/0082-session-enters-a-worktree.md)): to its main tree or a linked git
-  worktree of it, made by the agent's own git. Only the calling session moves:
-  the descriptor's `binding` flag makes Start refuse the call from a connection that is not
-  an MCP session (`REQUEST_NOT_ALLOWED_HERE`), and another root is
-  `WORKSPACE_NOT_A_WORKTREE`.
-- **A resumed chat gets its worktree back**
-  ([ADR-0088](../adr/0088-chat-id-recovers-binding.md)). `droidyard mcp` sends
-  `CLAUDE_CODE_SESSION_ID` in the hello: Claude Code 2.1.302's chat id, unchanged by
-  `--resume`. The daemon remembers each chat's last binding in memory and binds that chat's
-  next session there first, under `workspace_enter`'s rule. The
-  variable is not documented for MCP servers and cursor-agent sets none: then a resumed
-  chat is bound to the main tree and enters again, as after a daemon restart.
-- **A session occupies the linked worktree it enters and the device it acts on**
+- **A session is the machine's, not a project's**
+  ([ADR-0137](../adr/0137-machine-level-android-tool.md) §2). `droidyard mcp` lists the same
+  tools wherever it starts and binds nothing: one client process may serve several chats,
+  and nothing in the protocol names the calling chat. A project tool (build, project, SDK
+  requirements, install from a build) **takes `project`**, the absolute path of the
+  project's folder or worktree the agent works in; the daemon resolves it to the project's
+  root (the nearest ancestor holding `settings.gradle(.kts)`, else the folder itself when its
+  one build lies one or two levels below) and opens that root on the first call that names
+  it. A device, emulator or SDK tool takes none. Naming a project does not grant trust
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5; a linked worktree of a trusted
+  project is trusted, [ADR-0081](../adr/0081-worktree-inherits-trust.md)), and trust is judged
+  on the resolved root, never on the path passed.
+- **A session occupies the device it acts on**
   ([ADR-0094](../adr/0094-occupation-by-a-session.md)): another chat is refused
-  `WORKSPACE_OCCUPIED` or `DEVICE_OCCUPIED` with the way out. Entering the main tree releases
-  both; so do the connection's end and the user's release.
+  `DEVICE_OCCUPIED` with the way out; the connection's end and the user's release free it.
+  `droidyard mcp` sends the chat id Claude Code names (`CLAUDE_CODE_SESSION_ID`,
+  [ADR-0088](../adr/0088-chat-id-recovers-binding.md) §1) in the hello, so a chat's sessions
+  reach each other's operations ([ADR-0101](../adr/0101-waits-reach-own-operations.md)).
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
-- The adapter opens the bound root when the session starts; if any client closes it
-  later, workspace tools return `WORKSPACE_NOT_OPEN` and the adapter does **not** reopen it
-  on its own ([ADR-0020](../adr/0020-operation-contract.md) §Scope and workspace
-  addressing).
+- The root a call names is opened by that call and released after 30 minutes with no call
+  and no running operation ([ADR-0137](../adr/0137-machine-level-android-tool.md) §3); the
+  next call that names it opens it again, so no tool opens or closes a workspace.
 
 ## Naming
 
@@ -61,8 +54,10 @@ Generated from the Go structs and constrained for what clients accept: `inputSch
 top-level `oneOf`, `anyOf` or `allOf`; a capability that would need one is split, per the
 "discriminated tools" convention. `TestSchemaObeysTheClientRules` in `internal/schema` checks the root; nested `$ref` is
 prevented by the generator's `DoNotReference` and pinned by the golden file. Whether *nested* unions are safe for the clients we target was left to spike S7,
-which has not run (a register row). `workspace` never appears: it is an envelope field the
-adapter fills. `outputSchema` is registered for every tool: the result schema for a tool
+which has not run (a register row). A project tool's `inputSchema` has one required
+`project` property, added by the schema generator from the descriptor's scope
+([ADR-0137](../adr/0137-machine-level-android-tool.md) §3), so it is the same words in every
+such tool. `outputSchema` is registered for every tool: the result schema for a tool
 not flagged long-running, and the **operation view** for a long-running tool and for
 `operation_wait`, as one object with no top-level union
 ([ADR-0020](../adr/0020-operation-contract.md) §Adapter projections).
@@ -73,8 +68,8 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
-| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md)). The core rejects them from an MCP session: enforcement, not just omission. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `policy.get`, `policy.update` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). The core rejects them from an MCP session: enforcement, not just omission. |
 | `device.scroll` | Audience `human` ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md), [ADR-0133](../adr/0133-agents-act-by-coordinates-keys-and-system-verbs.md) §2): a wheel needs a view; agents swipe. |
 | `device.deleteUiRecording` | Audience `human` ([ADR-0113](../adr/0113-ui-recording.md) §6): the UI and the CLI delete a recording. |
 | `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
@@ -133,9 +128,9 @@ drifted. They are approval hints, never enforcement
 - `destructiveHint`: the call may destroy data or work that it cannot restore itself (an
   uninstalled app, wiped or overwritten data, deleted build outputs, a running
   emulator's in-memory state, in-flight operations **including other sessions'**).
-  `workspace_close` and `operation_cancel` keep the command default for that last reason.
+  `operation_cancel` keeps the command default for that last reason.
 - `idempotentHint` is MCP's meaning: repeating the call with the same arguments has no
-  additional effect. It is not harmless: `workspace_close` is
+  additional effect. It is not harmless: `operation_cancel` is
   idempotent *and* destructive.
 - `openWorldHint`: the call reaches beyond the core's own state and the workspace's files
   (a device or emulator, the network, the project's build logic; Gradle configuration
@@ -156,10 +151,8 @@ characters: every session pays for it, and it must not duplicate the tool descri
 test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 
 ```text
-- This server is bound to one project; tools take no workspace argument.
-  workspace_describe lists its worktrees: a task that has one (its branch names it) is
-  done there, so workspace_enter it first. Else a task that changes code first gets one
-  (git worktree add) and enters it; a question stays put.
+- Tools that act on a project (build, project, sdk requirements, device install) take
+  project: the absolute path of the folder or worktree you work in; no other tool does.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not
@@ -296,10 +289,10 @@ doing for a client we care about that supports prompts but not skills.
 
 **Logging** complements `stderr`, which stays the transport-safe default. **Roots** are an
 optional input that can only narrow: a root the client does not declare may be refused, but
-a declared root is never trusted because of it, and it is never the session's binding
-source, which comes from `--root`, `--from` or the cwd so it is deterministic and visible in the
-server config ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5,
-[ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+a declared root is never trusted because of it, and it never names a call's project, which
+is the call's own argument so it is deterministic and visible in the transcript
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5,
+[ADR-0137](../adr/0137-machine-level-android-tool.md) §3).
 
 **Sampling is rejected.** It moves intelligence into the core's workflow and edges us toward
 being a harness, which [ADR-0004](../adr/0004-no-own-harness.md) rejects: the agent already

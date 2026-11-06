@@ -233,7 +233,7 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 			"the request is not a valid envelope").WithCause(err.Error())}, true
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
-	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: who.client, Session: session}
+	creq := capability.Request{Capability: req.Capability, Params: req.Params, Client: who.client, Session: session}
 	creq.Origin.Client = who.client
 	if session != nil {
 		// A WebSocket's calls name their session on operation.state (ADR-0048); a plain

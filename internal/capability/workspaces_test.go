@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,21 +13,31 @@ import (
 // scope workspace is admitted by Workspaces.Enter at Start, and the registry hears of each
 // operation's end, outside the store's lock.
 
-// enterWS is a Workspaces that names every target "ws-<target>" and refuses "refused".
+// enterWS is a Workspaces that names every project "ws-<project>" with the root
+// "/root/<project>" and the Gradle root "/gradle/<project>" (two projects spelled alike
+// below share the Gradle root "/gradle/shared"), and refuses "refused". It keeps the
+// project string Enter was given.
 type enterWS struct {
-	ops     *Operations
-	entered atomic.Int32
-	ended   chan string
+	ops      *Operations
+	entered  atomic.Int32
+	ended    chan string
+	mu       sync.Mutex
+	projects []string
 }
 
-func (w *enterWS) Admit(string, func(string)) bool { return false }
-
-func (w *enterWS) Enter(target string, record func(id string)) error {
+func (w *enterWS) Enter(project string, record func(Entered)) error {
 	w.entered.Add(1)
-	if target == "refused" {
+	w.mu.Lock()
+	w.projects = append(w.projects, project)
+	w.mu.Unlock()
+	if project == "refused" {
 		return NewError(ErrInvalidParams, "the project cannot be used").WithNextStep("pass an absolute path")
 	}
-	record("ws-" + target)
+	gradle := "/gradle/" + project
+	if project == "top" || project == "top/dev" {
+		gradle = "/gradle/shared"
+	}
+	record(Entered{ID: "ws-" + project, Root: "/root/" + project, GradleRoot: gradle})
 	return nil
 }
 
@@ -41,7 +52,7 @@ func (w *enterWS) Ended(id string) {
 type enterFixture struct {
 	ops     *Operations
 	ws      *enterWS
-	saw     atomic.Value // string: Call.Workspace of the last scoped.ok
+	saw     atomic.Value // Call: the id, root and Gradle root the last scoped.ok ran with
 	started chan string
 }
 
@@ -55,7 +66,7 @@ func newEnterFixture(t *testing.T) *enterFixture {
 			Params: none{}, Result: none{}, Handler: h, Resource: resource, LongRunning: resource != nil})
 	}
 	scoped("scoped.ok", func(ctx context.Context, call *Call) (any, error) {
-		f.saw.Store(call.Workspace)
+		f.saw.Store(*call)
 		return none{}, nil
 	}, nil)
 	scoped("scoped.fail", func(ctx context.Context, call *Call) (any, error) {
@@ -71,6 +82,12 @@ func newEnterFixture(t *testing.T) *enterFixture {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}, func(*Call) string { return "k" })
+	// The lock a build takes: the Gradle root the project resolved to (plan m3j step 6).
+	scoped("scoped.gradle", func(ctx context.Context, call *Call) (any, error) {
+		f.started <- call.Workspace
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, func(call *Call) string { return "gradle.root:" + call.GradleRoot })
 	reg.MustRegister(Descriptor{Name: "global.ok", Kind: Command, Scope: Global, Description: "A global fixture.",
 		Params: none{}, Result: none{}, Handler: func(context.Context, *Call) (any, error) { return none{}, nil }})
 	f.ops = NewOperations(reg)
@@ -98,20 +115,26 @@ func recvWithin[T any](t *testing.T, ch <-chan T, what string) T {
 }
 
 // TestStartEntersAScopedCallAndRecordsNothingWhenRefused: a call of scope workspace is
-// admitted by Enter, which names the id the handler runs with; one Enter refuses fails at
-// Start with Enter's own error, recorded as no operation and run by no handler; a global
-// call never asks Enter.
+// admitted by Enter, which is given the call's `project` and names the id, the root and the
+// Gradle root the handler runs with; `project` is taken off the parameters, so the
+// handler's own strict decoding never meets it; one Enter refuses fails at Start with
+// Enter's own error, recorded as no operation and run by no handler; a global call never
+// asks Enter.
 func TestStartEntersAScopedCallAndRecordsNothingWhenRefused(t *testing.T) {
 	f := newEnterFixture(t)
 
-	out, err := f.ops.Invoke(context.Background(), Request{Capability: "scoped.ok", Workspace: "a"})
-	if err != nil || out.State != StateCompleted || f.saw.Load() != "ws-a" {
-		t.Fatalf("a scoped call: %v %+v, the handler saw workspace %v; want completed on ws-a", err, out, f.saw.Load())
+	out, err := f.ops.Invoke(context.Background(), Request{Capability: "scoped.ok", Params: withProject(nil, "a")})
+	saw, _ := f.saw.Load().(Call)
+	if err != nil || out.State != StateCompleted || saw.Workspace != "ws-a" || saw.Root != "/root/a" || saw.GradleRoot != "/gradle/a" {
+		t.Fatalf("a scoped call: %v %+v, the handler saw %q, %q, %q; want completed on ws-a, /root/a, /gradle/a", err, out, saw.Workspace, saw.Root, saw.GradleRoot)
+	}
+	if f.ws.projects[0] != "a" {
+		t.Errorf("Enter was given %q; want the project as the caller sent it", f.ws.projects[0])
 	}
 	recvWithin(t, f.ws.ended, "the end of the scoped call")
 
 	before := f.ws.entered.Load()
-	id, err := f.ops.Start(context.Background(), Request{Capability: "scoped.ok", Workspace: "refused"})
+	id, err := f.ops.Start(context.Background(), Request{Capability: "scoped.ok", Params: withProject(nil, "refused")})
 	var e *Error
 	if !errors.As(err, &e) || e.Code != ErrInvalidParams || e.NextStep == "" || id != "" {
 		t.Fatalf("a refused call: %q, %v; want Enter's REQUEST_INVALID_PARAMS with its nextStep", id, err)
@@ -142,11 +165,11 @@ func TestEndedIsToldOncePerOperationOutsideTheStoreLock(t *testing.T) {
 		}
 	}
 
-	if out, _ := f.ops.Invoke(ctx, Request{Capability: "scoped.ok", Workspace: "c"}); out.State != StateCompleted {
+	if out, _ := f.ops.Invoke(ctx, Request{Capability: "scoped.ok", Params: withProject(nil, "c")}); out.State != StateCompleted {
 		t.Fatalf("completed: %+v", out)
 	}
 	expect("a completed operation", "ws-c")
-	if out, _ := f.ops.Invoke(ctx, Request{Capability: "scoped.fail", Workspace: "f"}); out.State != StateFailed {
+	if out, _ := f.ops.Invoke(ctx, Request{Capability: "scoped.fail", Params: withProject(nil, "f")}); out.State != StateFailed {
 		t.Fatalf("failed: %+v", out)
 	}
 	expect("a failed operation", "ws-f")
@@ -154,7 +177,7 @@ func TestEndedIsToldOncePerOperationOutsideTheStoreLock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	running, err := f.ops.Start(ctx, Request{Capability: "scoped.block", Workspace: "r"})
+	running, err := f.ops.Start(ctx, Request{Capability: "scoped.block", Params: withProject(nil, "r")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,9 +185,9 @@ func TestEndedIsToldOncePerOperationOutsideTheStoreLock(t *testing.T) {
 	f.ops.Cancel(running)
 	expect("a cancelled running operation", "ws-r")
 
-	holder, _ := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Workspace: "h"})
+	holder, _ := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Params: withProject(nil, "h")})
 	recvWithin(t, f.started, "the key's holder")
-	queued, err := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Workspace: "q"})
+	queued, err := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Params: withProject(nil, "q")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +212,10 @@ func TestActiveInCountsWhatIsNotTerminal(t *testing.T) {
 	if n := f.ops.ActiveIn("ws-x"); n != 0 {
 		t.Fatalf("ActiveIn of an untouched workspace = %d", n)
 	}
-	holder, _ := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Workspace: "x"})
+	holder, _ := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Params: withProject(nil, "x")})
 	recvWithin(t, f.started, "the key's holder")
-	queued, _ := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Workspace: "x"})
-	other, _ := f.ops.Start(ctx, Request{Capability: "scoped.block", Workspace: "y"})
+	queued, _ := f.ops.Start(ctx, Request{Capability: "scoped.keyed", Params: withProject(nil, "x")})
+	other, _ := f.ops.Start(ctx, Request{Capability: "scoped.block", Params: withProject(nil, "y")})
 	recvWithin(t, f.started, "the other workspace's operation")
 
 	if x, y := f.ops.ActiveIn("ws-x"), f.ops.ActiveIn("ws-y"); x != 2 || y != 1 {
@@ -208,5 +231,45 @@ func TestActiveInCountsWhatIsNotTerminal(t *testing.T) {
 	}
 	if x, y := f.ops.ActiveIn("ws-x"), f.ops.ActiveIn("ws-y"); x != 0 || y != 0 {
 		t.Errorf("ActiveIn after every operation ended = %d, %d; want 0, 0", x, y)
+	}
+}
+
+// TestTwoSpellingsOfOneProjectQueueOnItsGradleRoot is the core's half of ADR-0137 §3's lock
+// key: the key is built from the Gradle root Enter resolved (Call.GradleRoot), not from the
+// path the caller passed or the workspace's id. Two spellings of one project, its top and
+// its dev/, are two workspaces with one Gradle root, so the second call queues behind the
+// first, named in blockedBy, while a call on another root does not. Seen failing with the
+// key built from Call.Workspace: the second call ran at once.
+func TestTwoSpellingsOfOneProjectQueueOnItsGradleRoot(t *testing.T) {
+	f := newEnterFixture(t)
+	ctx := context.Background()
+	first, err := f.ops.Start(ctx, Request{Capability: "scoped.gradle", Params: withProject(nil, "top")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recvWithin(t, f.started, "the first build")
+	second, err := f.ops.Start(ctx, Request{Capability: "scoped.gradle", Params: withProject(nil, "top/dev")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := f.ops.Start(ctx, Request{Capability: "scoped.gradle", Params: withProject(nil, "elsewhere")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recvWithin(t, f.started, "a build of another Gradle root, which does not queue")
+
+	out, err := f.ops.Wait(ctx, second, time.Now())
+	if err != nil || out.State != StateQueued || out.BlockedBy == nil || out.BlockedBy.OperationID != first {
+		t.Fatalf("the second spelling: %+v, %v; want queued, blocked by %s", out, err, first)
+	}
+	if out, _ := f.ops.Wait(ctx, other, time.Now()); out.State != StateRunning {
+		t.Errorf("a build of another Gradle root is %s; want running", out.State)
+	}
+	f.ops.Cancel(first)
+	recvWithin(t, f.started, "the second spelling, once the first ended")
+	f.ops.Cancel(second)
+	f.ops.Cancel(other)
+	for _, id := range []string{first, second, other} {
+		f.ops.Wait(ctx, id, time.Now().Add(5*time.Second))
 	}
 }

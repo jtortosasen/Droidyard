@@ -31,7 +31,7 @@ func rootsOf(r *Registry, id string) []string {
 // resolved nothing is never degraded by a crash, and one that moved off a root is not
 // degraded by it (the growing-set case of a workspace that used both roots became this).
 func TestDegradeByGradleRoot(t *testing.T) {
-	h := newWatchHarness(t, nil)
+	h := newHarness(t, 200*time.Millisecond)
 	a, b, shared, closed, none := gradleProject(t), gradleProject(t), gradleProject(t), gradleProject(t), gradleProject(t)
 	crash := capability.Errorf(capability.ErrBuildSidecarCrashed, "the sidecar died")
 	const g1, g2 = "/gradle/one", "/gradle/two"
@@ -61,18 +61,17 @@ func TestDegradeByGradleRoot(t *testing.T) {
 			t.Errorf("after a crash of %s workspace %s is %q; want %q", g1, root, got, w)
 		}
 	}
-	info, err := h.ws.Describe(ids[a])
-	if err != nil || info.DegradedBy == nil || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
-		t.Errorf("the degraded workspace is %+v (%v); want degradedBy BUILD_SIDECAR_CRASHED", info, err)
+	if info := h.infoOf(t, a); info.DegradedBy == nil || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
+		t.Errorf("the degraded workspace is %+v; want degradedBy BUILD_SIDECAR_CRASHED", info)
 	}
 }
 
 // TestNoteRacingClose is the lifetime of the recorded root (ADR-0075 §8) under -race: an
-// operation that outlives a close's drain keeps recording roots while the workspace closes,
-// and none of what it notes in closing or closed survives to the next open; and an Open of
-// an open workspace, which every new tab and MCP session calls, leaves the set alone.
+// operation that outlives a release's drain keeps recording roots while the workspace
+// closes, and none of what it notes in closing or closed survives to the next open; and a
+// call on an open workspace, which every call of its project makes, leaves the set alone.
 func TestNoteRacingClose(t *testing.T) {
-	h := newWatchHarness(t, nil)
+	h := newHarness(t, 200*time.Millisecond)
 	root := gradleProject(t)
 	id := h.open(t, root).ID
 
@@ -115,32 +114,32 @@ func TestNoteRacingClose(t *testing.T) {
 		t.Fatalf("the reopened workspace holds %v from before; want none", got)
 	}
 
-	// An open of an open workspace is a no-op for the set.
+	// A call on an open workspace is a no-op for the set.
 	h.ws.UseGradleRoot(id, "/gradle/kept")
 	h.open(t, root)
 	if got := rootsOf(h.ws, id); !reflect.DeepEqual(got, []string{"/gradle/kept"}) {
-		t.Fatalf("a second open left the recorded roots %v; want [/gradle/kept]", got)
+		t.Fatalf("a second call left the recorded roots %v; want [/gradle/kept]", got)
 	}
 }
 
-// TestCloseReleasesTheRootsNoOtherWorkspaceUses is ADR-0075 §8 at the registry: a close
+// TestReleaseGivesUpTheRootsNoOtherWorkspaceUses is ADR-0075 §8 at the registry: a release
 // hands CloseRoot the workspace's Gradle root when no other open workspace has it, and
 // the call runs outside every lock, so a callback that takes the registry's locks (as a
-// crashing build's path does through Degrade, and a describe does) does not deadlock.
-// Two workspaces on one root, closing one after the other, release it once, at the
-// second. (With one current root per workspace, the old case of one workspace holding an
-// own root and a shared one became a third workspace on the own root.)
-func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
-	h := newWatchHarness(t, nil)
+// crashing build's path does through Degrade) does not deadlock. Two workspaces on one
+// root, released one after the other, give it up once, at the second. (With one current
+// root per workspace, the old case of one workspace holding an own root and a shared one
+// became a third workspace on the own root.)
+func TestReleaseGivesUpTheRootsNoOtherWorkspaceUses(t *testing.T) {
+	h := newHarness(t, 200*time.Millisecond)
 	a, b, c := gradleProject(t), gradleProject(t), gradleProject(t)
 	var mu sync.Mutex
 	var released []string
 	called := make(chan struct{}, 8)
 	h.ws.opts.CloseRoot = func(g string) {
-		// What a Gradle client's Close can be waiting behind: the admission lock (Describe,
-		// Admit) and the publication lock (Degrade).
+		// What a Gradle client's Close can be waiting behind: the admission lock (UseGradleRoot)
+		// and the publication lock (Degrade).
 		h.ws.Degrade(g, capability.Errorf(capability.ErrBuildSidecarCrashed, "x"))
-		_, _ = h.ws.Describe("none")
+		_, _ = h.ws.UseGradleRoot("none", "")
 		mu.Lock()
 		released = append(released, g)
 		mu.Unlock()
@@ -156,13 +155,13 @@ func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 	select {
 	case <-closed:
 	case <-time.After(10 * time.Second):
-		t.Fatal("close did not return: CloseRoot ran under a registry lock")
+		t.Fatal("the release did not return: CloseRoot ran under a registry lock")
 	}
 	mu.Lock()
 	got := append([]string(nil), released...)
 	mu.Unlock()
 	if want := []string{"/gradle/own"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("closing A released %v; want %v (the shared root belongs to B and C, still open)", got, want)
+		t.Errorf("releasing A gave up %v; want %v (the shared root belongs to B and C, still open)", got, want)
 	}
 
 	h.closeWS(t, b)
@@ -170,7 +169,7 @@ func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 	got = append([]string(nil), released...)
 	mu.Unlock()
 	if want := []string{"/gradle/own"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("after closing B the released roots are %v; want %v (C still has the shared root)", got, want)
+		t.Errorf("after releasing B the given-up roots are %v; want %v (C still has the shared root)", got, want)
 	}
 
 	h.closeWS(t, c)
@@ -178,17 +177,18 @@ func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 	got = append([]string(nil), released...)
 	mu.Unlock()
 	if want := []string{"/gradle/own", "/gradle/shared"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("after closing C the released roots are %v; want %v", got, want)
+		t.Errorf("after releasing C the given-up roots are %v; want %v", got, want)
 	}
 }
 
-// TestCloseKeepsARootResolvedDuringItsDrain: which roots a close releases is decided
-// after its drain, so a root another workspace resolves while the close drains keeps its
+// TestReleaseKeepsARootResolvedDuringItsDrain: which roots a release gives up is decided
+// after its drain, so a root another workspace resolves while the release drains keeps its
 // connection; and the closing workspace itself refuses to record a root, so a call that
-// passed its trust check just before the close is refused rather than leaving a
-// connection recorded nowhere (ADR-0075 §8). Seen failing with the release decided as the
-// close begins: closing A released [/gradle/shared].
-func TestCloseKeepsARootResolvedDuringItsDrain(t *testing.T) {
+// passed its trust check just before the release is refused rather than leaving a
+// connection recorded nowhere (ADR-0075 §8). The release is held between its decision and
+// closed, as the idle release holds w.tx there. Seen failing with the release decided as it
+// begins: releasing A gave up [/gradle/shared].
+func TestReleaseKeepsARootResolvedDuringItsDrain(t *testing.T) {
 	h := newHarness(t, 300*time.Millisecond)
 	var mu sync.Mutex
 	var released []string
@@ -202,8 +202,12 @@ func TestCloseKeepsARootResolvedDuringItsDrain(t *testing.T) {
 	if _, err := h.ws.UseGradleRoot(idA, "/gradle/shared"); err != nil {
 		t.Fatal(err)
 	}
-	h.start(t, "fixture.ignores", a)
-	done := h.run(CapClose, a)
+	held, resume := make(chan string), make(chan struct{})
+	hold := func(id string) { held <- id; <-resume }
+	h.ws.releaseHook.Store(&hold)
+	done := make(chan struct{})
+	go func() { defer close(done); h.closeWS(t, a) }()
+	recv(t, held, "the release at its hook")
 	waitState(t, h.ws, a, Closing)
 
 	if _, err := h.ws.UseGradleRoot(idA, "/gradle/late"); err == nil {
@@ -212,16 +216,12 @@ func TestCloseKeepsARootResolvedDuringItsDrain(t *testing.T) {
 	if _, err := h.ws.UseGradleRoot(idB, "/gradle/shared"); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the close did not end")
-	}
+	close(resume)
+	recv(t, done, "the release")
 	mu.Lock()
 	got := append([]string(nil), released...)
 	mu.Unlock()
 	if len(got) != 0 {
-		t.Errorf("closing A released %v; want none (B resolved the shared root during A's drain)", got)
+		t.Errorf("releasing A gave up %v; want none (B resolved the shared root during A's drain)", got)
 	}
-	close(h.release)
 }

@@ -1,10 +1,12 @@
 // Package workspace is the workspace model: which project roots are open, their
 // lifecycle, and their durable configuration (docs/architecture/workspace-state.md;
-// ADR-0020 §Scope and workspace addressing; ADR-0021 §Layout; ADR-0026; ADR-0027;
-// ADR-0137 §3).
+// ADR-0021 §Layout; ADR-0026; ADR-0027; ADR-0137 §3).
 //
-// A root is opened by the first call that names it (Registry.Enter, at Start) and released
-// by Registry.RunIdle once it has had no call and no running operation for IdleAfter.
+// A call names its project (the `project` parameter, ADR-0137 §3); Registry.Enter, at
+// Start, resolves it to a project root and a Gradle root (ResolveProject) and opens the
+// root if it is not open. The root is released by Registry.RunIdle once it has had no call
+// and no running operation for IdleAfter. Nothing here is a capability: the workspace is
+// the state the build, project and SDK capabilities run in.
 //
 // # Lock order
 //
@@ -54,7 +56,6 @@ import (
 
 // The workspace codes (ADR-0026).
 const (
-	ErrRootInvalid     capability.ErrorCode = "WORKSPACE_ROOT_INVALID"
 	ErrStateNewer      capability.ErrorCode = "WORKSPACE_STATE_NEWER"
 	ErrStateUnreadable                      = capability.ErrWorkspaceStateUnreadable
 )
@@ -83,80 +84,17 @@ const idleEvery = time.Minute
 // to the configuration file in Phase 1.
 const DefaultDrain = 10 * time.Second
 
-// Info is the workspace object that workspace.open and workspace.describe return
-// (plan m1c, R6; ADR-0026 §Consequences).
+// Info is an open workspace: its id, its project root and where its lifecycle stands (plan
+// m1c, R6; ADR-0026 §Consequences).
 type Info struct {
-	ID      string `json:"id" jsonschema:"required"`
-	Name    string `json:"name" jsonschema:"required"`
-	Root    string `json:"root" jsonschema:"required"`
-	State   State  `json:"state" jsonschema:"required,enum=ready,enum=degraded"`
-	Trusted bool   `json:"trusted" jsonschema:"required"`
-	// MainRoot is the main working tree of the repository when Root is one of its linked
-	// worktrees (ADR-0082 §6; platform.LinkedWorktree), absolute and canonical; absent for
-	// any other root. On the wire it is resolved at every open, describe and event;
-	// Registry.Describe returns the open's (its callers use only Root).
-	MainRoot string `json:"mainRoot,omitempty" jsonschema_description:"The project's main tree when root is a linked git worktree of it, absolute; absent otherwise. A worktree is a workspace of its project, trusted when that tree is."`
+	ID    string
+	Name  string
+	Root  string
+	State State
 	// CreatedAt is when the workspace was first opened, from workspace.json. Absent
 	// while that file is of a newer version and unread: the time is not known.
-	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
-	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
-	// Gradle is where the project's Gradle build is (ADR-0075 §5). Filled by the open and
-	// describe handlers, not by the registry: Registry.Describe, which every root lookup
-	// calls, resolves nothing.
-	Gradle GradleInfo `json:"gradle" jsonschema:"required"`
-}
-
-// Described is workspace.describe's result: the workspace object, and the project's
-// linked worktrees (ADR-0089). Only describe carries them, so open, enter and the
-// panel's streams, which share Info, advertise and read nothing more.
-type Described struct {
-	Info
-	// Worktrees is filled by the describe handler only (Registry.worktreesOf).
-	Worktrees []WorktreeInfo `json:"worktrees,omitempty" jsonschema_description:"The linked git worktrees of the project's repository, sorted by root, at most 50, the same whether root is the main tree or one of them. Each is read from the repository's own files and kept only while it names the repository back, so a removed or moved worktree is absent, as is one whose path holds a control or format character. Absent when the project has none, is not a git repository, or the repository has more than 100 worktree entries."`
-}
-
-// WorktreeInfo is one entry of Described.Worktrees.
-type WorktreeInfo struct {
-	Root   string `json:"root" jsonschema:"required" jsonschema_description:"The worktree's root, absolute and canonical; a path workspace.enter accepts."`
-	Branch string `json:"branch,omitempty" jsonschema_description:"The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."`
-	// OccupiedBy is who holds the worktree, when another chat does (ADR-0094 §1).
-	OccupiedBy *OccupiedBy `json:"occupiedBy,omitempty" jsonschema_description:"Another chat that holds this worktree: workspace_enter there from this session is refused unless the configured conflict is allow, and an idle holder (stale) is taken over on entry. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. The main tree is never held."`
-}
-
-// OccupiedBy is the holder of a worktree, as another session is told: no session id
-// (ADR-0048 §2).
-type OccupiedBy struct {
-	Name  string    `json:"name,omitempty" jsonschema_description:"What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."`
-	Since time.Time `json:"since" jsonschema:"required" jsonschema_description:"When the holder took the worktree."`
-	Stale bool      `json:"stale,omitempty" jsonschema_description:"True while the holder has made no request for the configured time: entering takes the worktree over. Absent otherwise."`
-}
-
-// GradleInfo is the Gradle root as workspace.open and workspace.describe report it
-// (ADR-0075 §5), resolved again at every call (ResolveGradleRoot).
-type GradleInfo struct {
-	// Root is the Gradle root relative to the project root, `/`-separated; "." is the
-	// project root itself. Absent when there is none.
-	Root string `json:"root,omitempty" jsonschema_description:"The Gradle root, relative to the project root (\".\" is the project root itself); absent when there is none."`
-	// Candidates are the folders that hold a settings.gradle(.kts), relative to the
-	// project root, sorted and at most 50: listed whether or not Root is set, so a choice
-	// can be changed. Empty when none.
-	Candidates []string `json:"candidates" jsonschema:"required" jsonschema_description:"The folders holding a settings.gradle(.kts), relative to the project root, sorted, at most 50; listed even when root is set."`
-	// Error is PROJECT_NO_GRADLE_ROOT, present exactly when Root is absent: it says
-	// whether there is none, several, or what is wrong with the project file's choice.
-	Error *capability.Error `json:"error,omitempty" jsonschema_description:"PROJECT_NO_GRADLE_ROOT, present exactly when root is absent."`
-}
-
-// withGradle returns info with its Gradle root resolved against the project root. The
-// open, describe and enter handlers call it; an info without a root (none is returned that way)
-// gets an empty candidate list, never null.
-func withGradle(info Info) Info {
-	if info.Root == "" {
-		info.Gradle = GradleInfo{Candidates: []string{}}
-		return info
-	}
-	g := ResolveGradleRoot(info.Root, true)
-	info.Gradle = GradleInfo{Root: g.Rel, Candidates: g.Candidates, Error: g.Err}
-	return info
+	CreatedAt  *time.Time
+	DegradedBy *capability.Error
 }
 
 // config is ws/<wsid>/workspace.json (plan m1c, R8).
@@ -173,11 +111,8 @@ type index struct {
 }
 
 type indexEntry struct {
-	Root string `json:"root"`
-	Name string `json:"name"`
-	// MainRoot is the main tree when Root was a linked worktree at its last open, written
-	// at every open (ADR-0082 §6): an additive key, so the index keeps its version.
-	MainRoot     string    `json:"mainRoot,omitempty"`
+	Root         string    `json:"root"`
+	Name         string    `json:"name"`
 	LastOpenedAt time.Time `json:"lastOpenedAt"`
 }
 
@@ -190,11 +125,8 @@ type Options struct {
 	// Store is the state under the state root. Open fails without one.
 	Store *store.Store
 	// Ops is the operation store whose workspace-scoped calls the registry admits,
-	// and whose operations a close cancels.
+	// and whose operations a release waits for.
 	Ops *capability.Operations
-	// Policy decides which project roots are trusted (internal/policy; ADR-0015 §5).
-	// Nil trusts nothing.
-	Policy Policy
 	// Env canonicalises roots; zero means platform.Current().
 	Env platform.Env
 	// Drain bounds a close's wait for its operations; zero means DefaultDrain.
@@ -219,19 +151,6 @@ type Options struct {
 	// Publisher receives every transition on workspace.lifecycle. Nil publishes
 	// nothing.
 	Publisher capability.Publisher
-	// States receives the same transitions on workspace.state, ring-less, for the
-	// workspace.watch subscriptions (ADR-0045 §3). Nil publishes nothing.
-	States capability.StatePublisher
-	// Dialog is the folder dialog workspace.chooseRoot raises; the zero value cannot
-	// run one (ADR-0045 §4).
-	Dialog Dialog
-}
-
-// Policy decides which project roots are trusted: trusted if equal to a configured
-// root or under a configured prefix (ADR-0015 §5; internal/policy). It is read at
-// every report, not once, so a `droidyard trust` takes effect without a restart.
-type Policy interface {
-	Trusted(root string) (bool, *capability.Error)
 }
 
 // LifecycleTopic is where workspace transitions are published (workspace-state.md
@@ -239,29 +158,13 @@ type Policy interface {
 // payload a Lifecycle (plan m1d, D4).
 const LifecycleTopic = "workspace.lifecycle"
 
-// Lifecycle is a workspace.lifecycle event's payload.
+// Lifecycle is a workspace.lifecycle event's payload. Root is the project root the event's
+// workspace id stands for, the one way a client maps the id to a project: an id is derived
+// from the root and opaque, and a call names its project by path (ADR-0137 §3).
 type Lifecycle struct {
 	State      State             `json:"state"`
+	Root       string            `json:"root"`
 	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
-}
-
-// StateTopic is where workspace.watch's events are published (ADR-0045 §3): every
-// transition of LifecycleTopic again, with the workspace's name, root and trust, so a
-// projects panel needs no read per event. It is the stream of a capability, not a subscribable
-// topic, and it keeps off the replay ring.
-const StateTopic = "workspace.state"
-
-// EventState is the type of a workspace.state event.
-const EventState = "state"
-
-// StateEvent is a workspace.state event's payload.
-type StateEvent struct {
-	State      State             `json:"state" jsonschema:"required,enum=opening,enum=ready,enum=degraded,enum=closing,enum=closed"`
-	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
-	Name       string            `json:"name" jsonschema:"required"`
-	Root       string            `json:"root" jsonschema:"required"`
-	Trusted    bool              `json:"trusted" jsonschema:"required" jsonschema_description:"Whether the root is trusted when the transition happened; a trust granted afterwards publishes no event."`
-	MainRoot   string            `json:"mainRoot,omitempty" jsonschema_description:"The project's main tree when root is a linked git worktree of it, absolute; absent otherwise."`
 }
 
 type workspace struct {
@@ -345,6 +248,19 @@ func New(opts Options) *Registry {
 	return r
 }
 
+// UseClock replaces the idle clock RunIdle judges by (and the stamps it compares). Test-only
+// seam, set before RunIdle starts: a re-executed daemon moves its clock to release a root
+// without waiting IdleAfter.
+func (r *Registry) UseClock(now func() time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.now = now
+}
+
+// UseIdleEvery replaces the interval of RunIdle's sweep. Test-only seam, set before RunIdle
+// starts.
+func (r *Registry) UseIdleEvery(d time.Duration) { r.idleEvery = d }
+
 // Drain is the bound a close waits for its operations.
 func (r *Registry) Drain() time.Duration { return r.opts.Drain }
 
@@ -355,24 +271,6 @@ func (r *Registry) resolve(target string) (id, root string) {
 		return r.opts.Env.WorkspaceID(target)
 	}
 	return target, ""
-}
-
-// Admit implements capability.Workspaces: the open check alone, for the session's stamp
-// (Operations.sessionRef). It opens nothing and does not touch the idle clock; a call is
-// admitted by Enter.
-func (r *Registry) Admit(target string, record func(id string)) bool {
-	id, _ := r.resolve(target)
-	w := r.lookup(id)
-	if w == nil {
-		return false
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !w.info.State.open() {
-		return false
-	}
-	record(id)
-	return true
 }
 
 func (r *Registry) lookup(id string) *workspace {
@@ -406,49 +304,45 @@ func (r *Registry) entry(id string) *workspace {
 	return w
 }
 
-// setState changes a workspace's state under the admission lock, and publishes it.
-// name and root are the workspace's, which w.info does not hold until its first load.
-func (r *Registry) setState(w *workspace, s State, name, root string) {
+// setState changes a workspace's state under the admission lock, and publishes it. root is
+// the workspace's, which w.info does not hold until its first load.
+func (r *Registry) setState(w *workspace, s State, root string) {
 	r.mu.Lock()
 	w.info.State = s
 	w.state.Store(s)
 	id := w.info.ID
 	r.mu.Unlock()
-	r.publish(id, s, nil, name, root)
+	r.publish(id, s, nil, root)
 }
 
-// publish puts a transition on workspace.lifecycle and on workspace.state. Open and
+// publish puts a transition on workspace.lifecycle. Open and
 // close transitions of one workspace are serialised by its tx, so they are published in
 // the order they happen. Degrade and Recover bypass tx: pubMu orders their publishes
 // among themselves and against any later publish (but not against Open's final one,
 // which a build cannot overlap, since a build needs the workspace open).
-func (r *Registry) publish(id string, s State, degradedBy *capability.Error, name, root string) {
+func (r *Registry) publish(id string, s State, degradedBy *capability.Error, root string) {
 	r.pubMu.Lock()
 	defer r.pubMu.Unlock()
-	r.publishLocked(id, s, degradedBy, name, root)
+	r.publishLocked(id, s, degradedBy, root)
 }
 
-func (r *Registry) publishLocked(id string, s State, degradedBy *capability.Error, name, root string) {
+func (r *Registry) publishLocked(id string, s State, degradedBy *capability.Error, root string) {
 	if r.opts.Publisher != nil {
-		r.opts.Publisher.Publish(LifecycleTopic, string(s), id, "", Lifecycle{State: s, DegradedBy: degradedBy})
-	}
-	if r.opts.States != nil {
-		r.opts.States.Broadcast(StateTopic, EventState, id, "",
-			StateEvent{State: s, DegradedBy: degradedBy, Name: name, Root: root, Trusted: r.trusted(root), MainRoot: r.mainRoot(root)})
+		r.opts.Publisher.Publish(LifecycleTopic, string(s), id, "", Lifecycle{State: s, Root: root, DegradedBy: degradedBy})
 	}
 }
 
-// UseGradleRoot records that a call of the workspace target names resolved the Gradle
-// root abs, canonical, or none ("") when the resolution gave no root, and makes it the
-// workspace's one current root (ADR-0092 §1, ADR-0075 §8): a sidecar crash on it
-// degrades the workspace (§3) and the workspace's close releases its connection. A root
-// the workspace forgets is neither. The root is dropped when the workspace closes and
-// when a closed one opens, never by an Open of an open one.
+// UseGradleRoot records that a call of the workspace id resolved the Gradle root abs,
+// canonical, or none ("") when the resolution gave no root, and makes it the workspace's
+// one current root (ADR-0092 §1, ADR-0075 §8): a sidecar crash on it degrades the workspace
+// (§3) and the workspace's release closes its connection. A root the workspace forgets is
+// neither. The root is dropped when the workspace is released and when a closed one opens,
+// never by an open of an open one.
 //
-// It refuses a workspace that is not ready or degraded with WORKSPACE_NOT_OPEN and
-// records nothing: an operation that outlives a close's drain cannot leave a root on a
-// workspace that is closing or closed, and the caller refuses the call, since a
-// connection it opened would be recorded nowhere and outlive the close.
+// It refuses a workspace that is not ready or degraded (notOpen) and records nothing: an
+// operation that outlives a release's drain cannot leave a root on a workspace that is
+// closing or closed, and the caller refuses the call, since a connection it opened would be
+// recorded nowhere and outlive the release.
 //
 // It returns, sorted, the forgotten roots that no other open workspace remembers: the
 // connections to close once no operation holds them (ADR-0092 §2). The caller closes
@@ -519,9 +413,9 @@ func (r *Registry) degradeOne(w *workspace, root string, cause *capability.Error
 	}
 	w.info.State, w.info.DegradedBy = Degraded, cause
 	w.state.Store(Degraded)
-	id, name, wroot := w.info.ID, w.info.Name, w.info.Root
+	id, wroot := w.info.ID, w.info.Root
 	r.mu.Unlock()
-	r.publishLocked(id, Degraded, cause, name, wroot)
+	r.publishLocked(id, Degraded, cause, wroot)
 }
 
 // Recover returns every workspace degraded by code to ready and publishes each
@@ -548,16 +442,9 @@ func (r *Registry) recoverOne(w *workspace, code capability.ErrorCode) {
 	}
 	w.info.State, w.info.DegradedBy = Ready, nil
 	w.state.Store(Ready)
-	id, name, root := w.info.ID, w.info.Name, w.info.Root
+	id, root := w.info.ID, w.info.Root
 	r.mu.Unlock()
-	r.publishLocked(id, Ready, nil, name, root)
-}
-
-func rootInvalid(target, cause string) *capability.Error {
-	return capability.Errorf(ErrRootInvalid, "%q cannot be opened as a workspace", target).
-		WithCause(cause).
-		WithNextStep("call `workspace.open` with the absolute path of a readable project directory").
-		WithDetails(map[string]any{"target": target})
+	r.publishLocked(id, Ready, nil, root)
 }
 
 // stateUnreadable is a failure to read or write droidyard's own state for the
@@ -570,42 +457,26 @@ func stateUnreadable(target string, err error) *capability.Error {
 		WithDetails(map[string]any{"target": target})
 }
 
-// Open opens the workspace target names, or returns its state if it is open
-// (workspace-state.md §Lifecycle). It runs no project code and spawns nothing
-// (ADR-0015 §5). A target that is not an existing, readable directory, or an id no
-// index holds, fails with WORKSPACE_ROOT_INVALID, and state that cannot be read or
-// written with WORKSPACE_STATE_UNREADABLE (ADR-0026). An open during a close
-// waits for the workspace to be closed, then opens it (ADR-0027).
-func (r *Registry) Open(target string) (Info, error) { return r.open(target, true) }
-
-// open is Open. explicit is whether the caller asked to open the workspace (workspace.open,
-// workspace.enter), as against a call that names a project and needs it open (Enter): for
-// an already open workspace an explicit open reads its trust and its main tree afresh and
-// writes the index again (workspace.watch lists the newest first), while Enter's reads and
-// writes nothing but the idle clock's stamp and returns the id.
-func (r *Registry) open(target string, explicit bool) (Info, error) {
+// open opens the workspace of the canonical project root root, or returns its state if it
+// is open (workspace-state.md §Lifecycle). It runs no project code and spawns nothing
+// (ADR-0015 §5). A root that is not an existing, readable directory fails with
+// REQUEST_INVALID_PARAMS, and state that cannot be read or written with
+// WORKSPACE_STATE_UNREADABLE (ADR-0026). An open during a release waits for the workspace
+// to be closed, then opens it (ADR-0027). An open of an open workspace changes nothing but
+// the idle clock's stamp.
+func (r *Registry) open(root string) (Info, error) {
 	if r.opts.Store == nil {
 		return Info{}, errors.New("the workspace registry has no state store")
 	}
-	id, root := r.resolve(target)
-	if root == "" {
-		known, ok, err := r.knownRoot(id)
-		if err != nil {
-			return Info{}, stateUnreadable(target, err)
-		}
-		if !ok {
-			return Info{}, rootInvalid(target, "no workspace index holds this id")
-		}
-		root = known
-	}
+	id, _ := r.resolve(root)
 
 	w := r.lookup(id)
 	if w == nil {
-		// Validated before it is registered, so a target that cannot be opened leaves
-		// no entry behind. A known workspace is validated below, under its tx: an open
-		// one is a no-op whatever its directory has become.
+		// Validated before it is registered, so a root that cannot be opened leaves no
+		// entry behind. A known workspace is validated below, under its tx: an open one is
+		// a no-op whatever its directory has become.
 		if err := readableDir(root); err != nil {
-			return Info{}, rootInvalid(target, err.Error())
+			return Info{}, invalidProject(root, err.Error())
 		}
 		w = r.entry(id)
 	}
@@ -622,32 +493,18 @@ func (r *Registry) open(target string, explicit bool) (Info, error) {
 		w.lastUsed = r.now()
 		info := w.info
 		r.mu.Unlock()
-		if !explicit {
-			return info, nil
-		}
-		// Trust is read afresh: `droidyard trust` after the open must show here
-		// (ADR-0015 §6), and reading the configuration does I/O we keep out of the
-		// admission lock.
-		info.Trusted = r.trusted(info.Root)
-		info.MainRoot = r.mainRoot(info.Root)
-		// Opening again is still opening it: the projects panel lists the newest first
-		// (ADR-0045 §3). A failed write does not fail an open that is otherwise a no-op.
-		if err := r.recordOpen(id, info.Root, info.Name, info.MainRoot); err != nil {
-			fmt.Fprintf(r.opts.Log, "droidyard: workspace %s: recording its reopen in %s: %v\n", id, indexFile, err)
-		}
 		return info, nil
 	}
 	r.mu.Unlock()
 
 	if err := readableDir(root); err != nil {
-		return Info{}, rootInvalid(target, err.Error())
+		return Info{}, invalidProject(root, err.Error())
 	}
-	name := filepath.Base(root)
-	r.setState(w, Opening, name, root)
+	r.setState(w, Opening, root)
 	info, err := r.load(id, root)
 	if err != nil {
-		r.setState(w, Closed, name, root)
-		return Info{}, stateUnreadable(target, err)
+		r.setState(w, Closed, root)
+		return Info{}, stateUnreadable(root, err)
 	}
 	r.mu.Lock()
 	w.info = info
@@ -657,7 +514,7 @@ func (r *Registry) open(target string, explicit bool) (Info, error) {
 	w.lastUsed = r.now()
 	w.state.Store(info.State)
 	r.mu.Unlock()
-	r.publish(id, info.State, info.DegradedBy, info.Name, info.Root)
+	r.publish(id, info.State, info.DegradedBy, info.Root)
 	return info, nil
 }
 
@@ -686,7 +543,7 @@ func readableDir(root string) error {
 // (ADR-0026).
 func (r *Registry) load(id, root string) (Info, error) {
 	name := filepath.Base(root)
-	info := Info{ID: id, Name: name, Root: root, State: Ready, Trusted: false, MainRoot: r.mainRoot(root)}
+	info := Info{ID: id, Name: name, Root: root, State: Ready}
 	var cfg config
 	out, err := r.opts.Store.Read(configFile(id), store.Version, &cfg)
 	switch {
@@ -707,7 +564,7 @@ func (r *Registry) load(id, root string) (Info, error) {
 		created := cfg.CreatedAt
 		info.CreatedAt = &created
 	}
-	if err := r.recordOpen(id, root, name, info.MainRoot); err != nil {
+	if err := r.recordOpen(id, root, name); err != nil {
 		return Info{}, err
 	}
 	if r.opts.OnOpen != nil {
@@ -716,54 +573,7 @@ func (r *Registry) load(id, root string) (Info, error) {
 		// for an already-open workspace asked for again.
 		r.opts.OnOpen(id, root)
 	}
-	info.Trusted = r.trusted(root)
 	return info, nil
-}
-
-// trusted reports whether root is trusted now. An unreadable configuration trusts
-// nothing: the error it carries is the [gradle] capabilities' to report, not
-// workspace's, whose open and describe gain no error code for it (plan m1g D3).
-func (r *Registry) trusted(root string) bool {
-	if r.opts.Policy == nil {
-		return false
-	}
-	ok, _ := r.opts.Policy.Trusted(root)
-	return ok
-}
-
-// mainRoot is the main tree of the repository when root is a linked worktree of it, else
-// "" (platform.LinkedWorktree; ADR-0082 §6). It reads a few small files and runs no git.
-func (r *Registry) mainRoot(root string) string {
-	if root == "" {
-		return ""
-	}
-	main, _ := platform.LinkedWorktree(r.opts.Env, root)
-	return main
-}
-
-// worktreesOf lists the linked worktrees of the project info describes (ADR-0089): of
-// its main tree when its root is a worktree, else of its root when that holds a `.git`
-// directory. It reads a few small files and runs no git; a project that is no
-// repository, or has no linked worktree, has none (nil).
-func (r *Registry) worktreesOf(info Info, asking string) []WorktreeInfo {
-	main := info.MainRoot
-	if main == "" {
-		main = info.Root
-	}
-	if main == "" {
-		return nil
-	}
-	var out []WorktreeInfo
-	for _, w := range platform.Worktrees(r.opts.Env, main) {
-		wi := WorktreeInfo{Root: w.Root, Branch: w.Branch}
-		if r.opts.Ops != nil {
-			if h, ok := r.opts.Ops.Sessions().HolderOf(w.Root, asking); ok {
-				wi.OccupiedBy = &OccupiedBy{Name: h.Name, Since: h.Since, Stale: h.Stale}
-			}
-		}
-		out = append(out, wi)
-	}
-	return out
 }
 
 // loadIndex reads workspaces.json once. One of a newer version is neither read nor
@@ -787,65 +597,42 @@ func (r *Registry) loadIndex() error {
 	return nil
 }
 
-// knownRoot is the root of the workspace id: one this daemon has opened, else one the
-// index holds.
-func (r *Registry) knownRoot(id string) (string, bool, error) {
-	if w := r.lookup(id); w != nil {
-		r.mu.Lock()
-		root := w.info.Root
-		r.mu.Unlock()
-		if root != "" {
-			return root, true, nil
-		}
-	}
-	r.indexMu.Lock()
-	defer r.indexMu.Unlock()
-	if err := r.loadIndex(); err != nil {
-		return "", false, err
-	}
-	e, ok := r.idx.Workspaces[id]
-	return e.Root, ok && e.Root != "", nil
-}
-
-func (r *Registry) recordOpen(id, root, name, mainRoot string) error {
+func (r *Registry) recordOpen(id, root, name string) error {
 	r.indexMu.Lock()
 	defer r.indexMu.Unlock()
 	if err := r.loadIndex(); err != nil {
 		return err
 	}
-	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, MainRoot: mainRoot, LastOpenedAt: r.now().UTC()}
+	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, LastOpenedAt: r.now().UTC()}
 	if r.indexNewer {
-		// Kept for this daemon's life only, so workspace.watch lists what it opened:
-		// a file of a newer version is neither read nor written.
+		// A file of a newer version is neither read nor written.
 		return nil
 	}
 	return r.opts.Store.Write(indexFile, r.idx)
 }
 
-// Describe is the state of an open workspace. Its MainRoot is the one resolved at the
-// open: Describe is called by every root lookup, so the workspace.describe handler
-// resolves it again and this does not. Its trusted flag is read from the
-// configuration each time, so a `droidyard trust` after the open shows without a
-// restart (ADR-0015 §6; plan m1g D3).
+// Describe is the state of an open workspace, by its id: a reading of the registry for what
+// observes it (a test, a diagnostic); no call reads it, since a call carries its root.
 func (r *Registry) Describe(id string) (Info, error) {
 	w := r.lookup(id)
 	if w == nil {
 		return Info{}, notOpen(id)
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if !w.info.State.open() {
-		r.mu.Unlock()
 		return Info{}, notOpen(id)
 	}
-	info := w.info
-	r.mu.Unlock()
-	info.Trusted = r.trusted(info.Root)
-	return info, nil
+	return w.info, nil
 }
 
+// notOpen is the refusal of a call whose workspace is not open when it needs it: a release
+// decided in the instant between the admission and the call's first use, which no call that
+// is admitted and running can meet (the release waits for it). The call may be sent again:
+// it opens the project once more.
 func notOpen(id string) *capability.Error {
-	return capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", id).
-		WithNextStep("call workspace.open on it, then retry")
+	return capability.Errorf(capability.ErrInvalidParams, "the workspace %q is not open", id).
+		WithNextStep("retry the call: a call opens its project when it starts")
 }
 
 // releasableRoots returns, sorted, the roots of mine (the Gradle roots workspace w gave
@@ -880,51 +667,32 @@ func (r *Registry) releasableRoots(w *workspace, mine map[string]struct{}) []str
 	return out
 }
 
-// Close closes the workspace target names for every session and returns once it is
-// closed (ADR-0027): it enters closing, during which a workspace-scoped call (Enter) or an
-// open waits for the close and then reopens the root (ADR-0137 §3); cancels the workspace's operations and waits for them up to the
-// drain bound, logging any still running, which end cancelled when their handlers
-// return; stops the workspace's sidecars; and marks it closed. It is not cancellable.
-// A close of a workspace that is not open, or a second close, completes as a no-op.
-func (r *Registry) Close(target string) error {
-	id, _ := r.resolve(target)
-	w := r.lookup(id)
-	if w == nil {
-		return nil
-	}
-	w.tx.Lock()
-	defer w.tx.Unlock()
-
-	r.mu.Lock()
-	if !w.info.State.open() {
-		r.mu.Unlock()
-		return nil
-	}
-	name, root, mine := r.enterClosingLocked(w)
-	r.mu.Unlock()
-	r.finishClose(w, name, root, mine)
-	return nil
-}
-
 // enterClosingLocked moves an open workspace to closing and takes the Gradle roots it
-// recorded. Called with w.tx and r.mu held.
-func (r *Registry) enterClosingLocked(w *workspace) (name, root string, gradleRoots map[string]struct{}) {
-	name, root = w.info.Name, w.info.Root
+// recorded. Called with w.tx and r.mu held. The workspace is released, in this order: it
+// enters closing, during which a workspace-scoped call (Enter) or an open waits for the
+// release and then reopens the root (ADR-0137 §3); the workspace's operations are
+// cancelled and awaited up to the drain bound (none are running when the idle release
+// decides, and an admitted one prevents it); its sidecars are stopped; and it is marked
+// closed. It is not cancellable (ADR-0027).
+func (r *Registry) enterClosingLocked(w *workspace) (root string, gradleRoots map[string]struct{}) {
+	root = w.info.Root
 	w.info.State = Closing
 	w.state.Store(Closing)
 	gradleRoots = w.gradleRoots
 	w.gradleRoots = nil
-	return name, root, gradleRoots
+	return root, gradleRoots
 }
 
-// finishClose is a close from the publication of closing on, for the workspace Close or
-// the idle release has just moved to closing (enterClosingLocked). Called with w.tx held
-// and r.mu not: the transition lock stays held from the decision to closed.
-func (r *Registry) finishClose(w *workspace, name, root string, mine map[string]struct{}) {
+// finishClose is a release from the publication of closing on, for the workspace the idle
+// release has just moved to closing (enterClosingLocked). Called with w.tx held and r.mu
+// not: the transition lock stays held from the decision to closed.
+func (r *Registry) finishClose(w *workspace, root string, mine map[string]struct{}) {
 	id := w.info.ID
-	r.publish(id, Closing, nil, name, root)
+	r.publish(id, Closing, nil, root)
 
 	if r.opts.Ops != nil {
+		// A defence: the idle release decides only with no operation of the workspace
+		// (ActiveIn == 0), and an admission waits on w.tx, so this finds none today.
 		ids := r.opts.Ops.CancelWorkspace(id)
 		// The store's clock is the wall clock; r.now is the idle clock a test may move.
 		deadline := time.Now().Add(r.opts.Drain)
@@ -951,5 +719,5 @@ func (r *Registry) finishClose(w *workspace, name, root string, mine map[string]
 	if r.opts.StopSidecars != nil {
 		r.opts.StopSidecars(id)
 	}
-	r.setState(w, Closed, name, root)
+	r.setState(w, Closed, root)
 }

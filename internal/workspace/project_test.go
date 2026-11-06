@@ -39,6 +39,7 @@ func TestResolveProject(t *testing.T) {
 	}
 	type want struct {
 		root       string // relative to the temp root, "." for itself; "" when refused
+		gradle     string // the Gradle root, relative to the temp root; the root itself when empty
 		code       capability.ErrorCode
 		candidates []string
 	}
@@ -52,8 +53,12 @@ func TestResolveProject(t *testing.T) {
 		{"a Kotlin settings file", []string{"settings.gradle.kts"}, "", want{root: "."}},
 		{"a folder inside the project", []string{"settings.gradle.kts", "app/src/main/"}, "app/src/main", want{root: "."}},
 		{"the nearest ancestor wins", []string{"settings.gradle", "included/settings.gradle", "included/x/"}, "included/x", want{root: "included"}},
-		{"one build below the folder", []string{"README.md", "dev/settings.gradle.kts"}, "", want{root: "."}},
-		{"one build two levels below", []string{"a/b/settings.gradle"}, "", want{root: "."}},
+		// The repository whose one build lies below its top: the root is the top, the Gradle root
+		// the build's folder. Two spellings of it, the top and dev/, are two roots and one Gradle
+		// root, which is what the build lock is keyed on (ADR-0137 §Consequences).
+		{"one build below the folder", []string{"README.md", "dev/settings.gradle.kts"}, "", want{root: ".", gradle: "dev"}},
+		{"the same build named from inside it", []string{"README.md", "dev/settings.gradle.kts"}, "dev", want{root: "dev", gradle: "dev"}},
+		{"one build two levels below", []string{"a/b/settings.gradle"}, "", want{root: ".", gradle: "a/b"}},
 		{"two builds below and none above", []string{"a/settings.gradle", "b/settings.gradle.kts"}, "", want{code: capability.ErrProjectNoGradleRoot, candidates: []string{"a", "b"}}},
 		{"no build at all", []string{"README.md"}, "", want{code: capability.ErrProjectNoGradleRoot, candidates: []string{}}},
 		{"a three-level build is not searched for", []string{"a/b/c/settings.gradle"}, "", want{code: capability.ErrProjectNoGradleRoot, candidates: []string{}}},
@@ -93,8 +98,12 @@ func TestResolveProject(t *testing.T) {
 				}
 				return
 			}
-			if want := filepath.Join(root, c.want.root); err != nil || got != want {
-				t.Fatalf("ResolveProject(%q) = %q, %v; want %q", arg, got, err, want)
+			gradle := c.want.gradle
+			if gradle == "" {
+				gradle = c.want.root
+			}
+			if want := (Resolved{Root: filepath.Join(root, c.want.root), Gradle: filepath.Join(root, gradle)}); err != nil || got != want {
+				t.Fatalf("ResolveProject(%q) = %+v, %v; want %+v", arg, got, err, want)
 			}
 		})
 	}
@@ -107,8 +116,8 @@ func TestResolveProject(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, arg := range []string{root, root + "/", filepath.Join(root, "app"), filepath.Join(root, "app", "..", "app"), link} {
-			if got, err := ResolveProject(env, arg); err != nil || got != root {
-				t.Errorf("ResolveProject(%q) = %q, %v; want %q", arg, got, err, root)
+			if got, err := ResolveProject(env, arg); err != nil || got != (Resolved{Root: root, Gradle: root}) {
+				t.Errorf("ResolveProject(%q) = %+v, %v; want %q", arg, got, err, root)
 			}
 		}
 	})
@@ -121,8 +130,8 @@ func TestResolveProject(t *testing.T) {
 			t.Fatalf("home with one build below it = %q, %v; want PROJECT_NO_GRADLE_ROOT: the folders below it are not searched", got, err)
 		}
 		touch(t, home, "settings.gradle")
-		if got, err := ResolveProject(env, home); err != nil || got != home {
-			t.Errorf("home with a settings file = %q, %v; want itself", got, err)
+		if got, err := ResolveProject(env, home); err != nil || got != (Resolved{Root: home, Gradle: home}) {
+			t.Errorf("home with a settings file = %+v, %v; want itself", got, err)
 		}
 	})
 }

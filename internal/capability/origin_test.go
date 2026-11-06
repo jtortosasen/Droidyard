@@ -27,11 +27,10 @@ func TestActiveOperationCarriesTheSession(t *testing.T) {
 		<-started
 		return id
 	}
-	named := start(Origin{ID: "s-a", Name: "agent-a", Root: "/projects/a"})
-	unbound := start(Origin{ID: "s-b", Name: "agent-b"})
+	named := start(Origin{ID: "s-a", Name: "agent-a"})
 	anon := start(Origin{})
 	t.Cleanup(func() {
-		for _, id := range []string{named, unbound, anon} {
+		for _, id := range []string{named, anon} {
 			ops.Cancel(id)
 		}
 	})
@@ -40,11 +39,8 @@ func TestActiveOperationCarriesTheSession(t *testing.T) {
 	for _, a := range ops.Active() {
 		rows[a.OperationID] = a
 	}
-	if s := rows[named].Session; s == nil || *s != (SessionRef{ID: "s-a", Name: "agent-a", Workspace: "ws-canon"}) {
-		t.Errorf("the bound session's row carries %+v; want {s-a agent-a ws-canon}", s)
-	}
-	if s := rows[unbound].Session; s == nil || *s != (SessionRef{ID: "s-b", Name: "agent-b"}) {
-		t.Errorf("the unbound session's row carries %+v; want {s-b agent-b} and no workspace", s)
+	if s := rows[named].Session; s == nil || *s != (SessionRef{ID: "s-a", Name: "agent-a"}) {
+		t.Errorf("the session's row carries %+v; want {s-a agent-a}: its id and its name, no binding", s)
 	}
 	if s := rows[anon].Session; s != nil {
 		t.Errorf("a call without an origin has the session %+v; want none", s)
@@ -57,7 +53,7 @@ func TestActiveOperationCarriesTheSession(t *testing.T) {
 func TestStateEventsCarryTheSession(t *testing.T) {
 	ops, rec, _ := stateStore(t)
 	ctx := context.Background()
-	with, err := ops.Start(ctx, Request{Capability: "trace.ok", Client: ClientCLI, Origin: Origin{ID: "s-1", Name: "cli", Root: "/r"}})
+	with, err := ops.Start(ctx, Request{Capability: "trace.ok", Client: ClientCLI, Origin: Origin{ID: "s-1", Name: "cli"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,8 +70,8 @@ func TestStateEventsCarryTheSession(t *testing.T) {
 		seen[e.operation]++
 		switch e.operation {
 		case with:
-			if p.Session == nil || *p.Session != (SessionRef{ID: "s-1", Name: "cli", Workspace: "ws-canon"}) {
-				t.Errorf("an event of the call with an origin carries %+v; want {s-1 cli ws-canon}", p.Session)
+			if p.Session == nil || *p.Session != (SessionRef{ID: "s-1", Name: "cli"}) {
+				t.Errorf("an event of the call with an origin carries %+v; want {s-1 cli}", p.Session)
 			}
 		case without:
 			if p.Session != nil {

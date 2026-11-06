@@ -242,9 +242,8 @@ func TestPeerReachesOnlyWhatIsLendable(t *testing.T) {
 }
 
 // TestRegisterRefusesLendableThatIsNotGlobal: a peer is another person's daemon, so a
-// Lendable capability that takes a workspace would let it name the host's, and one that
-// moves a session's binding has no peer session to move. Registration refuses both, and
-// RawTarget, which is the same door.
+// Lendable capability that takes a project would let it name the host's. Registration
+// refuses it.
 func TestRegisterRefusesLendableThatIsNotGlobal(t *testing.T) {
 	ok := func(context.Context, *Call) (any, error) { return traceResult{}, nil }
 	base := Descriptor{Name: "lend.x", Kind: Query, Scope: Global, Description: "x", Params: traceParams{}, Result: traceResult{}, Handler: ok, Lendable: true}
@@ -253,11 +252,7 @@ func TestRegisterRefusesLendableThatIsNotGlobal(t *testing.T) {
 	}
 	scoped := base
 	scoped.Scope = Workspace
-	bound := base
-	bound.Binding = true
-	raw := base
-	raw.RawTarget = true
-	for name, d := range map[string]Descriptor{"workspace-scoped": scoped, "binding": bound, "raw target": raw} {
+	for name, d := range map[string]Descriptor{"workspace-scoped": scoped} {
 		if err := NewRegistry().Register(d); err == nil || !strings.Contains(err.Error(), "Lendable") {
 			t.Errorf("a Lendable %s capability: %v; want a registration error naming Lendable", name, err)
 		}

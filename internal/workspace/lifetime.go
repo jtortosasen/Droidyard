@@ -2,9 +2,7 @@ package workspace
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -15,38 +13,33 @@ import (
 // The lock order in the package doc is what makes both safe at once.
 
 // Enter implements capability.Workspaces. It admits a call of scope workspace, whose
-// target is a project path (absolute: resolved by ResolveProject and canonicalised) or the
-// id of a workspace this state root has known (resolved through the index). The workspace
-// is opened if it is not open, by Open's path under w.tx, so an enter during a close or a
-// release waits for it (ADR-0027), and then the call is admitted under r.mu, as Admit does.
+// project is an absolute path: resolved by ResolveProject to its project root and Gradle
+// root, both canonical, and judged by the root from then on, never by the path passed. The
+// workspace is opened if it is not open, by open's path under w.tx, so an enter during a
+// release waits for it (ADR-0027), and then the call is admitted under r.mu.
 //
-// An admission that finds the workspace no longer open, because a release or a close
-// decided in between, opens it once more and admits. Once is enough: every Open stamps the
-// idle clock under r.mu, so a root the second Open returns was used an instant ago and no
-// release judges it idle before the admission. A workspace still not open after that
-// refuses the call (WORKSPACE_NOT_OPEN).
+// An admission that finds the workspace no longer open, because a release decided in
+// between, opens it once more and admits. Once is enough: every open stamps the idle clock
+// under r.mu, so a root the second open returns was used an instant ago and no release
+// judges it idle before the admission. A workspace still not open after that refuses the
+// call (notOpen).
 //
-// A target the call cannot start on is refused here and records no operation:
-// REQUEST_INVALID_PARAMS (not absolute and no known id, missing, not a directory, not
-// readable), PROJECT_NO_GRADLE_ROOT, WORKSPACE_STATE_UNREADABLE.
-func (r *Registry) Enter(target string, record func(id string)) error {
-	root, err := r.enterRoot(target)
-	if err != nil {
-		return err
+// A project the call cannot start on is refused here and records no operation:
+// REQUEST_INVALID_PARAMS (not absolute, missing, not a directory, not readable),
+// PROJECT_NO_GRADLE_ROOT, WORKSPACE_STATE_UNREADABLE.
+func (r *Registry) Enter(project string, record func(capability.Entered)) error {
+	res, perr := ResolveProject(r.opts.Env, project)
+	if perr != nil {
+		return perr
 	}
+	root := res.Root
 	if h := r.resolvedHook.Load(); h != nil {
 		(*h)(root)
 	}
 	var id string
 	for attempt := 0; attempt < 2; attempt++ {
-		info, err := r.open(root, false)
+		info, err := r.open(root)
 		if err != nil {
-			var e *capability.Error
-			if errors.As(err, &e) && e.Code == ErrRootInvalid {
-				// The folder went between the resolution and the open: the same refusal as
-				// a folder that was never there, not a code outside the Start refusals.
-				return invalidProject(root, e.Cause)
-			}
 			return capability.AsError(err)
 		}
 		id = info.ID
@@ -57,40 +50,13 @@ func (r *Registry) Enter(target string, record func(id string)) error {
 		r.mu.Lock()
 		if w != nil && w.info.State.open() {
 			w.lastUsed = r.now()
-			record(id)
+			record(capability.Entered{ID: id, Root: root, GradleRoot: res.Gradle})
 			r.mu.Unlock()
 			return nil
 		}
 		r.mu.Unlock()
 	}
 	return notOpen(id)
-}
-
-// enterRoot is the root Enter opens for target: the resolved project of a path, the
-// indexed root of an id. A root that is no longer a readable directory is refused whether
-// it was named by path or by id, so a deleted project opens nothing.
-func (r *Registry) enterRoot(target string) (string, error) {
-	if strings.HasPrefix(target, "/") {
-		root, err := ResolveProject(r.opts.Env, target)
-		if err != nil {
-			return "", err
-		}
-		return root, nil
-	}
-	if r.opts.Store == nil {
-		return "", capability.NewError(ErrStateUnreadable, "the workspace registry has no state store")
-	}
-	root, ok, err := r.knownRoot(target)
-	if err != nil {
-		return "", stateUnreadable(target, err)
-	}
-	if !ok {
-		return "", invalidProject(target, "is neither an absolute path nor the id of a project this daemon has known")
-	}
-	if err := readableDir(root); err != nil {
-		return "", invalidProject(root, err.Error())
-	}
-	return root, nil
 }
 
 // Ended implements capability.Workspaces: an operation of workspace id has reached its
@@ -159,13 +125,13 @@ func (r *Registry) releaseOne(w *workspace) {
 		return
 	}
 	id, idle := w.info.ID, r.now().Sub(w.lastUsed)
-	name, root, mine := r.enterClosingLocked(w)
+	root, mine := r.enterClosingLocked(w)
 	r.mu.Unlock()
 	if h := r.releaseHook.Load(); h != nil {
 		(*h)(id)
 	}
 	fmt.Fprintf(r.opts.Log, "droidyard: workspace %s: released after %s with no call\n", id, idle.Round(time.Second))
-	r.finishClose(w, name, root, mine)
+	r.finishClose(w, root, mine)
 }
 
 // The registry is the operation store's workspaces.
