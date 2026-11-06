@@ -22,15 +22,14 @@ the core ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 ## Session
 
 One adapter connection: one shim, one `droidyard call` invocation, or one WebSocket. It
-owns subscriptions and watches. An MCP session is bound to one root at a time, which
-`workspace.enter` moves within its project ([ADR-0082](../adr/0082-session-enters-a-worktree.md)).
+owns subscriptions and watches. An MCP session is the machine's, bound to no project: a
+project call names its folder with `project` ([ADR-0137](../adr/0137-machine-level-android-tool.md)).
 It does not own operations.
 
 ## Occupation
 
-A live MCP session holding a linked worktree or a device, so that another chat does not write
-in it or act on it ([ADR-0094](../adr/0094-occupation-by-a-session.md)). The main tree is never
-occupied.
+A live MCP session holding a device, so that another chat does not act on it
+([ADR-0094](../adr/0094-occupation-by-a-session.md)). A worktree's occupation left in 3j.
 
 ## Host, peer, lease
 
@@ -43,7 +42,7 @@ link holds a lent device through any call, one peer at a time: the **lease**
 
 The record of one invocation: id, state (`queued | running | completed | failed |
 cancelled`), result. Every call is one. Callers wait on it for a bounded time; an agent or
-a peer waits on and cancels only its own, the UI and the CLI any
+a peer waits on and cancels only its own, the CLI and a UI any
 ([ADR-0101](../adr/0101-waits-reach-own-operations.md)).
 
 ## Artifact
@@ -82,7 +81,7 @@ Separate from tools.
 ## Hook
 
 An extension point in an **agent harness**'s lifecycle (e.g. `preToolUse`,
-`sessionStart`). It belongs to the harness, not to Droidyard.
+`sessionStart`). It belongs to the harness, not to Droidyard, which installs none since 3j.
 
 ## Plugin
 

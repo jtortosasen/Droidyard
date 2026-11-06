@@ -16,7 +16,7 @@ the core is the `droidyard serve` daemon, started, found and kept single by
 | **Shared daemon** | `adb` server | global (core) | long-lived, shared across workspaces; not ours to kill |
 | **Shared sidecar** | **Gradle TAPI sidecar** (JVM) | global (core) | one per core, serving every open root; idles out when no root is active |
 | **Workspace sidecar** | Kotlin LSP (JVM, post-MVP) | workspace | long-lived while the workspace is open |
-| **Per-operation** | `adb` client commands, `lsof` (the SDK in-use check), `avdmanager` (kind `sdk-tool`, recorded), `git` (a `git.watch`'s per tick, its group killed at the watch's stop), `sqlite3`, the live view's screen server (kind `device-stream`); a `shell.exec` command (kind `shell-command`); the folder dialog (kind `folder-dialog`); a UI write git (kind `git-write`, [ADR-0071](../adr/0071-git-writes-for-the-ui.md)), recorded | operation | short, per operation; a `shell.exec` command's, a write git's or an `avdmanager` run's whole process group is killed when its call ends |
+| **Per-operation** | `adb` client commands, `lsof` (the SDK in-use check), `avdmanager` (kind `sdk-tool`, recorded), the live view's screen server (kind `device-stream`) | operation | short, per operation; an `avdmanager` run's whole process group is killed when its call ends |
 | **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core once its serial is resolved; a launch the core started is ended if its boot fails before then ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)), and is pid-recorded until then (kind `emulator-launch`, ADR-0021) |
 | **Tool-owned daemon** | Gradle daemon, Kotlin compile daemon | Gradle | spawned and detached by Gradle; never a child of ours |
 
@@ -25,7 +25,7 @@ The last two rows are **not** children of the core: we do not own their process 
 **One TAPI sidecar for all roots.** The sidecar protocol passes `root` on every call, and
 each extra JVM costs hundreds of megabytes: per-root isolation comes from the
 core serialising TAPI work per root ([overview](overview.md) §Concurrency), not from
-separate processes. A workspace's close, or its switch to another Gradle root, closes the
+separate processes. A workspace's release (idle, [workspace-state](workspace-state.md)), or its switch to another Gradle root, closes the
 connection (`connection.close`) of each root no other open workspace uses, not the sidecar
 ([ADR-0092](../adr/0092-switched-gradle-root-closes.md)). The cost: a sidecar crash fails
 in-flight operations on every root. Reversible without a protocol change: one sidecar per
@@ -48,8 +48,7 @@ from `starting` and `ready`. Transitions are published on the `process.lifecycle
 
 ## Startup
 
-**Lazy by default**: sidecars start on first use, not at core start, except where a workspace open
-genuinely requires them. **Readiness is per process**, never a fixed sleep: `adb start-server`
+**Lazy by default**: sidecars start on first use, not at core start, and a workspace's open starts none. **Readiness is per process**, never a fixed sleep: `adb start-server`
 completes; the Kotlin LSP's JSON-RPC `initialize`; the Gradle sidecar's `hello`; an emulator's
 `sys.boot_completed`. A failure during startup puts the workspaces that need the process in
 `degraded`, not `failed`; other workspaces and global capabilities are unaffected.
@@ -82,15 +81,8 @@ LSP later) stop after a configurable idle period and restart on demand.
      which is deliberately unsupervised and must outlive the daemon once its serial is
      resolved ([emulator](../subsystems/emulator.md) §Design rule; a launch still without
      a serial is ended on the daemon's graceful shutdown, ADR-0033, and a killed daemon's
-     successor ends it at reconcile when adb proves it is not a device), **and a
-     `shell.exec` command** (kind `shell-command`, milestone 1k D5) **and a UI write git**
-     (kind `git-write`, plan m2n P2; its own session, no terminal): its leader must
-     survive a killed daemon so the next one's reconcile finds its pid record and kills
-     its whole group (a fetch's `ssh` or `uploadpack` too); while the daemon lives, the
-     group is killed at every end of the call (exit, timeout, cancel, workspace close,
-     shutdown), a write git's by SIGTERM, then SIGKILL after 2 s: git removes its lock
-     files only on a signal it can catch. A process that detaches into its
-     own group or session escapes both, by design. Go delivers `Pdeathsig` when the
+     successor ends it at reconcile when adb proves it is not a device). A process that
+     detaches into its own group or session escapes both, by design. Go delivers `Pdeathsig` when the
      *thread* that forked the child exits, so children are spawned from one goroutine
      locked to its OS thread for the daemon's lifetime.
   3. **Pid records** ([ADR-0021](../adr/0021-persistence-format-and-location.md)): the

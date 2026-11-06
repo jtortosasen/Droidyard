@@ -1,7 +1,7 @@
 # Capability API
 
-The **internal contract of the core**. Every consumer (the web UI, MCP agents and the
-CLI) is a thin adapter over it ([ADR-0003](../adr/0003-unified-capability-api.md)).
+The **internal contract of the core**. Every consumer (MCP agents, the CLI and any UI over
+HTTP and WebSocket) is a thin adapter over it ([ADR-0003](../adr/0003-unified-capability-api.md)).
 This document holds what code cannot say: why, and the rules that hold across
 capabilities. The contract itself (names, parameters, results, error codes and their
 meanings, versions) is `schema/capabilities.json`, the descriptors in
@@ -12,7 +12,7 @@ wire mappings are in `interfaces/`. The invocation contract is fixed by
 ## Purpose
 
 One typed, semantic surface for every operation the core can perform: a capability is
-implemented once, the UI and agents see identical semantics, results are **structured**
+implemented once, every consumer sees identical semantics, results are **structured**
 rather than stdout to re-parse, and adapters stay protocol-only.
 
 ## Naming and namespaces
@@ -26,8 +26,7 @@ are fixed by the capability registry, not invented ad hoc by adapters.
 Capabilities are **defined in Go**, as a descriptor plus params and result structs, and
 the JSON Schema is **generated** from them and committed as a golden file
 ([ADR-0016](../adr/0016-capability-schema-in-go.md)). The golden file feeds the MCP tool
-definitions at runtime and the TypeScript client types in Phase 2
-([ADR-0008](../adr/0008-frontend-react.md)).
+definitions at runtime and is what a UI's client types are generated from.
 
 ## Invocation model
 
@@ -37,8 +36,8 @@ to "run in the background". Every invocation is an operation, queries included.
 
 ### Request envelope
 
-- `workspace` is **required iff the capability is workspace-scoped**, and rejected
-  otherwise. It is a workspace id or an absolute project root (canonicalised to the id).
+- There is **no workspace field**: a project capability takes `project` as a parameter
+  ([Scope](#scope-global-vs-workspace)).
 - `waitMs` is how long to wait before returning a still-running operation. Omitted: wait
   to completion.
 - The fields are `capability.RequestEnvelope`.
@@ -50,12 +49,10 @@ to "run in the background". Every invocation is an operation, queries included.
 - `result` is present iff `completed`; `error` iff `failed` or `cancelled` (the latter
   with `OPERATION_CANCELLED`). Never both.
 - A request rejected before it starts (unknown capability, bad params, missing
-  `workspace`, a workspace not open, a policy denial that needs no I/O) has an `error` and
-  **no** `operation`.
+  `project`, a project no Gradle root answers to, a policy denial that needs no I/O) has an
+  `error` and **no** `operation`.
 - **A failed build is `completed`**, with `outcome: "failed"` in its result. `failed` is
-  reserved for calls that could not be performed. A file batch whose items failed is
-  `completed` the same way, each item carrying its code
-  ([ADR-0053](../adr/0053-file-operations.md) §2).
+  reserved for calls that could not be performed.
 - The fields are `capability.ResponseEnvelope`.
 
 ### Error model
@@ -111,17 +108,19 @@ An `idempotencyKey` deduping repeats is designed (ADR-0020 §Idempotency keys) b
 A capability is **workspace-scoped** when it reads or writes workspace state; otherwise
 it is **global**. Devices, emulators, the SDK installation and the core itself are
 global ([workspace-state](workspace-state.md) §Devices are not workspace-owned).
-`device.install` is the deliberate exception within `device.*`: it resolves build
-outputs, which belong to a workspace. The device is still named explicitly.
+`device.install` takes `apk` (global) or `project` with `build` (it resolves a build's
+output, which belongs to a workspace); the device is still named explicitly.
 
-Adapters supply `workspace`: the UI from its own selection, the CLI from `--workspace`
-or the cwd, and MCP from the session's binding, so agents never pass it
-([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). The target must be
-**open**: the core never opens a workspace implicitly, and any other workspace-scoped
-call on a root that is not open gets `WORKSPACE_NOT_OPEN`. The MCP adapter opens its bound
-root once, when the session starts, and does not reopen it after a `workspace.close` by
-any client ([ADR-0020](../adr/0020-operation-contract.md) §Scope and workspace
-addressing).
+**A workspace-scoped capability takes `project`**, an absolute path inside the project,
+as a parameter, not an envelope field ([ADR-0137](../adr/0137-machine-level-android-tool.md)
+§3). Why a parameter: an MCP tool has no envelope, and an adapter that spliced every schema
+would be three copies of one rule. `internal/schema` adds the property to every
+workspace-scoped input schema from the descriptor's scope, and the core takes it off before
+strict decoding, so no handler's params struct holds it and no descriptor can omit it. The
+CLI defaults it to the cwd (`--project`); MCP has no default, since one process may serve
+several chats. The core resolves it at Start to the project's root
+([workspace-state](workspace-state.md)) and opens that root if it is not open: no session
+binds one, and nothing asks for an open first.
 
 ## Events and subscriptions
 
@@ -138,8 +137,7 @@ The fields are `event.Event`.
   ordering and resuming, **not** for loss detection.
 - **Loss is explicit.** The core never drops silently: when a subscriber's buffer
   overflows, the dropped events are replaced by one `events.gap {fromSeq, toSeq}` marker,
-  and the subscriber resyncs through queries (`workspace.describe`, `operation.wait`,
-  `device.list`). `events.gap` is not subscribable: every subscription that lost events
+  and the subscriber resyncs through queries (`operation.wait`, `device.list`). `events.gap` is not subscribable: every subscription that lost events
   receives it.
 - `topic` groups events; `type` discriminates within a topic. The topics are a closed
   list, only a topic that has landed can be subscribed to (`subscribable` in
@@ -150,8 +148,8 @@ The fields are `event.Event`.
 
 `events.subscribe` is a command: each call creates a subscription, so it is neither
 read-only nor idempotent (a query that writes is a `Kind` bug,
-[mcp](../interfaces/mcp.md) §Annotations). `file.watch` creates a subscription the same
-way, so it is a command too. Subscriptions belong to the session (a WebSocket or a CLI
+[mcp](../interfaces/mcp.md) §Annotations); so is every `watch*` that creates one.
+Subscriptions belong to the session (a WebSocket or a CLI
 connection): consumers unsubscribe explicitly, and the core also cleans up on disconnect. `events.unsubscribe` of an
 unknown, ended or other session's id is a no-op returning `{}`, so no session can probe
 another's ids.
@@ -160,22 +158,19 @@ another's ids.
   (count and byte caps in `internal/event/event.go`), then continues live. If `since` is
   older than the buffer, or from another epoch, delivery starts with an `events.gap`
   marker. Events are never persisted.
-- `file.changes`, `git.changes`, `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md)),
+- `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md)),
   `device.screen` ([ADR-0078](../adr/0078-screen-watch-and-endpoint.md)) and `device.uiEvents`
   ([ADR-0112](../adr/0112-ui-events-stream-and-panel.md)) are the exceptions:
   each takes a `seq` but never enters the ring, which a busy stream would flush for other
-  subscribers. It is offered only to the subscription that `file.watch`, `git.watch`,
-  `device.watchLogs`, `device.watchScreen` or `device.watchUiEvents` created, is not subscribable and accepts no `since`:
+  subscribers. It is offered only to the subscription that `device.watchLogs`,
+  `device.watchScreen` or `device.watchUiEvents` created, is not subscribable and accepts no `since`:
   after a reconnect the client starts the stream again. A stream ended by its own subscription
   publishes nothing more on it, since no one is left to receive it; the live view's video is not
   an event but `GET /v1/screen`'s binary messages. `operation.state`
   ([ADR-0043](../adr/0043-operation-watch.md)) is ring-less, offered to **every**
   `operation.watch` subscription, and `build.output`
   ([ADR-0044](../adr/0044-build-watchoutput.md)) to every `build.watchOutput` subscription of
-  the build's workspace, `workspace.state`
-  ([ADR-0045](../adr/0045-project-start-flow.md)) to every `workspace.watch` subscription, and
-  `session.state` ([ADR-0083](../adr/0083-session-watch-and-panel-by-project.md)) to every
-  `session.watch` subscription.
+  the build's workspace.
 - Overflowing a subscription's own queue costs that subscription a gap, not the session.
   On the WebSocket an event arrives as `{"subscriptionId", "event"}`, never before the
   response that gave the id ([http-websocket](../interfaces/http-websocket.md)
@@ -185,11 +180,9 @@ another's ids.
 
 Default: **structured** results modelled for the operation. Where raw output is
 genuinely useful, a capability may accept `"raw": true` and add `raw {stdout, stderr,
-exitCode}`. `shell.exec` is the general escape hatch for anything not yet modelled: a
-capability like any other, **off unless policy enables it**
-([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7,
-[ADR-0032](../adr/0032-configuration-file-v1.md)), and once on the agent has the user's
-full reach.
+exitCode}`. There is no general escape hatch (`shell.exec` left in 3j,
+[ADR-0137](../adr/0137-machine-level-android-tool.md)): what is not modelled, the agent
+does in its own shell.
 
 ## Cross-cutting conventions
 
@@ -228,8 +221,8 @@ casing rule per kind of token.
 ### One name for each target
 
 The device argument is named `device` everywhere: no `serial` alias, no implicit
-"current device". The workspace is named by the envelope's `workspace`, with no implicit
-"current workspace" at the capability layer.
+"current device". The project is named by `project`, with no implicit "current
+workspace" at the capability layer.
 
 ### Discriminated tools over overloaded ones
 
@@ -275,8 +268,8 @@ Screenshots and streams return opaque references, not filesystem paths
   handshake. Capabilities are **not** versioned individually: a breaking change to one is
   a new name or a major version. `since` records the API version that introduced a
   capability; `deprecated` names the version and the replacement.
-- Consumers (the UI in particular) adapt to what is advertised rather than assuming a
-  fixed surface.
+- Consumers adapt to what is advertised rather than assuming a fixed surface. The API is at
+  1.0.0 since 3j (the `workspace` field and the leaving domains went: a major version).
 
 ## Mapping to adapters
 

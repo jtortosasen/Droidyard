@@ -174,7 +174,7 @@
 - Needs: steps 1–8.
 - Not here: Done plans, research, reviews, ADR bodies (records).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `go test ./internal/doccheck` green. The register: 558 rows, 419 open → 576 rows, 288 open: the 145 rows of `register-rows.md` closed "3j: moved to the separate project (ADR-0137)", each checked verbatim against its line first; 4 binding rows closed as resolved (344, 345, 346, and 373 with one new `trial` row for the Cursor app's shared server); 9 rows changed Area only; 18 new rows (§Not in this milestone, §Unverified, the verifiers' deferred findings, the load flakes); no other row changed (the open-row diff, `scratchpad/s9/diff.py` against the file before). The 1.0.0 upgrade steps are in `docs/README.md` §Installing, since the release notes are generated from merge subjects (`release/notes.sh`). `verify-daemon`'s rewritten recipes were not run as written; step 10 ran their flows from its own script. The main session fixed `samples/mvp-dod.sh` (`--project`, no `workspace.open`), not run.
 
 ### 10. Level 5 and the close
 
@@ -192,7 +192,7 @@
 - Needs: steps 1–9.
 - Not here: the Cursor app and Claude Code themselves (the owner's `trial` row); idle release (no shipped override of 30 min: level 4, step 5).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (f) not run, below; in `~/Library/Caches/droidyard-dev/3j/evidence/l5/`, 2026-11-06, the binary built from `1a23c81`, an isolated daemon (state under `/private/tmp/dy3j`, its own adb server on 5203, the scratch AVD `m3j31`, API 31, as `emulator-5554`); the Doctor passed, `schema` equal to the committed file, no `fixture.` capability. (a) a shim in an empty folder: 43 tools; `device_list`, `emulator_list`, `device_uiTree` with no `project`. (b) `build_assemble {project: P}` succeeded (8 s, real Gradle 8.13, AGP 8.13.2); `device_install` by `project`+`build` and by `apk` (the latter `applicationId` ""); `project: "samples/golden"` → `REQUEST_INVALID_PARAMS` "is not an absolute path"; `U` → `WORKSPACE_UNTRUSTED`, `processes.json` unchanged; `build_tasks {project: W/app}` ran (a subfolder of the linked worktree, trusted through `P`). (c) one shim with `--from '${workspaceFolder}'`: builds on `P` then `W`, each its own `build_lastResult`; one stderr line. (d) two shims' first `project_modules` on a fresh trusted root at once: both 4 modules; one `opening` and one `ready` on `workspace.lifecycle`, each with `root`. (e) `GET /` and `/index.html` 404; `/v1/screen` (the stream from `device.watchScreen` over the CLI, the upgrade with the daemon's own Origin): a wrong token closed 4401, the token 11 binary frames, 98,912 bytes in 4 s; `POST /v1/call` 200; `droidyard hook --client claude` with a `PreToolUse` event exit 0, nothing printed; `ui` and `trash` exit 2. **(f) not run**: only a physical device is lent (`lentTo`, `KindPhysical`), so the AVD cannot be, and no phone was connected; the 0.41/1.0 lending stays an Unverified row. Cleanup: emulator and daemon stopped, the run's adb server killed, no orphan (no Gradle or Kotlin daemon left); the owner's adb server (5037, pid 20343) unchanged.
 
 ## Not in this milestone
 

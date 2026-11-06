@@ -133,7 +133,7 @@ func initCmd(args []string, out, errw io.Writer) int {
 		return initUser(cwd, clients, *dryRun, *uninstall, out, errw)
 	}
 	// init writes into the user's project, so it does not guess one: without --root the
-	// project is the one `droidyard ui` opens (ADR-0075 §6): found by a settings.gradle
+	// project is the one a call from here names (ADR-0075 §6): found by a settings.gradle
 	// at or above the working directory, or the top of a repository whose Gradle build
 	// is one or two folders below. The home directory is never a project (its .cursor
 	// and .claude are the user's global configuration).

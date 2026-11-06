@@ -70,10 +70,10 @@ target). A call without `device` fails schema validation at `Start`, before any 
   handler, after one `devices -l`, so the operation fails; `Start` does no adb I/O
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md);
   [ADR-0020](../adr/0020-operation-contract.md), amended 2026-10-04).
-- Convenience belongs to adapters, and each one still sends `device` explicitly: the web UI keeps its
+- Convenience belongs to adapters, and each one still sends `device` explicitly: a UI keeps its
   own selection client-side; the CLI would take `--device`, else `ANDROID_SERIAL`, adb's own
   convention (ratified 2026-09-29; not built, the CLI passes `device` in `--params`); an MCP agent
-  passes it, since sessions are bound to a workspace, never to a device.
+  passes it, since sessions are bound to no device.
 - An MCP session's first acting call on a free device occupies it; another chat's acting call is
   `DEVICE_OCCUPIED`, decided after the policy re-check and before any command that changes the
   device. Reads, the UI and the CLI are never refused ([ADR-0094](../adr/0094-occupation-by-a-session.md)).

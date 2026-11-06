@@ -1,9 +1,10 @@
 # Working in this repository
 
-**Droidyard** — a lean, AI-agnostic Android development runtime. One Go daemon
-(`droidyard`) exposes a single **capability API** to two consumers: a lightweight web
-UI and AI coding agents over MCP. There is deliberately **no in-house agent harness**;
-the agent loop belongs to the external assistant.
+**Droidyard** — a lean, AI-agnostic, machine-level Android tool. One Go daemon
+(`droidyard`) exposes a single **capability API** to AI coding agents over MCP, to people
+on a CLI, and to any UI over HTTP/WebSocket (the daemon serves no page: the web UI, Git,
+files and sessions left in 3j, ADR-0137). There is deliberately **no in-house agent
+harness**; the agent loop belongs to the external assistant.
 
 ## Read these first, in this order
 
@@ -156,8 +157,9 @@ change to the published API, and it should be a conscious one.
 
 The MVP is done (2h closed its Definition of done); each milestone since is chosen by
 the owner, and its plan's Scope table is its boundary. `docs/roadmap/mvp.md` §Out of
-scope still says what was deferred and why: code intelligence, the live screen stream,
-OCR, SDK provisioning, multi-device concurrency, Windows. Do not add what the milestone
+scope still says what was deferred and why: code intelligence, OCR, multi-device
+concurrency, Windows (the live screen stream and SDK provisioning shipped since). Since
+3j the web UI, Git, files and sessions are not Droidyard's: do not rebuild them here. Do not add what the milestone
 does not need; if you think something should be added, say so to the owner.
 
 ## Before touching the Gradle sidecar

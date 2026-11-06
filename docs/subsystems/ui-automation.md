@@ -64,7 +64,7 @@ Android lists only interactive ones, and SystemUI's carry notification text.
 two reads, from a ring the reader fills with no client connected, and waits for a change or for the
 screen to settle instead of polling blind; a lost stretch is always a gap. Only a toast keeps its
 text. `device.watchUiEvents` ([ADR-0112](../adr/0112-ui-events-stream-and-panel.md)) streams the
-same events to the web UI's panel.
+same events to a UI's panel.
 
 `device.recordUi` ([ADR-0113](../adr/0113-ui-recording.md)) keeps both over a span the user times
 by hand: a full dump at start, at stop and after each change, with the events between, in one

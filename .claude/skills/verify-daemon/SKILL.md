@@ -1,11 +1,11 @@
 ---
 name: verify-daemon
-description: Use when a Droidyard claim needs a real daemon to settle it (the socket, flock, shim auto-start, a killed shim or daemon, orphans after workspace.close, a real MCP stdio session), when a plan step's check is a level-5 run, and when the verifier reruns one. A rerunnable recipe against an isolated instance, in five sections (Launch, Doctor, Drive, Evidence, Cleanup), run end to end on macOS.
+description: Use when a Droidyard claim needs a real daemon to settle it (the socket, flock, shim auto-start, a killed shim or daemon, orphans after an idle release, a real MCP stdio session), when a plan step's check is a level-5 run, and when the verifier reruns one. A rerunnable recipe against an isolated instance, in five sections (Launch, Doctor, Drive, Evidence, Cleanup), run end to end on macOS.
 ---
 
 # Verifying the daemon
 
-> A generic recipe against an isolated instance, run end to end on macOS. The per-milestone Drive blocks (device actions, build, probe, logs, files, policy, acceptance, emulator ownership, the reader, the pre-serial launch) were cut at milestone 1q; the last commit that held them is `20daa85` (`git show 20daa85:.claude/skills/verify-daemon/SKILL.md`). A milestone that needs one takes it from there and adapts it. A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which. Not yet run on Linux.
+> A generic recipe against an isolated instance, run end to end on macOS. The per-milestone Drive blocks (device actions, build, probe, logs, files, policy, acceptance, emulator ownership, the reader, the pre-serial launch) were cut at milestone 1q; the last commit that held them is `20daa85` (`git show 20daa85:.claude/skills/verify-daemon/SKILL.md`). A milestone that needs one takes it from there and adapts it. A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which. Not yet run on Linux. The MCP, CLI and project-per-call blocks were rewritten for 3j (ADR-0137: no binding, `project` per call) by a documents step that started no daemon: step 10's run is what first runs them, and a command that proves wrong is fixed there.
 
 ## Launch
 
@@ -24,7 +24,7 @@ run pre-health "$DY" call --no-autostart system.health && echo "STOP: a daemon t
 for i in $(seq 50); do [ -S "$SOCK" ] && break; sleep 0.2; done
 ```
 
-- **`$R/proj` is a Gradle project root** (it holds `settings.gradle.kts`), so a session or CLI started inside it binds to it (ADR-0019 §Sessions).
+- **`$R/proj` is a Gradle project root** (it holds `settings.gradle.kts`): a project call names it with `project` (ADR-0137 §3). Nothing binds a session or the shell's cwd to it.
 - **A short base under `/tmp`.** The socket path must fit `sun_path` (104 bytes on macOS). Past that, ADR-0019 §6 moves it elsewhere and the Doctor fails. `cd -P` resolves `/tmp` to `/private/tmp` on macOS, so the paths the Doctor compares match.
 - **`pre-health` must fail.** If it succeeds, the client ignored the scratch environment and reached another daemon. It proves nothing when no other daemon is running. `--no-autostart` keeps it from starting one.
 - **Foreground `serve`, backgrounded by you**, so `$PID` is yours. Auto-start is a Drive row, not the launch.
@@ -52,7 +52,7 @@ Pass `--no-autostart` everywhere except the auto-start row: with it, a mis-isola
 
 **The shipped surface.** The binary under test carries no test fixture and publishes the committed schema (test capabilities and the dummy sidecar live in `_test.go` files and `internal/process/processtest`). Check: `"$DY" schema | cmp - schema/capabilities.json` and `"$DY" caps | grep -c '^fixture\.'` and `go list -deps ./cmd/droidyard | grep -c processtest` print nothing, `0` and `0`.
 
-**CLI:** `run <name> "$DY" call --no-autostart <capability> --params '<json>'`. It prints the response envelope and exits non-zero iff the envelope carries `error`. A global capability (`emulator.*`, `device.*` but `install`) takes no `--workspace`.
+**CLI:** `run <name> "$DY" call --no-autostart <capability> --params '<json>'`. It prints the response envelope and exits non-zero iff the envelope carries `error`. A project capability takes `--project "$R/proj"` (the CLI defaults it to the cwd, which is the repository here; a `project` inside `--params` is refused); a global one (`emulator.*`, `device.*` but an install from a build) takes none.
 
 **The Definition of done run:** `samples/mvp-dod.sh` is this recipe scripted for `mvp.md` DoD 3 and 6 (`errors <kgp> <outdir>`, `footprint <outdir> [avd]`; plan m2h D2). A change to §Launch, §Doctor or §Cleanup is made in the script too.
 
@@ -63,7 +63,7 @@ send() { printf '%s\n' "$1" | tee -a "$E/$N.sent" >&3; }
 await() { for i in $(seq 300); do jq -e --argjson i "$1" 'select(.id==$i)' "$E/$N.out" >/dev/null 2>&1 && return 0; sleep 0.1; done; return 1; }
 mcp_open() {
   N=$1; mkfifo "$E/$N.in"
-  "$DY" mcp --no-autostart --root "$R/proj" <"$E/$N.in" >"$E/$N.out" 2>"$E/$N.err" & SHIM=$!
+  "$DY" mcp --no-autostart <"$E/$N.in" >"$E/$N.out" 2>"$E/$N.err" & SHIM=$!
   exec 3>"$E/$N.in"
   send '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify-daemon","version":"0"}}}'
   await 0 && send '{"jsonrpc":"2.0","method":"notifications/initialized"}'
@@ -74,11 +74,11 @@ send '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_cap
 await 1; mcp_close
 ```
 
-`await` gives up after 30 s, above the default 20 s wait budget (`droidyard mcp --wait`); a timeout is a failure, not a retry. `mcp_close` ends the input: the shim half-closes the socket and exits 0 once the daemon ends the session, so `$N.exit` must read 0. Nothing is written to a session after its input ends, so await every response before closing. The session is bound to `$R/proj` and opens it before it answers `initialize`: workspace tools act on it and take no workspace argument (ADR-0019 §Sessions; ADR-0020 §Adapter projections). The CLI names it with `--workspace "$R/proj"`, since the shell's cwd is the repository.
+`await` gives up after 30 s, above the default 20 s wait budget (`droidyard mcp --wait`); a timeout is a failure, not a retry. `mcp_close` ends the input: the shim half-closes the socket and exits 0 once the daemon ends the session, so `$N.exit` must read 0. Nothing is written to a session after its input ends, so await every response before closing. A session binds nothing and lists every tool wherever it starts (`--root` and `--from` are ignored with one stderr line, for one minor version): a project tool's `arguments` carry `"project":"$R/proj"` (ADR-0137 §2, §3; ADR-0020 §Adapter projections), and the CLI's `--project` does the same.
 
 Pick the Drive recipes the plan's step names. The checks that settle most claims:
 
-- **Parity.** `jq -S .result` of a CLI envelope equals `jq -S 'select(.id==1).result.structuredContent'` of the session's `.out`, for the same capability (`system.capabilities`, `workspace.describe`).
+- **Parity.** `jq -S .result` of a CLI envelope equals `jq -S 'select(.id==1).result.structuredContent'` of the session's `.out`, for the same capability (`system.capabilities`, `device.list`).
 - **A shim killed mid-operation.** Start a long-running capability in an MCP session, read its `operationId`, `kill -9 "$SHIM"`, then `call operation.wait`: the state is `completed`, not `cancelled` (ADR-0020; ADR-0019 §Sessions).
 - **Auto-start and single instance** (ADR-0019 §4, §5):
 ```sh
@@ -112,23 +112,22 @@ c http-ok      -H "Authorization: Bearer $TOK" -H 'Content-Type: application/jso
 stat -f '%Lp %N' "$DROIDYARD_STATE_DIR/run/http-token" "$DROIDYARD_STATE_DIR/run" | tee "$E/http-stat.out"   # 600, 700 (Linux: stat -c '%a %n')
 ```
 
-Expect the codes in the comments, token file `600`, `run/` `700`, the token file gone after Cleanup's `stop`. `droidyard ui --no-autostart` opens a browser tab on the machine: run it once and record what you see.
+Expect the codes in the comments, token file `600`, `run/` `700`, the token file gone after Cleanup's `stop`. The daemon serves no page: `c http-page -H "Authorization: Bearer $TOK" "http://127.0.0.1:$HP/"` is `404` (ADR-0137 §6).
 
-- **Workspaces** (ADR-0019 §Sessions; ADR-0027), before the auto-start recipe stops the launched daemon:
+- **The project per call** (ADR-0137 §3; ADR-0027 for the release), before the auto-start recipe stops the launched daemon. `$R/proj` is untrusted in the scratch configuration, so the root opens and nothing runs:
 ```sh
-mcp_open ws
-run ws-open "$DY" call --no-autostart --workspace "$R/proj" workspace.open
-send '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_describe","arguments":{}}}'; await 1
-run ws-close "$DY" call --no-autostart --workspace "$R/proj" workspace.close
-send '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"workspace_describe","arguments":{}}}'; await 2
-send '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"workspace_describe","arguments":{}}}'; await 3
-jq -c 'select(.id==2 or .id==3).result | [.isError, (.content[0].text|fromjson|.code)]' "$E/ws.out"
+mcp_open pc
+run pc-untrusted "$DY" call --no-autostart --project "$R/proj" project.modules
+send '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"project_modules","arguments":{"project":"relative/path"}}}'; await 1
+send '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"project_modules","arguments":{}}}'; await 2
+jq -c 'select(.id==1 or .id==2).result | [.isError, (.content[0].text|fromjson|.code)]' "$E/pc.out"
+jq -r '.error.code' "$E/pc-untrusted.out"; ls "$DROIDYARD_STATE_DIR/ws"
 mcp_close
 ```
 
-The last `jq` prints `[true,"WORKSPACE_NOT_OPEN"]` twice.
+The first call answers `WORKSPACE_UNTRUSTED` and spawns no sidecar (no new pid in `processes.json`); the two MCP calls answer `[true,"REQUEST_INVALID_PARAMS"]` (a relative `project`; none given). The root is released after 30 minutes idle (no shipped override: level 4, `TestIdleRelease*`), so a level-5 run does not wait for it.
 
-**Real client (OpenCode):** a scratch project whose configuration starts the shim behind a recorder, so the wire is evidence. `$DY` and `$E` are expanded when the files are written. The shim takes no `--root`: OpenCode starts it with `$R/proj` as its cwd, so it binds there, and that is part of what the run shows.
+**Real client (OpenCode):** a scratch project whose configuration starts the shim behind a recorder, so the wire is evidence. `$DY` and `$E` are expanded when the files are written. The shim binds nothing wherever OpenCode starts it, so the prompt must name `$R/proj`, and the wire shows whether the agent passed it as `project`.
 
 ```sh
 cat >"$R/tap.sh" <<EOF

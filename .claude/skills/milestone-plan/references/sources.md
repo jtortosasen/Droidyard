@@ -8,9 +8,9 @@ Read the whole ADR, not only the section named. Every area also has the owner de
 | Descriptors, schema, golden file | ADR-0016 · ADR-0010 (statefulness) · ADR-0015 §1 (untrusted derived from tags) · `capability-api.md` §Naming and namespaces · `internal/capability/`, `internal/schema/` |
 | Invocation, operations, errors | ADR-0020 · `capability-api.md` §Invocation model, §Error model, §Idempotency · `overview.md` §Events, §Concurrency |
 | Daemon, socket, shims, sessions | ADR-0019 · ADR-0021 §Location, §Layout, §Locking · ADR-0024 (binary, subcommands, paths, env overrides) · ADR-0010 (what a session is) |
-| MCP adapter | `docs/interfaces/mcp.md` · ADR-0020 §Adapter projections · ADR-0015 §6 (policy never over MCP) |
-| HTTP / WebSocket | `docs/interfaces/http-websocket.md` §Security baseline · ADR-0006 |
-| Workspaces and trust | `docs/architecture/workspace-state.md` · ADR-0015 §5 · ADR-0020 §Scope and workspace addressing · ADR-0021 |
+| MCP adapter | `docs/interfaces/mcp.md` · ADR-0020 §Adapter projections · ADR-0015 §6 (policy never over MCP) · ADR-0137 §2 (no binding) |
+| HTTP / WebSocket | `docs/interfaces/http-websocket.md` §Security baseline · ADR-0137 §6 (no page served) |
+| Workspaces and trust | `docs/architecture/workspace-state.md` · ADR-0015 §5 · ADR-0081 · ADR-0137 §3 (the project per call, the per-root lifetime) · ADR-0021 |
 | Processes and supervision | `docs/architecture/process-lifecycle.md` · ADR-0001 (process ownership) · ADR-0021 §Pid records |
 | Events | `capability-api.md` §Events and subscriptions |
 | Artifacts | ADR-0012 §Durability classes, §Reading artifacts |

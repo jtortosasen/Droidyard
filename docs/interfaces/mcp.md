@@ -2,7 +2,7 @@
 
 How the capability API is projected to agents over MCP. This is an **adapter**: it
 translates and holds no domain logic ([ADR-0003](../adr/0003-unified-capability-api.md)).
-It is the agent-facing contract; the UI-facing one is
+It is the agent-facing contract; the one for a UI of its own is
 [`http-websocket.md`](http-websocket.md). The tool list is not written down here:
 `droidyard mcp` serves it, generated from the registry
 ([ADR-0016](../adr/0016-capability-schema-in-go.md)). This document holds the why of the
@@ -28,9 +28,9 @@ projection and the verdict on every MCP feature beyond tool calls.
   on the resolved root, never on the path passed.
 - **A session occupies the device it acts on**
   ([ADR-0094](../adr/0094-occupation-by-a-session.md)): another chat is refused
-  `DEVICE_OCCUPIED` with the way out; the connection's end and the user's release free it.
-  `droidyard mcp` sends the chat id Claude Code names (`CLAUDE_CODE_SESSION_ID`,
-  [ADR-0088](../adr/0088-chat-id-recovers-binding.md) §1) in the hello, so a chat's sessions
+  `DEVICE_OCCUPIED` with the way out; the connection's end frees it (a worktree's
+  occupation left in 3j). `droidyard mcp` sends the chat id Claude Code names
+  (`CLAUDE_CODE_SESSION_ID`) in the hello, so a chat's sessions
   reach each other's operations ([ADR-0101](../adr/0101-waits-reach-own-operations.md)).
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
@@ -71,7 +71,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `device.watchUiRecordings`, `operation.watch`, `build.watchOutput` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
 | `policy.get`, `policy.update` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). The core rejects them from an MCP session: enforcement, not just omission. |
 | `device.scroll` | Audience `human` ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md), [ADR-0133](../adr/0133-agents-act-by-coordinates-keys-and-system-verbs.md) §2): a wheel needs a view; agents swipe. |
-| `device.deleteUiRecording` | Audience `human` ([ADR-0113](../adr/0113-ui-recording.md) §6): the UI and the CLI delete a recording. |
+| `device.deleteUiRecording` | Audience `human` ([ADR-0113](../adr/0113-ui-recording.md) §6): a person deletes a recording, from the CLI or a UI. |
 | `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
 | `hosting.share`, `hosting.unshare`, `hosting.watchShare`, `hosting.join` | Audience `human` ([ADR-0108](../adr/0108-share-lifetime-and-consent.md) §1): sharing a device widens the physical policy; only its human consents. |
 | `sdk.licenses`, `sdk.acceptLicense`, `sdk.uninstall`, `emulator.delete`, `emulator.configure` | Audience `human` ([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §1, §2): a person accepts a licence and removes packages and AVDs. |
@@ -185,7 +185,7 @@ compact rendering where it has one (the UI tree, the screen's events, action res
 `system_capabilities`, build results; `operation_wait` renders as its tool does), else the
 result's compact JSON. The model reads the text block, not the structured content
 (observed for OpenCode and Cursor), so the rendering is where tokens are saved; the
-structured content stays the full result, for typed clients and the UI
+structured content stays the full result, for typed clients and UIs
 ([ADR-0036](../adr/0036-agent-surface-token-budget.md) Decision 2).
 
 **Errors versus failures**, kept strict so agents do not retry the wrong things:
@@ -246,7 +246,7 @@ the error JSON alone: no fixed first line and no `structuredContent`, since an e
 not the declared result
 ([capability-api](../architecture/capability-api.md) §Untrusted outputs are marked).
 Wrapping each field in the payload would add noise, and the per-result mark alone would
-not tell the UI which fields to render inert; each level is used where it is cheap.
+not tell a UI which fields to render inert; each level is used where it is cheap.
 
 ## Features beyond tools
 
@@ -263,13 +263,13 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; three adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md), [ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md): the client's edit tools, checked before and recorded after, joined to the chat's session) |
+| **Assistant-side hooks** | Not part of MCP; none (the three adopted left in 3j, [ADR-0137](../adr/0137-machine-level-android-tool.md)) |
 
 **Elicitation** closes problems we have written down: a real confirmation step for destructive operations (fallback: `destructiveHint`
 only, which clients may ignore), and resolving ambiguity such as "which of these two
 devices?" (fallback: an error naming the candidates that requires an explicit parameter).
 Rules: it is **always optional**, an improvement when available and never a requirement;
-support varies, so detect and degrade to the fallback; and it is **never a policy channel**: it does not enable devices or `shell.exec` and does not trust
+support varies, so detect and degrade to the fallback; and it is **never a policy channel**: it does not enable devices and does not trust
 a root, since a client in auto-approve mode would let the agent grant itself access
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). For the same reason SDK
 licence consent does not use it: a person accepts through a human-only call, and an agent
@@ -303,9 +303,10 @@ do with its model and context.
 **Assistant-side hooks** (`PreToolUse`, `SessionStart`) belong to individual assistants and
 are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forbids as a
 dependency, and largely redundant: "device data is not instructions" lives in
-`instructions`, "open the workspace" is a call the agent makes, and "build after editing"
-should not be automatic. `init` writes optional ones for Claude Code and Cursor, per project or once per user ([ADR-0124](../adr/0124-init-once-per-user.md)):
-a simple `rm` in the project is denied with `droidyard trash` and the same operands, which moves them to the trash from the agent's own shell ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0062](../adr/0062-agent-rm-handed-droidyard-trash.md)); and after a shell command, an Android one (`gradlew`, `adb` and four more) is hinted with the droidyard tool that does the same and recorded in Activity, never blocked ([ADR-0063](../adr/0063-hook-observes-android-commands.md)).
+`instructions`, and "build after editing" should not be automatic. `init` wrote some until
+3j; it removes the entries it wrote, and `droidyard hook` passes every event for one minor
+version, so a client set up before still works. `droidyard mcp` ignores `--root` and
+`--from` with one line on stderr for the same minor ([ADR-0137](../adr/0137-machine-level-android-tool.md) §2).
 
 ## Transports
 
