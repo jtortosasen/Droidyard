@@ -150,10 +150,10 @@ func TestHelpIndex(t *testing.T) {
 func TestOldSpellings(t *testing.T) {
 	t.Parallel()
 	ct := shippedTree(t)
-	names := []string{"caps", "schema", "version", "help", "serve", "call", "status", "stop", "mcp", "ui",
+	names := []string{"caps", "schema", "version", "help", "serve", "call", "status", "stop", "mcp",
 		"trust", "id", "host", "remote", "device", "share", "unshare", "join", "init", "hook", "trash", "artifact"}
-	if len(names) != 22 {
-		t.Fatalf("the table holds %d names; want the 22 the binary had", len(names))
+	if len(names) != 21 {
+		t.Fatalf("the table holds %d names; want the 21 the binary has", len(names))
 	}
 	for _, name := range names {
 		path := []string{name}
@@ -176,6 +176,24 @@ func TestOldSpellings(t *testing.T) {
 	// The verbs that used to be `device`'s own are still its.
 	if r, err := ct.Resolve([]string{"device", "disallow"}); err != nil || r.Hand == nil {
 		t.Errorf("device disallow does not resolve to a hand command: %+v, %v", r, err)
+	}
+}
+
+// Decision (ADR-0137 §1): `ui` is gone with the web UI: it is an unknown command (exit 2,
+// nothing on stdout), not a hand command and not a capability's domain, and the help does
+// not list it. Seen failing while `ui` still resolved.
+func TestUIIsNotACommand(t *testing.T) {
+	t.Parallel()
+	p := droidyard(t, shortDir(t), "ui")
+	if code := p.wait(t); code != cli.ExitUsage || !strings.Contains(p.stderr.String(), "unknown command") || p.stdout.Len() != 0 {
+		t.Errorf("droidyard ui: exit %d, stdout %q, stderr %q; want 2 and an unknown command", code, p.stdout.String(), p.stderr.String())
+	}
+	if r, err := shippedTree(t).Resolve([]string{"ui"}); err == nil {
+		t.Errorf("ui resolves: %+v", r)
+	}
+	help := droidyard(t, shortDir(t), "help")
+	if help.wait(t) != 0 || strings.Contains(help.stdout.String(), "web UI") {
+		t.Errorf("the help still names the web UI: %q", help.stdout.String())
 	}
 }
 

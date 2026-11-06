@@ -21,21 +21,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          package_json_file: web/package.json
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: web/.node-version
       - name: Toolchains
-        run: |
-          go version
-          node --version
-          pnpm --version
-      - name: Web
-        run: |
-          pnpm -C web install --frozen-lockfile
-          pnpm -C web run verify
+        run: go version
       - name: Build
         run: go build ./...
       - name: Format

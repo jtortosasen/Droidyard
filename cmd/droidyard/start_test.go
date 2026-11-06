@@ -14,124 +14,13 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
-	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/testtime"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
-// launched runs a re-executed droidyard in dir with the launcher recording the URL it
-// would have opened, and returns that URL and the process.
-func launched(t *testing.T, state, dir string, args ...string) (string, *process) {
-	t.Helper()
-	file := filepath.Join(t.TempDir(), "url")
-	p := droidyardEnv(t, state, dir, []string{launcherEnv + "=" + file}, args...)
-	if code := p.wait(t); code != 0 {
-		t.Fatalf("droidyard %v exited %d; stderr: %s", args, code, p.stderr.String())
-	}
-	raw, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatalf("droidyard %v did not open the browser: %v", args, err)
-	}
-	return string(raw), p
-}
-
-// TestBareDroidyardOpensTheProject: `droidyard` with no subcommand is `ui`, and `ui` in a
-// project folder, or under one, opens that project (workspace.open as client cli) and
-// the browser on its id; the open grants no trust (ADR-0045 §1; ADR-0015 §5).
-func TestBareDroidyardOpensTheProject(t *testing.T) {
-	t.Parallel()
-	state := shortDir(t)
-	srv, addr := serveOn(t, state)
-	token, _ := daemon.ReadToken(state)
-	root, sub := gradleProject(t)
-	id, _ := platform.Current().WorkspaceID(root)
-
-	for _, args := range [][]string{nil, {"ui"}} {
-		url, p := launched(t, state, sub, args...)
-		if want := "http://" + addr + "/#token=" + token + "&w=" + id; url != want {
-			t.Errorf("droidyard %v opened %q; want the tokenised URL with w=%s", args, strings.ReplaceAll(url, token, "<token>"), id)
-		}
-		srv.expect(t, "client=cli capability=workspace.open")
-		if out := p.stdout.String() + p.stderr.String(); strings.Contains(out, token) || strings.Contains(out, "usage") {
-			t.Errorf("droidyard %v printed %q: the token or the usage", args, out)
-		}
-	}
-
-	env, code := callIn(t, state, "", "--workspace", root, "workspace.describe")
-	if info := workspaceOf(t, env); code != 0 || info.State != workspace.Ready || info.Trusted || info.ID != id {
-		t.Errorf("the opened workspace is %+v (exit %d); want %s ready and untrusted", info, code, id)
-	}
-	stopped(t, state)
-	srv.wait(t)
-}
-
-// TestUIOpensTheTopOfARepository: `ui` at the top of a repository whose one Gradle build
-// is a folder below opens the top (w=<its id>); at a folder of two builds with no choice
-// it opens no project (ADR-0075 §6).
-func TestUIOpensTheTopOfARepository(t *testing.T) {
-	t.Parallel()
-	state := shortDir(t)
-	srv, addr := serveOn(t, state)
-	token, _ := daemon.ReadToken(state)
-	top := platform.Current().Canonical(t.TempDir())
-	buildAt(t, top, "dev")
-	id, _ := platform.Current().WorkspaceID(top)
-
-	url, _ := launched(t, state, top, "ui")
-	if want := "http://" + addr + "/#token=" + token + "&w=" + id; url != want {
-		t.Errorf("ui at the top opened %q; want w=%s", strings.ReplaceAll(url, token, "<token>"), id)
-	}
-	srv.expect(t, "client=cli capability=workspace.open")
-
-	two := platform.Current().Canonical(t.TempDir())
-	buildAt(t, two, "a")
-	buildAt(t, two, "b")
-	url, _ = launched(t, state, two, "ui")
-	if want := "http://" + addr + "/#token=" + token; url != want {
-		t.Errorf("ui at a folder of two builds opened %q; want no w", strings.ReplaceAll(url, token, "<token>"))
-	}
-	stopped(t, state)
-	srv.wait(t)
-}
-
-// TestBareDroidyardElsewhereOpensWithoutW: outside any project the browser opens on the
-// page without `w`, and no workspace is opened (ADR-0045 §1, ADR-0047 §2).
-func TestBareDroidyardElsewhereOpensWithoutW(t *testing.T) {
-	t.Parallel()
-	state := shortDir(t)
-	srv, addr := serveOn(t, state)
-	token, _ := daemon.ReadToken(state)
-	bare := platform.Current().Canonical(t.TempDir())
-
-	url, _ := launched(t, state, bare)
-	if want := "http://" + addr + "/#token=" + token; url != want {
-		t.Errorf("droidyard in a folder with no project opened %q; want the URL with no w", strings.ReplaceAll(url, token, "<token>"))
-	}
-	if env, _ := callIn(t, state, "", "--workspace", bare, "workspace.describe"); env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describing the folder gave %+v; want WORKSPACE_NOT_OPEN: nothing opened it", env.Error)
-	}
-	stopped(t, state)
-	srv.wait(t)
-}
-
-// TestBareDroidyardStartsTheDaemon: with no daemon running, `droidyard` alone starts one
-// as `ui` does (ADR-0019 §4) and opens the project on it.
-func TestBareDroidyardStartsTheDaemon(t *testing.T) {
-	t.Parallel()
-	state := shortDir(t)
-	killDaemonAtEnd(t, state)
-	root, sub := gradleProject(t)
-	id, _ := platform.Current().WorkspaceID(root)
-	url, _ := launched(t, state, sub)
-	if !strings.HasSuffix(url, "&w="+id) {
-		t.Errorf("the URL does not end with &w=%s", id)
-	}
-	stopped(t, state)
-}
-
-// TestHelpPrintsTheUsage: the usage is `help`'s: it says what a bare `droidyard` does and
-// exits 0.
+// TestHelpPrintsTheUsage: the usage is `help`'s, and it exits 0. A bare `droidyard` prints
+// the same help (TestBareDroidyardPrintsTheHelp).
 func TestHelpPrintsTheUsage(t *testing.T) {
 	t.Parallel()
 	for _, arg := range []string{"help", "--help", "-h"} {
@@ -139,9 +28,27 @@ func TestHelpPrintsTheUsage(t *testing.T) {
 		if code := p.wait(t); code != 0 {
 			t.Errorf("droidyard %s exited %d", arg, code)
 		}
-		if out := p.stdout.String(); !strings.Contains(out, "Usage:") || !strings.Contains(out, "With no command, droidyard runs ui.") {
-			t.Errorf("droidyard %s printed %q; want the usage, naming what a bare droidyard does", arg, out)
+		if out := p.stdout.String(); !strings.Contains(out, "Usage:") {
+			t.Errorf("droidyard %s printed %q; want the usage", arg, out)
 		}
+	}
+}
+
+// Decision (ADR-0137 §1): a bare `droidyard` is the help, not a browser: it exits 0,
+// prints the usage, starts no daemon and opens no project. Seen failing while bare
+// droidyard still ran `ui`.
+func TestBareDroidyardPrintsTheHelp(t *testing.T) {
+	t.Parallel()
+	state := shortDir(t)
+	p := droidyard(t, state)
+	if code := p.wait(t); code != 0 {
+		t.Fatalf("bare droidyard exited %d; stderr: %s", code, p.stderr.String())
+	}
+	if out := p.stdout.String(); !strings.Contains(out, "Usage:") || !strings.Contains(out, "droidyard help <command>") {
+		t.Errorf("bare droidyard printed %q; want the help", out)
+	}
+	if _, err := os.Stat(filepath.Join(state, daemon.LockFile)); !os.IsNotExist(err) {
+		t.Errorf("bare droidyard started a daemon: %v", err)
 	}
 }
 

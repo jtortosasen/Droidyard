@@ -178,14 +178,11 @@ func codeSpans(s string) []string {
 // lineNo is the 1-based line number for a message.
 func lineNo(i int) int { return i + 1 }
 
-// thirdPartyDirs are vendored copies of other projects' text (plan m2a step 1: Svelte's
-// two agent skills, MIT, kept verbatim at a pinned commit). They are not this
+// thirdPartyDirs are vendored copies of other projects' text, which are not this
 // repository's documentation and cite documents that are not here, so no check reads
-// them.
-var thirdPartyDirs = []string{
-	".claude/skills/svelte-core-bestpractices",
-	".claude/skills/svelte-code-writer",
-}
+// them. None is vendored now (the Svelte skills left with the web UI, ADR-0137 §1); the
+// list stays so a vendored directory is skipped by naming it here.
+var thirdPartyDirs []string
 
 // skipDir reports whether the walk leaves a directory unread: .git, the cloned research
 // material under .refs/ (git-ignored), parallel workers' worktrees under

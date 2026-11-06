@@ -34,7 +34,6 @@ import (
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/store"
-	"github.com/jtortosasen/droidyard/web"
 	"golang.org/x/sys/unix"
 )
 
@@ -77,7 +76,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 	mcpServer.UseBus(bus)
 	mcpServer.UseArtifacts(artifacts)
 	token := newToken()
-	ui := httpapi.New(reg, ops, bus, token, web.Assets())
+	ui := httpapi.New(reg, ops, bus, token)
 	ui.UseScreens(screenAttach(adb))
 	ui.UseTextArtifacts(uiTextArtifacts(artifacts))
 	return daemon.Options{

@@ -35,9 +35,6 @@ const (
 	drainEnv    = "DROIDYARD_TEST_DRAIN"
 	shutdownEnv = "DROIDYARD_TEST_SHUTDOWN"
 	httpPortEnv = "DROIDYARD_TEST_HTTP_PORT"
-	// launcherEnv names the file a re-executed `ui` writes the URL it would have opened
-	// to: no test opens a browser.
-	launcherEnv = "DROIDYARD_TEST_LAUNCHER"
 	// gradleFakeEnv names a gradletest configuration file: a re-executed daemon then
 	// runs that fake sidecar instead of a real JVM, and gradleJVMEnv names the fake JDK
 	// 17 it "runs on" (plan m1g step 5).
@@ -104,13 +101,6 @@ func adbFloorVar() string { return adbFloorEnv + "=" + adbFloorFor().String() }
 func installTestSeams() {
 	testCapabilities = registerSidecarFixture
 	testHosting = registerPeerProbe
-	openURL = func(url string) error {
-		path := os.Getenv(launcherEnv)
-		if path == "" {
-			return fmt.Errorf("the browser launcher was called, and the test set no %s", launcherEnv)
-		}
-		return os.WriteFile(path, []byte(url), 0o600)
-	}
 	// Test daemons bind an ephemeral port unless a test asks for one; so do their private
 	// peer listeners, which would otherwise all try 7318.
 	peerDefaultPort = 0

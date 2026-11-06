@@ -274,12 +274,12 @@ func TestHTTPFence(t *testing.T) {
 		t.Errorf("after the release the operation is %+v (%v); want completed", out, err)
 	}
 
-	// GET / is the placeholder, with the CSP and without the token; other paths and
+	// GET / serves no page (ADR-0137 §1): 404 with the fence's headers; other paths and
 	// methods are 404 and 405.
 	page := httpRequest{method: "GET", path: "/", proto: "HTTP/1.1", headers: []string{"Host: localhost:" + ps}}.send(t, addr)
 	page.Body.Close()
-	if page.StatusCode != 200 || page.Header.Get("Content-Security-Policy") != "default-src 'self'; frame-ancestors 'none'" {
-		t.Errorf("GET /: %d, CSP %q", page.StatusCode, page.Header.Get("Content-Security-Policy"))
+	if page.StatusCode != 404 {
+		t.Errorf("GET /: %d; want 404", page.StatusCode)
 	}
 	checkHeaders(t, "GET /", page, false)
 	for _, c := range []struct {

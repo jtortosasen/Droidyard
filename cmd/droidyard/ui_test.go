@@ -21,11 +21,10 @@ import (
 
 var (
 	tokenFileContent = regexp.MustCompile(`^[0-9a-f]{64}\n$`)
-	tokenisedURL     = regexp.MustCompile(`^http://127\.0\.0\.1:(\d+)/#token=([0-9a-f]{64})$`)
 )
 
 // serveOn starts a re-executed `serve` on state and returns it once it listens, with
-// the UI address its lock names.
+// the HTTP address its lock names.
 func serveOn(t *testing.T, state string, env ...string) (*process, string) {
 	t.Helper()
 	p := droidyardEnv(t, state, "", env, "serve")
@@ -146,7 +145,7 @@ func TestHTTPTokenFile(t *testing.T) {
 // finds the lock's http set and the token written, because the daemon rewrites the
 // lock after the HTTP bind and before the socket bind (plan m1d, D8, R3). The test
 // dials the socket every 5 ms from serve's start and reads the lock at the first
-// answer; the address it finds is the one that serves GET /.
+// answer; the address it finds is the one that serves the API.
 func TestLockNamesTheHTTPAddressBeforeTheSocketAnswers(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
@@ -176,8 +175,8 @@ func TestLockNamesTheHTTPAddressBeforeTheSocketAnswers(t *testing.T) {
 	root := httpRequest{method: "GET", path: "/", proto: "HTTP/1.1", headers: []string{"Host: " + *info.HTTP}}
 	resp := root.send(t, *info.HTTP)
 	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Errorf("GET / at the lock's address %s: %d; want 200", *info.HTTP, resp.StatusCode)
+	if resp.StatusCode != 404 {
+		t.Errorf("GET / at the lock's address %s: %d; want 404: no page is served", *info.HTTP, resp.StatusCode)
 	}
 	if code := healthStatus(t, *info.HTTP, token); code != 200 {
 		t.Errorf("the token found at the first answer got %d at the lock's address; want 200", code)
@@ -186,10 +185,10 @@ func TestLockNamesTheHTTPAddressBeforeTheSocketAnswers(t *testing.T) {
 	srv.wait(t)
 }
 
-// TestStatusPrintsTheAddressAndTheURL: `status` reads the actual address from the lock,
-// the ephemeral fallback's included, and the token from run/http-token (http-websocket
-// .md §Security baseline rule 1; plan m1d, step 5).
-func TestStatusPrintsTheAddressAndTheURL(t *testing.T) {
+// TestStatusPrintsTheAddress: `status` reads the actual address from the lock, the
+// ephemeral fallback's included, and prints no URL and no token (ADR-0137 §1;
+// http-websocket.md §Security baseline rule 1; plan m1d, step 5).
+func TestStatusPrintsTheAddress(t *testing.T) {
 	t.Parallel()
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -213,95 +212,21 @@ func TestStatusPrintsTheAddressAndTheURL(t *testing.T) {
 	}
 	out := st.stdout.String()
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	// The two new lines follow the socket line.
-	if n := len(lines); n < 3 || lines[n-2] != "http "+addr || lines[n-1] != "http://"+addr+"/#token="+token {
-		t.Errorf("status printed %q; want its last two lines to be %q and %q", out, "http "+addr, "http://"+addr+"/#token="+token)
+	// The address line follows the socket line, and is the last.
+	if n := len(lines); n < 2 || lines[n-1] != "http "+addr {
+		t.Errorf("status printed %q; want its last line to be %q", out, "http "+addr)
+	}
+	if strings.Contains(out, token) || strings.Contains(out, "#token=") {
+		t.Errorf("status printed the token or a tokenised URL: %q", out)
 	}
 	stopped(t, state)
 	srv.wait(t)
 }
 
-// TestUIOpensTheTokenisedURL: `droidyard ui` opens the browser at the URL `status`
-// prints, starts a daemon when none answers and refuses to with --no-autostart (ADR-0019
-// §3, §4). The browser is a launcher that a re-executed binary replaces with a file
-// write (plan m1d, R4).
-func TestUIOpensTheTokenisedURL(t *testing.T) {
-	t.Parallel()
-	t.Run("a daemon is running", func(t *testing.T) {
-		state := shortDir(t)
-		srv, addr := serveOn(t, state)
-		token, _ := daemon.ReadToken(state)
-		launched := filepath.Join(t.TempDir(), "url")
-		ui := droidyardEnv(t, state, "", []string{launcherEnv + "=" + launched}, "ui")
-		if code := ui.wait(t); code != 0 {
-			t.Fatalf("ui exited %d; stderr: %s", code, ui.stderr.String())
-		}
-		got, err := os.ReadFile(launched)
-		if err != nil {
-			t.Fatalf("the launcher was not called: %v", err)
-		}
-		if want := "http://" + addr + "/#token=" + token; string(got) != want {
-			t.Errorf("the launcher got a URL that is not %s", "http://"+addr+"/#token=<the file's token>")
-		}
-		if strings.Contains(ui.stdout.String()+ui.stderr.String(), token) {
-			t.Errorf("ui printed the token")
-		}
-		stopped(t, state)
-		srv.wait(t)
-	})
-
-	t.Run("no daemon: one is started", func(t *testing.T) {
-		state := shortDir(t)
-		killDaemonAtEnd(t, state)
-		launched := filepath.Join(t.TempDir(), "url")
-		ui := droidyardEnv(t, state, "", []string{launcherEnv + "=" + launched}, "ui")
-		if code := ui.wait(t); code != 0 {
-			t.Fatalf("ui exited %d; stderr: %s", code, ui.stderr.String())
-		}
-		got, err := os.ReadFile(launched)
-		if err != nil {
-			t.Fatalf("the launcher was not called: %v", err)
-		}
-		m := tokenisedURL.FindStringSubmatch(string(got))
-		if m == nil {
-			t.Fatalf("the launcher got a URL that is not http://127.0.0.1:<port>/#token=<64 hex>")
-		}
-		if code := healthStatus(t, "127.0.0.1:"+m[1], m[2]); code != 200 {
-			t.Errorf("the URL's token got %d on /v1/call; want 200", code)
-		}
-		stopped(t, state)
-		log, _ := os.ReadFile(filepath.Join(state, logFile))
-		if len(log) == 0 || strings.Contains(string(log), m[2]) {
-			t.Errorf("daemon.log is empty or carries the token (%d bytes)", len(log))
-		}
-	})
-
-	t.Run("--no-autostart with no daemon", func(t *testing.T) {
-		state := shortDir(t)
-		launched := filepath.Join(t.TempDir(), "url")
-		ui := droidyardEnv(t, state, "", []string{launcherEnv + "=" + launched}, "ui", "--no-autostart")
-		if code := ui.wait(t); code == 0 {
-			t.Errorf("ui --no-autostart exited 0 with no daemon")
-		}
-		if _, err := os.Stat(filepath.Join(state, daemon.LockFile)); !os.IsNotExist(err) {
-			t.Errorf("ui --no-autostart started a daemon: %v", err)
-		}
-		if _, err := os.Stat(launched); !os.IsNotExist(err) {
-			t.Errorf("the launcher was called with no daemon: %v", err)
-		}
-	})
-
-	t.Run("an argument it does not know", func(t *testing.T) {
-		if code := droidyard(t, shortDir(t), "ui", "--bogus").wait(t); code != 2 {
-			t.Errorf("ui --bogus exited %d; want 2", code)
-		}
-	})
-}
-
-// TestUIWithoutAnHTTPListener: a daemon whose lock says "http":null, one that serves
-// no UI, is an error naming `droidyard stop` for `ui`, and `status` prints no URL
-// (plan m1d, step 5).
-func TestUIWithoutAnHTTPListener(t *testing.T) {
+// TestStatusWithoutAnHTTPListener: a daemon whose lock says "http":null, one that serves
+// no HTTP API, is healthy: `status` exits 0, prints no URL and says the lock names no
+// address (plan m1d, step 5).
+func TestStatusWithoutAnHTTPListener(t *testing.T) {
 	state := shortDir(t)
 	st, err := store.New(state)
 	if err != nil {
@@ -324,17 +249,6 @@ func TestUIWithoutAnHTTPListener(t *testing.T) {
 		t.Fatalf("the daemon without HTTP left daemon.lock saying (%+v, %v); want http null", info, err)
 	}
 
-	launched := filepath.Join(t.TempDir(), "url")
-	ui := droidyardEnv(t, state, "", []string{launcherEnv + "=" + launched}, "ui", "--no-autostart")
-	if code := ui.wait(t); code == 0 {
-		t.Errorf("ui exited 0 against a daemon with no HTTP listener")
-	}
-	if !strings.Contains(ui.stderr.String(), "droidyard stop") {
-		t.Errorf("ui's error does not name `droidyard stop`: %s", ui.stderr.String())
-	}
-	if _, err := os.Stat(launched); !os.IsNotExist(err) {
-		t.Errorf("the launcher was called without an address: %v", err)
-	}
 	status := droidyard(t, state, "status")
 	if code := status.wait(t); code != 0 {
 		t.Errorf("status exited %d against a daemon with no HTTP listener; want 0 (the daemon is healthy)", code)

@@ -201,14 +201,12 @@ func handCommands(ct *cmdTree) []handCommand {
 			run: serve},
 		{name: "call", summary: "Call one capability by its name and print its response envelope.", help: callHelp,
 			run: call},
-		{name: "status", summary: "Report on the running daemon: its socket and the web UI's address.", help: statusHelp,
+		{name: "status", summary: "Report on the running daemon: its socket and the HTTP API's address.", help: statusHelp,
 			run: func([]string) int { return status() }},
 		{name: "stop", summary: "Stop the running daemon.", help: stopHelp,
 			run: func([]string) int { return stop() }},
 		{name: "mcp", summary: "Attach an MCP stdio session to the daemon.", help: mcpHelp,
 			run: mcpShim},
-		{name: "ui", summary: "Open the web UI in the default browser, at the tokenised URL.", help: uiHelp,
-			run: ui},
 		{name: "trust", summary: "Grant a project root trust, so capabilities that run its code may.", help: trustHelp,
 			run: trust},
 		{name: "id", summary: "Print this daemon's fingerprint, what a host pins to admit it.", help: idHelp,
@@ -276,11 +274,11 @@ func sections() (before, after []cli.Section) {
 Usage:
   droidyard [<command>]
 
-With no command, droidyard runs ui.
+With no command, droidyard prints this help.
 droidyard help <command> shows a command's own help; droidyard <domain> --help lists
 a domain's verbs.`}}
 	after = []cli.Section{
-		{Title: "Project", Body: list("ui", "trust", "init", "trash")},
+		{Title: "Project", Body: list("trust", "init", "trash")},
 		{Title: "The daemon", Body: list("serve", "status", "stop", "id", "version")},
 		{Title: "Assistants", Body: list("mcp", "hook")},
 		{Title: "Sharing devices", Body: list("share", "unshare", "join", "host", "remote", "device allow", "device disallow")},

@@ -91,7 +91,7 @@ func (f *fakeViewer) Input(frame []byte) error {
 // not closed within 10 s.
 func TestScreenWriteDeadline(t *testing.T) {
 	v := &fakeViewer{data: make([]byte, 4<<20), closed: make(chan struct{})}
-	srv := New(nil, nil, nil, "tok", nil)
+	srv := New(nil, nil, nil, "tok")
 	srv.UseScreens(func(id string) (ScreenViewer, error) { return v, nil })
 	srv.SetScreenWriteTimeout(200 * time.Millisecond)
 	ts := httptest.NewServer(srv)
@@ -163,7 +163,7 @@ func TestScreenSocketInput(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := &fakeViewer{data: []byte{1}, closed: make(chan struct{}), inputs: make(chan []byte, 8), inputErr: tc.err}
-			srv := New(nil, nil, nil, "tok", nil)
+			srv := New(nil, nil, nil, "tok")
 			srv.UseScreens(func(id string) (ScreenViewer, error) { return v, nil })
 			ts := httptest.NewServer(srv)
 			defer ts.Close()
@@ -187,7 +187,7 @@ func TestScreenSocketInput(t *testing.T) {
 
 	t.Run("binary frames reach Input in order", func(t *testing.T) {
 		v := &fakeViewer{data: []byte{1}, closed: make(chan struct{}), inputs: make(chan []byte, 8)}
-		srv := New(nil, nil, nil, "tok", nil)
+		srv := New(nil, nil, nil, "tok")
 		srv.UseScreens(func(id string) (ScreenViewer, error) { return v, nil })
 		ts := httptest.NewServer(srv)
 		defer ts.Close()
@@ -217,7 +217,7 @@ func TestScreenSocketInput(t *testing.T) {
 // client that has not authenticated.
 func TestScreenInputBeforeAuthIsRefused(t *testing.T) {
 	v := &fakeViewer{data: []byte{1}, closed: make(chan struct{}), inputs: make(chan []byte, 8)}
-	srv := New(nil, nil, nil, "tok", nil)
+	srv := New(nil, nil, nil, "tok")
 	srv.UseScreens(func(id string) (ScreenViewer, error) { return v, nil })
 	ts := httptest.NewServer(srv)
 	defer ts.Close()

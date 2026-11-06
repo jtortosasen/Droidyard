@@ -1,7 +1,7 @@
 // Command droidyard is the Droidyard binary.
 //
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
-// daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it, and
+// daemon on its socket; `call`, `mcp`, `status` and `stop` talk to it, and
 // `trust` writes the user configuration directly, with no daemon involved, and so do
 // `host` and `remote` (the peer pairing and lending, ADR-0098 §7; `id` asks the daemon
 // for its fingerprint) and `init`, which writes the assistant integration into a project (ADR-0037). `hook`
@@ -78,15 +78,14 @@ func versionCommand(w io.Writer, args []string) int {
 }
 
 // main resolves the command line through the command tree (commands.go, ADR-0122): a hand
-// command, a capability as `<domain> <verb>`, or help. No subcommand is `ui`: a user types
-// `droidyard` in a project folder (ADR-0045 §1).
+// command, a capability as `<domain> <verb>`, or help. No subcommand is the help.
 func main() {
-	if len(os.Args) < 2 {
-		os.Exit(ui(nil))
-	}
 	ct, err := newCmdTree()
 	if err != nil {
 		fail(err)
+	}
+	if len(os.Args) < 2 {
+		os.Exit(ct.help(nil, os.Stdout, os.Stderr))
 	}
 	if a := os.Args[1]; a == "-h" || a == "--help" {
 		os.Exit(ct.help(nil, os.Stdout, os.Stderr))

@@ -61,10 +61,8 @@ func nonLinux(fs files) (bad []string) {
 	return bad
 }
 
-// The six commands .githooks/pre-commit runs over the tree (ADR-0068 §3).
+// The four commands .githooks/pre-commit runs over the tree (ADR-0068 §3).
 var hookChecks = []string{
-	"pnpm -C web install --frozen-lockfile",
-	"pnpm -C web run verify",
 	"go build ./...",
 	`test -z "$(gofmt -l .)"`,
 	"go vet ./...",

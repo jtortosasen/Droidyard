@@ -46,7 +46,7 @@ call and mcp start a daemon when none answers, unless --no-autostart.
 
 const statusHelp = `droidyard status
 
-Report on the running daemon: its socket, and the web UI's address and tokenised URL.
+Report on the running daemon: its socket, and the HTTP API's address.
 `
 
 const stopHelp = `droidyard stop
@@ -67,15 +67,6 @@ With no project, the session has no tools: mcp starts no daemon and connects to 
 --wait bounds how long a long-running tool waits (default 20s).
 --tools core lists the golden path's tools only (default all).
 mcp starts a daemon when none answers, unless --no-autostart.
-`
-
-const uiHelp = `droidyard ui [--no-autostart]
-
-Open the web UI in the default browser, at the tokenised URL.
-In a project folder, or under one (a settings.gradle or settings.gradle.kts), or at the
-top of a repository whose Gradle build is one or two folders below, it opens that project;
-elsewhere, the newest open project, else the projects panel.
-ui starts a daemon when none answers, unless --no-autostart.
 `
 
 const trustHelp = `droidyard trust <root>

@@ -76,7 +76,7 @@
 - Needs: step 1.
 - Not here: the `workspace.*` capabilities the UI used (step 6).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestNoPageIsServed` (`/`, `/index.html`, `/assets/app.js`, `/favicon.ico` → 404 with nosniff and no-referrer; a foreign Host 403; `/v1/call` 401 without the token, an envelope with it), seen failing before the routes went (`GET /: 200 "<!doctype html>…"`); `TestUIIsNotACommand` (exit 2, unknown, the help names no web UI), seen failing with a stub `ui` entry put back; `TestBareDroidyardPrintsTheHelp` (exit 0, no `daemon.lock`; not seen failing, written after the change); `TestOldSpellings` with 21 names; `go list -deps ./cmd/droidyard` names no `web` package; `release/build.sh v0.0.0` built the four tarballs offline. `go test ./...`: one run failed `TestRemoteRecordingResumesTheCopy` (20 s, load), passing alone and in the package's rerun; the commit's hook ran the whole suite (it touches the hook).
 
 ### 3. Remove `agent.*`, the hooks and `droidyard trash`
 

@@ -1,11 +1,11 @@
 #!/bin/sh
 # release/build.sh <version> <outdir>
 #
-# Builds a Droidyard release: the web UI, then the daemon for darwin/arm64,
+# Builds a Droidyard release: the daemon for darwin/arm64,
 # darwin/amd64, linux/amd64 and linux/arm64 (CGO_ENABLED=0, cross-compiled from any
 # host), one droidyard_<version>_<os>_<arch>.tar.gz per target and a checksums.txt of
-# SHA-256 sums, all in <outdir>. It refuses a binary that lacks the built UI or, on the
-# host's own platform, does not report the stamped version. Run by CI on every pull
+# SHA-256 sums, all in <outdir>. It refuses a binary that, on the host's own platform,
+# does not report the stamped version. Run by CI on every pull
 # request (a dry run) and by the release workflow; runnable on a laptop.
 # Why this shape: docs/adr/0068-release-builds-and-installer.md.
 set -eu
@@ -28,13 +28,6 @@ OUT=$(cd "$OUT" && pwd)
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
-# A stale UI must not satisfy the check below.
-rm -rf web/dist/app
-pnpm -C web build
-[ -f web/dist/app/index.html ] || die "web/dist/app/index.html is absent after pnpm -C web build"
-ASSET=$(ls web/dist/app/assets | head -n 1)
-[ -n "$ASSET" ] || die "web/dist/app/assets is empty"
-
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/droidyard-release.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT INT TERM
 
@@ -48,9 +41,6 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
 	mkdir -p "$dir"
 	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false \
 		-ldflags "-s -w -buildid= -X main.build=$V" -o "$dir/droidyard" ./cmd/droidyard
-
-	[ "$(grep -c -a -F "$ASSET" "$dir/droidyard")" -gt 0 ] ||
-		die "$target binary does not contain the built UI ($ASSET)"
 
 	if [ "$os" = "$HOST_OS" ] && [ "$arch" = "$HOST_ARCH" ]; then
 		got=$("$dir/droidyard" version)
