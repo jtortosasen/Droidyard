@@ -178,7 +178,7 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	if adb != nil && adb.gradle != nil {
 		gradleLaunch, gradleFinder = adb.gradle.launch, adb.gradle.finder
 	}
-	reg, ops, bus, artifacts, deviceADB, host := registry(env, st, sup, os.Stderr)
+	reg, ops, bus, artifacts, deviceADB, host, _ := registry(env, st, sup, os.Stderr)
 	adbEnviron, adbExec, adbStreamWrap = oldEnv, oldExec, oldWrap
 	gradleLaunch, gradleFinder = oldLaunch, oldFinder
 	adbFloor = oldFloor

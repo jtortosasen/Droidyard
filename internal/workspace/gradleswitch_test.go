@@ -28,7 +28,7 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 		return forgotten
 	}
 
-	root := project(t)
+	root := gradleProject(t)
 	id := h.open(t, root).ID
 	if got := use(id, ga); got != nil {
 		t.Errorf("the first root forgot %v; want nothing", got)
@@ -63,7 +63,7 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 	}
 
 	// A root another open workspace remembers is forgotten but not returned.
-	other := project(t)
+	other := gradleProject(t)
 	idOther := h.open(t, other).ID
 	use(idOther, gshared)
 	use(id, gshared)
@@ -90,7 +90,7 @@ func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 // connection it would open is not left behind unrecorded (ADR-0075 §8, ADR-0092 §1).
 func TestUseGradleRootRefusesAClosingWorkspace(t *testing.T) {
 	h := newHarness(t, 300*time.Millisecond)
-	a := project(t)
+	a := gradleProject(t)
 	idA := h.open(t, a).ID
 	if _, err := h.ws.UseGradleRoot(idA, "/gradle/own"); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestUseGradleRootRefusesAClosingWorkspace(t *testing.T) {
 func TestGradleRootInUse(t *testing.T) {
 	h := newWatchHarness(t, nil)
 	const ga, gb = "/gradle/a", "/gradle/b"
-	a, b := project(t), project(t)
+	a, b := gradleProject(t), gradleProject(t)
 	idA, idB := h.open(t, a).ID, h.open(t, b).ID
 	if h.ws.GradleRootInUse(ga) {
 		t.Fatal("a root nobody resolved is in use")

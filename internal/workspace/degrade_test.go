@@ -13,7 +13,7 @@ import (
 // code it is given.
 func TestDegradeOnlyTouchesAReadyWorkspace(t *testing.T) {
 	h := newWatchHarness(t, nil)
-	root := project(t)
+	root := gradleProject(t)
 	crash := capability.Errorf(capability.ErrBuildSidecarCrashed, "the sidecar died")
 
 	h.ws.Degrade(root, crash) // never opened

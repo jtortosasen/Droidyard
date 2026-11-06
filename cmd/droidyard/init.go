@@ -249,7 +249,7 @@ func initInputs(errw io.Writer) (command, stateDir string, tools []string, code 
 			return "", "", nil, 1
 		}
 	}
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	return command, stateDir, readOnlyTools(mcpTools(reg)), 0
 }
 

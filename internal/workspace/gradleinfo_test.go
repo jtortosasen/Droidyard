@@ -27,11 +27,13 @@ func TestOpenAndDescribeReportTheGradleRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// report opens root, then describes it, and requires both to say the same.
+	// report opens root, then describes it by its id (a call naming a project path would
+	// have to resolve to a Gradle root first; the id is the workspace workspace.open
+	// registered), and requires both to say the same.
 	report := func(t *testing.T, h *harness, root string) GradleInfo {
 		t.Helper()
 		opened := h.open(t, root)
-		out := h.invoke(t, CapDescribe, root)
+		out := h.invoke(t, CapDescribe, opened.ID)
 		if out.State != capability.StateCompleted {
 			t.Fatalf("describe: %s %v", out.State, out.Error)
 		}
@@ -109,13 +111,13 @@ func TestOpenAndDescribeReportTheGradleRoot(t *testing.T) {
 			t.Fatalf("before the choice gradle = %+v; want no root", g)
 		}
 		write(t, root, ".droidyard/project.json", `{"schemaVersion":1,"gradleRoot":"b"}`)
-		out := h.invoke(t, CapDescribe, root) // no reopen
+		out := h.invoke(t, CapDescribe, h.open(t, root).ID) // no reopen of a closed one
 		g := out.Result.(Described).Gradle
 		if g.Root != "b" || g.Error != nil || !reflect.DeepEqual(g.Candidates, []string{"a", "b"}) {
 			t.Fatalf("after the choice gradle = %+v; want root b, candidates [a b]", g)
 		}
 		write(t, root, ".droidyard/project.json", `{"schemaVersion":1,"gradleRoot":"gone"}`)
-		g = h.invoke(t, CapDescribe, root).Result.(Described).Gradle
+		g = h.invoke(t, CapDescribe, h.open(t, root).ID).Result.(Described).Gradle
 		if g.Root != "" || g.Error == nil || g.Error.Code != capability.ErrProjectNoGradleRoot {
 			t.Fatalf("with a bad key gradle = %+v; want no root, PROJECT_NO_GRADLE_ROOT", g)
 		}

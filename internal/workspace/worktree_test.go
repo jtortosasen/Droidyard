@@ -26,9 +26,12 @@ func fakeWorktree(t *testing.T, base, name string) (main, wt string) {
 		}
 	}
 	files := map[string]string{
-		filepath.Join(wt, ".git"):         "gitdir: " + admin + "\n",
-		filepath.Join(admin, "commondir"): "../..\n",
-		filepath.Join(admin, "gitdir"):    filepath.Join(wt, ".git") + "\n",
+		// A settings file in each tree, so a call naming either resolves to it (Enter).
+		filepath.Join(main, "settings.gradle"): "",
+		filepath.Join(wt, "settings.gradle"):   "",
+		filepath.Join(wt, ".git"):              "gitdir: " + admin + "\n",
+		filepath.Join(admin, "commondir"):      "../..\n",
+		filepath.Join(admin, "gitdir"):         filepath.Join(wt, ".git") + "\n",
 	}
 	for p, body := range files {
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {

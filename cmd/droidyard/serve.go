@@ -279,7 +279,7 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: logw})
-	reg, ops, bus, artifacts, adb, host := registry(env, st, sup, logw)
+	reg, ops, bus, artifacts, adb, host, ws := registry(env, st, sup, logw)
 	defer artifacts.Close()
 	// The idle sweep of the session registry runs for the daemon's life (ADR-0094 §4).
 	sweep := capability.SweepInterval
@@ -287,6 +287,11 @@ func serve(args []string) int {
 		sweep = sessionSweep
 	}
 	go ops.Sessions().Run(ctx, sweep)
+	// The per-root lifetime (ADR-0137 §3): a root a call opened is released after it has
+	// had no call and no running operation for workspace.IdleAfter. Stopped, and any
+	// release in progress finished, before the shutdown below cancels what is left.
+	idleDone := make(chan struct{})
+	go func() { defer close(idleDone); ws.RunIdle(ctx) }()
 	socket := env.SocketPath(state)
 	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb, logw)
 	if err != nil {
@@ -313,6 +318,7 @@ func serve(args []string) int {
 	defer cancel()
 	// The peers first: no peer request reaches the operations the shutdown cancels.
 	stopPeers()
+	<-idleDone
 	if err := d.Shutdown(sctx); err != nil {
 		fmt.Fprintln(logw, "droidyard serve: shutdown:", err)
 		return 1

@@ -95,7 +95,7 @@ type cmdTree struct {
 // newCmdTree builds the tree from the binary's own registry, as caps does, so help works
 // with no daemon (plan m2z D14).
 func newCmdTree() (*cmdTree, error) {
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	return buildTree(reg)
 }
 

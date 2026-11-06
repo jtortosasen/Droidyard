@@ -39,6 +39,7 @@ func registerProjectFixture(reg *capability.Registry, env platform.Env, root str
 // with no restart; workspace.describe flips to trusted.
 func TestTrustGatesProjectCodeWithoutARestart(t *testing.T) {
 	root := platform.Current().Canonical(t.TempDir())
+	writeSettings(t, root) // a call naming the root resolves it by its build (ADR-0137 §3)
 	ran := make(chan struct{}, 4)
 	p := startInProcessEnv(t, func(reg *capability.Registry, env platform.Env) {
 		registerProjectFixture(reg, env, root, ran)
@@ -121,6 +122,7 @@ func TestTrustFollowsTheStateDirAndNeverTheHome(t *testing.T) {
 	state := shortDir(t)
 	fakeHome := t.TempDir()
 	root := platform.Current().Canonical(t.TempDir())
+	writeSettings(t, root)
 	env := append(withoutVars(os.Environ(), "HOME", "DROIDYARD_CONFIG_DIR", "DROIDYARD_STATE_DIR"),
 		reexec+"=1", "DROIDYARD_STATE_DIR="+state, "HOME="+fakeHome)
 
@@ -174,4 +176,12 @@ func mustEnvelope(t *testing.T, run func(...string) (capability.ResponseEnvelope
 		t.Fatalf("call %v exited %d: %+v", args, code, env.Error)
 	}
 	return env
+}
+
+// writeSettings gives root a settings.gradle, so that a call naming it resolves to it.
+func writeSettings(t *testing.T, root string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

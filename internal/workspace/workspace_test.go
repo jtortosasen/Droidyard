@@ -48,6 +48,7 @@ func (s *syncBuffer) String() string {
 //	                 is closed, whatever its context
 //	fixture.scoped   returns nil at once, recording the Call.Workspace it saw
 type harness struct {
+	reg     *capability.Registry
 	ws      *Registry
 	ops     *capability.Operations
 	st      *store.Store
@@ -100,6 +101,7 @@ func newHarnessOn(t *testing.T, st *store.Store, drain time.Duration) *harness {
 	t.Helper()
 	h := &harness{st: st, log: &syncBuffer{}, started: make(chan string, 8), release: make(chan struct{}), events: &recorder{}}
 	reg := capability.NewRegistry()
+	h.reg = reg
 	h.ops = capability.NewOperations(reg)
 	h.ops.RegisterCapabilities()
 	h.ws = New(Options{Store: st, Ops: h.ops, Drain: drain, Log: h.log, Publisher: h.events,
@@ -214,6 +216,17 @@ func project(t *testing.T) string {
 	return platform.Current().Canonical(t.TempDir())
 }
 
+// gradleProject is project with a settings.gradle: a call naming it is admitted (Enter
+// resolves a project by its Gradle build).
+func gradleProject(t *testing.T) string {
+	t.Helper()
+	root := project(t)
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func schemaVersionOf(t *testing.T, path string) int {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -236,7 +249,7 @@ func schemaVersionOf(t *testing.T, path string) int {
 // workspace-state.md §Identity and reuse).
 func TestOpenRegistersARoot(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	info := h.open(t, root)
 	wantID, _ := platform.Current().WorkspaceID(root)
 	if info.ID != wantID || info.Root != root || info.Name != filepath.Base(root) || info.State != Ready || info.Trusted || info.CreatedAt == nil || info.CreatedAt.IsZero() || info.DegradedBy != nil {
@@ -279,7 +292,7 @@ func mustStore(t *testing.T, root string) *store.Store {
 // directly, the same script does leave it, so the check can see project code run.
 func TestOpenRunsNoProjectCode(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	marker := filepath.Join(root, "ran")
 	script := "#!/bin/sh\ntouch '" + marker + "'\n"
 	for _, f := range []string{"gradlew", "settings.gradle.kts"} {
@@ -338,7 +351,7 @@ func TestOpenOfAnInvalidTargetFails(t *testing.T) {
 // WORKSPACE_STATE_NEWER in degradedBy (ADR-0026; ADR-0021 §Format).
 func TestNewerWorkspaceFileDegrades(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	id, _ := platform.Current().WorkspaceID(root)
 	file := filepath.Join(h.st.Root(), "ws", id, "workspace.json")
 	os.MkdirAll(filepath.Dir(file), 0o700)
@@ -368,11 +381,13 @@ func TestNewerWorkspaceFileDegrades(t *testing.T) {
 	}
 }
 
-// TestStartAdmitsOnlyAnOpenWorkspace: a workspace-scoped call on a target that is not
-// open is rejected at Start with WORKSPACE_NOT_OPEN, nextStep naming workspace.open,
-// no operation and no handler run (ADR-0020 §Core primitives); once it is open, the
-// call runs with the canonical id, whatever spelling named it.
-func TestStartAdmitsOnlyAnOpenWorkspace(t *testing.T) {
+// TestStartOpensTheRootItNames: a workspace-scoped call on a root that is not open opens
+// it at Start and runs with the canonical id, whatever spelling named it (ADR-0137 §3; it
+// replaces the rule that rejected such a call with WORKSPACE_NOT_OPEN). A target that
+// cannot be opened is refused at Start with the code that says why, no operation recorded
+// and no handler run: an id this daemon has never known and a path that does not exist are
+// REQUEST_INVALID_PARAMS, a folder with no Gradle build PROJECT_NO_GRADLE_ROOT.
+func TestStartOpensTheRootItNames(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
 	dir, err := os.MkdirTemp("/tmp", "wsadmit")
 	if err != nil {
@@ -380,18 +395,28 @@ func TestStartAdmitsOnlyAnOpenWorkspace(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	id, _ := platform.Current().WorkspaceID(dir)
-	for _, target := range []string{dir, id} {
+	for target, want := range map[string]capability.ErrorCode{
+		id:                            capability.ErrInvalidParams,
+		filepath.Join(dir, "missing"): capability.ErrInvalidParams,
+		"relative/path":               capability.ErrInvalidParams,
+		dir:                           capability.ErrProjectNoGradleRoot,
+	} {
 		opID, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: target})
 		e, _ := err.(*capability.Error)
-		if opID != "" || codeOf(err) != capability.ErrWorkspaceNotOpen || !strings.Contains(e.NextStep, "workspace.open") {
-			t.Errorf("%s: Start = %q, %v", target, opID, err)
+		if opID != "" || e == nil || e.Code != want || e.NextStep == "" {
+			t.Errorf("%s: Start = %q, %v; want %s with a nextStep", target, opID, err, want)
 		}
 	}
-	if h.ran.Load() != 0 || h.ops.Running() != 0 {
-		t.Fatalf("a rejected call ran (%d) or left an operation (%d)", h.ran.Load(), h.ops.Running())
+	if h.ran.Load() != 0 || h.ops.Running() != 0 || h.ws.State(dir) != "" {
+		t.Fatalf("a refused call ran (%d), left an operation (%d) or opened its root (%q)", h.ran.Load(), h.ops.Running(), h.ws.State(dir))
 	}
 
-	h.open(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.invoke(t, "fixture.scoped", dir); out.State != capability.StateCompleted || h.ws.State(dir) != Ready {
+		t.Fatalf("a call on a root never opened: %+v, state %q; want completed and ready", out, h.ws.State(dir))
+	}
 	for _, spelling := range []string{dir, platform.Current().Canonical(dir), id} {
 		out := h.invoke(t, "fixture.scoped", spelling)
 		if out.State != capability.StateCompleted || h.saw.Load() != id {
@@ -403,7 +428,7 @@ func TestStartAdmitsOnlyAnOpenWorkspace(t *testing.T) {
 // TestCloseWithNothingRunningIsImmediate: no operation to drain, no wait.
 func TestCloseWithNothingRunningIsImmediate(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	h.open(t, root)
 	began := time.Now()
 	out := h.invoke(t, CapClose, root)
@@ -413,9 +438,12 @@ func TestCloseWithNothingRunningIsImmediate(t *testing.T) {
 	if s := h.ws.State(root); s != Closed {
 		t.Errorf("state %s after close", s)
 	}
-	if _, err := h.ops.Start(context.Background(), capability.Request{Capability: CapDescribe, Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe after close: %v; want WORKSPACE_NOT_OPEN", err)
+	// A call naming a closed root opens it again (ADR-0137 §3): implicit open reopens what
+	// workspace.close closed.
+	if out := h.invoke(t, CapDescribe, root); out.State != capability.StateCompleted || h.ws.State(root) != Ready {
+		t.Errorf("describe after close: %+v, state %s; want completed on a reopened root", out, h.ws.State(root))
 	}
+	h.invoke(t, CapClose, root)
 	if out := h.invoke(t, CapClose, root); out.State != capability.StateCompleted {
 		t.Errorf("close of a closed workspace: %+v", out)
 	}
@@ -429,7 +457,7 @@ func TestCloseWithNothingRunningIsImmediate(t *testing.T) {
 // (ADR-0027).
 func TestCloseCancelsItsWorkspacesOperations(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	a, b := project(t), project(t)
+	a, b := gradleProject(t), gradleProject(t)
 	h.open(t, a)
 	h.open(t, b)
 	inA := h.start(t, "fixture.honours", a)
@@ -454,7 +482,7 @@ func TestCloseCancelsItsWorkspacesOperations(t *testing.T) {
 // (ADR-0027; plan m1c, R15).
 func TestCloseBoundsItsDrain(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	h.open(t, root)
 	stuck := h.start(t, "fixture.ignores", root)
 
@@ -533,20 +561,22 @@ func (h *harness) run(capName, target string) chan ended {
 // calls are rejected at Start, and an open waits for closed, then opens (ADR-0027).
 func TestOpenDuringCloseWaitsThenOpens(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	h.open(t, root)
 	first := h.closing(t, root)
-	if _, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
-		t.Errorf("a call during closing: %v; want WORKSPACE_NOT_OPEN", err)
-	}
+	// A workspace-scoped call waits for the close as an open does, then runs on the reopened
+	// root (ADR-0137 §3 replaces the rejection with WORKSPACE_NOT_OPEN at Start).
+	call := h.run("fixture.scoped", root)
 	reopen := h.run(CapOpen, root)
 	time.Sleep(100 * time.Millisecond)
 	select {
 	case e := <-reopen:
 		t.Fatalf("open returned during the drain: %+v", e.out)
+	case e := <-call:
+		t.Fatalf("a call returned during the drain: %+v", e.out)
 	default:
 	}
-	c, o := recv(t, first, "close"), recv(t, reopen, "open")
+	c, o, k := recv(t, first, "close"), recv(t, reopen, "open"), recv(t, call, "call")
 	if c.out.State != capability.StateCompleted {
 		t.Errorf("close: %s", c.out.State)
 	}
@@ -554,13 +584,16 @@ func TestOpenDuringCloseWaitsThenOpens(t *testing.T) {
 	if o.out.State != capability.StateCompleted || o.out.Result.(Info).State != Ready || o.at.Before(stopped) {
 		t.Errorf("open: %+v at %v; want ready, after the close finished at %v", o.out, o.at, stopped)
 	}
+	if k.out.State != capability.StateCompleted || k.at.Before(stopped) || h.ran.Load() != 1 {
+		t.Errorf("the call: %+v at %v, ran %d; want completed once, after the close finished at %v", k.out, k.at, h.ran.Load(), stopped)
+	}
 }
 
 // TestSecondCloseWaitsAndCompletes: a close during a close waits for the first and
 // completes as a no-op (ADR-0027).
 func TestSecondCloseWaitsAndCompletes(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
-	root := project(t)
+	root := gradleProject(t)
 	h.open(t, root)
 	first := h.closing(t, root)
 	second := h.run(CapClose, root)
@@ -593,14 +626,14 @@ func waitState(t *testing.T, ws *Registry, target string, want State) {
 }
 
 // heldAdmit is the test hook between Start's open check and its recording: it calls
-// the real Admit, whose record it holds until release.
+// the real Enter, whose record it holds until release.
 type heldAdmit struct {
-	real          *Registry
+	*Registry
 	held, release chan struct{}
 }
 
-func (h heldAdmit) Admit(target string, record func(id string)) bool {
-	return h.real.Admit(target, func(id string) {
+func (h heldAdmit) Enter(target string, record func(id string)) error {
+	return h.Registry.Enter(target, func(id string) {
 		close(h.held)
 		<-h.release
 		record(id)
@@ -614,9 +647,9 @@ func (h heldAdmit) Admit(target string, record func(id string)) bool {
 // recorded, close cancels it, and close returns after it has ended cancelled.
 func TestStartsCheckAndRecordShareCloseLock(t *testing.T) {
 	h := newHarness(t, 2*time.Second)
-	root := project(t)
+	root := gradleProject(t)
 	h.open(t, root)
-	hook := heldAdmit{real: h.ws, held: make(chan struct{}), release: make(chan struct{})}
+	hook := heldAdmit{Registry: h.ws, held: make(chan struct{}), release: make(chan struct{})}
 	h.ops.UseWorkspaces(hook)
 
 	started := make(chan string, 1)
@@ -662,7 +695,7 @@ func TestNewerIndexIsNeitherReadNorWritten(t *testing.T) {
 	newer := []byte(`{"schemaVersion":2,"workspaces":{"x-0123456789ab":{"root":"/nowhere"}}}`)
 	os.WriteFile(file, newer, 0o600)
 
-	root := project(t)
+	root := gradleProject(t)
 	byRoot := h.invoke(t, CapOpen, root)
 	byID := h.invoke(t, CapOpen, "x-0123456789ab")
 	if byRoot.State != capability.StateCompleted || byRoot.Result.(Info).State != Ready {
@@ -720,7 +753,7 @@ func TestUnreadableStateFailsTheOpen(t *testing.T) {
 	for name, breakIt := range cases {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t, 200*time.Millisecond)
-			root := project(t)
+			root := gradleProject(t)
 			id, _ := platform.Current().WorkspaceID(root)
 			breakIt(t, h.st.Root(), id)
 			target := root
@@ -736,8 +769,11 @@ func TestUnreadableStateFailsTheOpen(t *testing.T) {
 			if s := h.ws.State(root); s == Ready || s == Degraded || s == Opening {
 				t.Errorf("state %s after a failed open", s)
 			}
-			if _, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
-				t.Errorf("a call after the failed open: %v; want WORKSPACE_NOT_OPEN", err)
+			// A call naming it opens it at Start, so it meets the same unreadable state and is
+			// refused with the same code, recording no operation.
+			opID, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: target})
+			if opID != "" || codeOf(err) != ErrStateUnreadable || h.ops.Running() != 0 {
+				t.Errorf("a call after the failed open: %q, %v; want WORKSPACE_STATE_UNREADABLE and no operation", opID, err)
 			}
 		})
 	}
@@ -767,13 +803,19 @@ func TestInvalidOpensLeaveNoEntry(t *testing.T) {
 	if n := size(); n != 0 {
 		t.Errorf("300 invalid opens left %d registry entries; want 0", n)
 	}
+	// A folder with no Gradle build below or above it is a real directory a call cannot open.
 	unopened := t.TempDir()
 	for i := 0; i < 100; i++ {
-		for _, target := range []string{filepath.Join(dir, "missing-"+strconv.Itoa(i)), file + "/" + strconv.Itoa(i), "nothing-" + strconv.Itoa(i), unopened} {
+		for target, want := range map[string]capability.ErrorCode{
+			filepath.Join(dir, "missing-"+strconv.Itoa(i)): capability.ErrInvalidParams,
+			file + "/" + strconv.Itoa(i):                   capability.ErrInvalidParams,
+			"nothing-" + strconv.Itoa(i):                   capability.ErrInvalidParams,
+			unopened:                                       capability.ErrProjectNoGradleRoot,
+		} {
 			for _, capName := range []string{"fixture.scoped", CapDescribe} {
 				id, err := h.ops.Start(context.Background(), capability.Request{Capability: capName, Workspace: target})
-				if id != "" || codeOf(err) != capability.ErrWorkspaceNotOpen {
-					t.Fatalf("Start %s on %s: %q, %v; want WORKSPACE_NOT_OPEN", capName, target, id, err)
+				if id != "" || codeOf(err) != want {
+					t.Fatalf("Start %s on %s: %q, %v; want %s", capName, target, id, err, want)
 				}
 			}
 		}
@@ -815,7 +857,7 @@ func TestTransitionsArePublished(t *testing.T) {
 
 	t.Run("open, a second open, close", func(t *testing.T) {
 		h := newHarness(t, 200*time.Millisecond)
-		root := project(t)
+		root := gradleProject(t)
 		id, _ := platform.Current().WorkspaceID(root)
 		h.open(t, root)
 		expect(t, h, "open", id, Opening, Ready)
@@ -827,7 +869,7 @@ func TestTransitionsArePublished(t *testing.T) {
 
 	t.Run("a newer workspace.json", func(t *testing.T) {
 		h := newHarness(t, 200*time.Millisecond)
-		root := project(t)
+		root := gradleProject(t)
 		id, _ := platform.Current().WorkspaceID(root)
 		file := filepath.Join(h.st.Root(), "ws", id, "workspace.json")
 		os.MkdirAll(filepath.Dir(file), 0o700)
@@ -847,7 +889,7 @@ func TestTransitionsArePublished(t *testing.T) {
 			t.Skip("root writes through permissions")
 		}
 		h := newHarness(t, 200*time.Millisecond)
-		root := project(t)
+		root := gradleProject(t)
 		id, _ := platform.Current().WorkspaceID(root)
 		os.Chmod(h.st.Root(), 0o500)
 		t.Cleanup(func() { os.Chmod(h.st.Root(), 0o700) })

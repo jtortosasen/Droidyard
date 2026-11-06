@@ -15,7 +15,7 @@ import (
 // shippedTree is the command tree of this binary's registry, built in process.
 func shippedTree(t *testing.T) *cmdTree {
 	t.Helper()
-	reg, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
 	ct, err := buildTree(reg)
 	if err != nil {
 		t.Fatalf("the shipped registry and the hand commands do not make a tree: %v", err)
@@ -259,7 +259,7 @@ func TestCLIFlagsDoNotCollide(t *testing.T) {
 	// The check can fail: a capability whose verb is a hand verb's name, and one whose domain
 	// is a hand command's, are each refused when the tree is built.
 	for _, name := range []string{"device.allow", "init.thing"} {
-		reg, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
+		reg, _, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
 		reg.MustRegister(capability.Descriptor{
 			Name: name, Kind: capability.Command, Scope: capability.Global,
 			Description: "A fake.", Params: struct{}{}, Result: struct{}{},

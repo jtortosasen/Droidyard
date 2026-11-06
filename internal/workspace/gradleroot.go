@@ -128,8 +128,22 @@ func noGradleRoot(projectRoot, cause string, candidates []string) *capability.Er
 	}
 	return capability.NewError(capability.ErrProjectNoGradleRoot, fmt.Sprintf("the project at %s has no Gradle root to run in", projectRoot)).
 		WithCause(cause).
-		WithNextStep(fmt.Sprintf(`Choose the Gradle build in the Droidyard UI, or set "gradleRoot" in %s to the folder, relative to the project root, that holds settings.gradle(.kts).`, filepath.Join(projectRoot, projectFile))).
+		WithNextStep(noGradleRootNextStep(candidates)).
 		WithDetails(map[string]any{"candidates": candidates})
+}
+
+// The nextStep of PROJECT_NO_GRADLE_ROOT: the project is the folder of the build, passed
+// by its absolute path (ADR-0137 §3).
+const (
+	nextStepPickCandidate = "pass the absolute path of one of the candidates (details.candidates, relative to the project) as the project"
+	nextStepNoCandidate   = "pass the absolute path of a folder that holds settings.gradle or settings.gradle.kts, or of a folder inside one, as the project"
+)
+
+func noGradleRootNextStep(candidates []string) string {
+	if len(candidates) == 0 {
+		return nextStepNoCandidate
+	}
+	return nextStepPickCandidate
 }
 
 // isHomeOrFilesystemRoot reports whether root, canonical, is the home directory

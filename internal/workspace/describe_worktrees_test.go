@@ -44,7 +44,10 @@ func repoWithCommit(t *testing.T, base string) string {
 	if err := os.WriteFile(filepath.Join(main, "f"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	gitHere(t, main, "add", "f")
+	if err := os.WriteFile(filepath.Join(main, "settings.gradle"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitHere(t, main, "add", "f", "settings.gradle")
 	gitHere(t, main, "commit", "-q", "-m", "one")
 	return main
 }
@@ -88,6 +91,12 @@ func TestDescribeListsWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitHere(t, alone, "init", "-q")
+	// A settings file each, so a call naming them resolves (Enter).
+	for _, dir := range []string{plain, alone} {
+		if err := os.WriteFile(filepath.Join(dir, "settings.gradle"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	_, sub, _ := h.watch(t)
 	for _, root := range []string{main, a, b, plain, alone} {

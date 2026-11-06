@@ -179,17 +179,13 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 		t.Errorf("(e) lastOpenedAt is %v after the second session's open, %v before: an open of an open workspace must refresh it", openedAfter, openedBefore)
 	}
 
-	// (d) Another client closes the workspace: both sessions' tools get
-	// WORKSPACE_NOT_OPEN, again on a second call (nothing reopens it), until
-	// workspace_open reopens it.
+	// (d) Another client closes the workspace: the sessions' next call reopens it, with no
+	// workspace_open between (ADR-0137 §3: a call that names a root opens it).
 	if env, code := p.call(t, "--workspace", groovy, "workspace.close"); code != 0 {
 		t.Fatalf("(d) the CLI's close exited %d: %+v", code, env.Error)
 	}
-	for i, s := range []*shim{a, a, a2} {
-		got := s.workspaceTool(10+i, "workspace_describe")
-		if !got.isError || got.err.Code != capability.ErrWorkspaceNotOpen {
-			t.Errorf("(d) %s, call %d after the close: %s; want isError WORKSPACE_NOT_OPEN", s.name, i, got.raw)
-		}
+	for i, s := range []*shim{a, a2} {
+		boundReady(t, "(d) "+s.name+" after the close", s.workspaceTool(10+i, "workspace_describe"), groovy)
 	}
 	boundReady(t, "(d) workspace_open", a.workspaceTool(20, "workspace_open"), groovy)
 	boundReady(t, "(d) describe after the reopen", a2.workspaceTool(21, "workspace_describe"), groovy)
@@ -202,8 +198,8 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 }
 
 // TestMCPBadBoundRootDegrades: a bound root that cannot be opened does not fail the
-// session: initialize and tools/list succeed, workspace tools get WORKSPACE_NOT_OPEN,
-// and workspace_open shows the cause, WORKSPACE_ROOT_INVALID with the bound root as
+// session: initialize and tools/list succeed, workspace tools are refused at Start
+// (REQUEST_INVALID_PARAMS: the root is no directory), and workspace_open shows the cause, WORKSPACE_ROOT_INVALID with the bound root as
 // its target; the failure is in the daemon log (ADR-0026 §Decision; plan m1c, R13).
 func TestMCPBadBoundRootDegrades(t *testing.T) {
 	t.Parallel()
@@ -214,8 +210,8 @@ func TestMCPBadBoundRootDegrades(t *testing.T) {
 	if res := response(t, s.recv(), 1); len(res["tools"].([]any)) == 0 {
 		t.Fatal("tools/list is empty")
 	}
-	if got := s.workspaceTool(2, "workspace_describe"); !got.isError || got.err.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe: %s; want isError WORKSPACE_NOT_OPEN", got.raw)
+	if got := s.workspaceTool(2, "workspace_describe"); !got.isError || got.err.Code != capability.ErrInvalidParams {
+		t.Errorf("describe: %s; want isError REQUEST_INVALID_PARAMS (the root is no directory)", got.raw)
 	}
 	got := s.workspaceTool(3, "workspace_open")
 	if !got.isError || got.err.Code != workspace.ErrRootInvalid || got.err.Details["target"] != "/nonexistent" {

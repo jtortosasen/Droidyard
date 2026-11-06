@@ -464,16 +464,20 @@ func TestResolveGradleRootProjectFileFIFO(t *testing.T) {
 	}
 }
 
-// TestNoGradleRootError pins ADR-0075 §4: the error names the key and the UI in its
-// nextStep, carries the candidates in its details, and a missing candidate list is an
-// empty list, not null.
+// TestNoGradleRootError pins ADR-0075 §4 as ADR-0137 §3 changed it: the nextStep says to
+// pass the absolute path of a candidate as the project (and, with none, of a folder with a
+// build), carries the candidates in its details, and a missing candidate list is an empty
+// list, not null. Seen failing with the old text (the UI and the gradleRoot key).
 func TestNoGradleRootError(t *testing.T) {
 	e := noGradleRoot("/p", "some cause", nil)
 	if e.Code != capability.ErrProjectNoGradleRoot || e.Cause != "some cause" {
 		t.Errorf("got %+v", e)
 	}
-	if !strings.Contains(e.NextStep, "gradleRoot") || !strings.Contains(e.NextStep, "UI") {
-		t.Errorf("nextStep = %q, want it to name the UI and the gradleRoot key", e.NextStep)
+	if want := "pass the absolute path of a folder that holds settings.gradle or settings.gradle.kts, or of a folder inside one, as the project"; e.NextStep != want {
+		t.Errorf("nextStep with no candidates = %q, want %q", e.NextStep, want)
+	}
+	if want := "pass the absolute path of one of the candidates (details.candidates, relative to the project) as the project"; noGradleRoot("/p", "c", []string{"a", "b"}).NextStep != want {
+		t.Errorf("nextStep with candidates = %q, want %q", noGradleRoot("/p", "c", []string{"a", "b"}).NextStep, want)
 	}
 	if c, ok := e.Details["candidates"].([]string); !ok || c == nil || len(c) != 0 {
 		t.Errorf("details.candidates = %#v, want an empty, non-nil list", e.Details["candidates"])

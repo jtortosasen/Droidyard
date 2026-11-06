@@ -78,7 +78,7 @@ func toolMap(tools []mcpTool) string {
 // the MCP adapter lists them. A tool added, renamed, removed or re-annotated fails here
 // until the map is regenerated and the diff reviewed (go test ./cmd/droidyard -update).
 func TestSkillToolMapMatchesTheRegistry(t *testing.T) {
-	reg, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
 	got := toolMap(mcpTools(reg))
 	if *updateSkill {
 		if err := os.WriteFile(toolsFile, []byte(got), 0o644); err != nil {
@@ -134,7 +134,7 @@ func unknownTools(prose string, known map[string]bool) []string {
 
 func knownTools(t *testing.T) map[string]bool {
 	t.Helper()
-	reg, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
 	known := map[string]bool{}
 	for _, tool := range mcpTools(reg) {
 		known[tool.Name] = true
@@ -185,7 +185,7 @@ func TestSkillCheckFailsOnARenamedTool(t *testing.T) {
 // TestToolMapMarksTheCoreProfileAndReadOnlyTools: the columns follow the adapter's
 // profile and the descriptors' annotations, not a list kept here.
 func TestToolMapMarksTheCoreProfileAndReadOnlyTools(t *testing.T) {
-	reg, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(isolatedEnv(t), nil, nil, nil)
 	m := toolMap(mcpTools(reg))
 	for _, tc := range []struct{ tool, core, effect string }{
 		{"device_uiTree", "core", "read-only"},

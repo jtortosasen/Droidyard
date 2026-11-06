@@ -1,6 +1,36 @@
 // Package workspace is the workspace model: which project roots are open, their
 // lifecycle, and their durable configuration (docs/architecture/workspace-state.md;
-// ADR-0020 §Scope and workspace addressing; ADR-0021 §Layout; ADR-0026; ADR-0027).
+// ADR-0020 §Scope and workspace addressing; ADR-0021 §Layout; ADR-0026; ADR-0027;
+// ADR-0137 §3).
+//
+// A root is opened by the first call that names it (Registry.Enter, at Start) and released
+// by Registry.RunIdle once it has had no call and no running operation for IdleAfter.
+//
+// # Lock order
+//
+// Three locks decide whether a call is admitted and whether a root is released, and they
+// are always taken in this order, never the reverse:
+//
+//	w.tx  ->  Registry.mu  ->  Operations.mu
+//
+// w.tx is the workspace's transition lock: an open, a close and an idle release of one
+// workspace each hold it from their first decision to the last state they publish
+// (ADR-0027). Enter takes it through Open; RunIdle only TryLocks it, so a busy workspace is
+// skipped for a round, and keeps it from its decision to closed.
+//
+// Registry.mu is the admission lock: the open check and the recording of the operation it
+// admits, a transition entering closing, and the idle clock (lastUsed) are under it. The
+// record callback takes Operations.mu, and the release asks Operations.ActiveIn, both
+// inside this hold.
+//
+// Operations.mu is the store's. Nothing holding it calls into the registry: the registry
+// hears of an operation's end (Ended) from Operations.flush, after the store's lock is
+// released.
+//
+// Beside them: pubMu (publication order) comes after tx and before mu, never inside mu;
+// Degrade and Recover hold it across mu and never take tx, since a close holds tx while it
+// waits for the very build that reports the crash. allMu (the map of workspaces) is taken
+// inside mu, and indexMu (workspaces.json) is never held across it.
 package workspace
 
 import (
@@ -40,6 +70,13 @@ const (
 	Closing  State = "closing"
 	Closed   State = "closed"
 )
+
+// IdleAfter is how long an open workspace may go with no call and no running operation
+// before RunIdle releases it (ADR-0137 §3: a working default, fixed).
+const IdleAfter = 30 * time.Minute
+
+// idleEvery is how often RunIdle looks.
+const idleEvery = time.Minute
 
 // DefaultDrain is how long a close waits for the workspace's cancelled operations
 // before it stops its sidecars and completes: the working default of ADR-0027, to move
@@ -236,6 +273,11 @@ type workspace struct {
 	state atomic.Value // State
 	// Guarded by Registry.mu.
 	info Info
+	// lastUsed is when the workspace was last opened, asked for (Open, the no-op on an open
+	// root included, and Enter's admission) or last had an operation end (Ended): what the
+	// idle release judges. It is the registry's, not the operation store's, since the store
+	// prunes terminal operations after 15 minutes. Guarded by Registry.mu.
+	lastUsed time.Time
 	// gradleRoots is the canonical Gradle root the workspace's latest resolution gave while
 	// it was open, none if it gave none (ADR-0092 §1), recorded by UseGradleRoot: a set of
 	// at most one. Guarded by Registry.mu.
@@ -266,6 +308,19 @@ type Registry struct {
 	// watchHook is a test seam: see SetWatchHook.
 	watchHook atomic.Pointer[func()]
 
+	// idleEvery is how often RunIdle looks; a field so a test can shorten it.
+	idleEvery time.Duration
+	// Test seams, each called with the workspace id: releaseHook in an idle release once it
+	// has entered closing, holding the transition lock; endedHook after Ended stamped the
+	// clock; openHook at the start of an Open, before it asks for the transition lock;
+	// admitHook in Enter, between the open and the admission; resolvedHook in Enter, between
+	// the resolution of the root (with the root) and the open.
+	releaseHook  atomic.Pointer[func(id string)]
+	endedHook    atomic.Pointer[func(id string)]
+	openHook     atomic.Pointer[func(id string)]
+	admitHook    atomic.Pointer[func(id string)]
+	resolvedHook atomic.Pointer[func(root string)]
+
 	indexMu     sync.Mutex
 	indexLoaded bool
 	indexNewer  bool
@@ -283,7 +338,7 @@ func New(opts Options) *Registry {
 	if opts.Log == nil {
 		opts.Log = io.Discard
 	}
-	r := &Registry{opts: opts, now: time.Now, all: map[string]*workspace{}}
+	r := &Registry{opts: opts, now: time.Now, idleEvery: idleEvery, all: map[string]*workspace{}}
 	if opts.Ops != nil {
 		opts.Ops.UseWorkspaces(r)
 	}
@@ -302,7 +357,9 @@ func (r *Registry) resolve(target string) (id, root string) {
 	return target, ""
 }
 
-// Admit implements capability.Workspaces.
+// Admit implements capability.Workspaces: the open check alone, for the session's stamp
+// (Operations.sessionRef). It opens nothing and does not touch the idle clock; a call is
+// admitted by Enter.
 func (r *Registry) Admit(target string, record func(id string)) bool {
 	id, _ := r.resolve(target)
 	w := r.lookup(id)
@@ -519,7 +576,14 @@ func stateUnreadable(target string, err error) *capability.Error {
 // index holds, fails with WORKSPACE_ROOT_INVALID, and state that cannot be read or
 // written with WORKSPACE_STATE_UNREADABLE (ADR-0026). An open during a close
 // waits for the workspace to be closed, then opens it (ADR-0027).
-func (r *Registry) Open(target string) (Info, error) {
+func (r *Registry) Open(target string) (Info, error) { return r.open(target, true) }
+
+// open is Open. explicit is whether the caller asked to open the workspace (workspace.open,
+// workspace.enter), as against a call that names a project and needs it open (Enter): for
+// an already open workspace an explicit open reads its trust and its main tree afresh and
+// writes the index again (workspace.watch lists the newest first), while Enter's reads and
+// writes nothing but the idle clock's stamp and returns the id.
+func (r *Registry) open(target string, explicit bool) (Info, error) {
 	if r.opts.Store == nil {
 		return Info{}, errors.New("the workspace registry has no state store")
 	}
@@ -545,12 +609,22 @@ func (r *Registry) Open(target string) (Info, error) {
 		}
 		w = r.entry(id)
 	}
+	if h := r.openHook.Load(); h != nil {
+		(*h)(id)
+	}
 	w.tx.Lock()
 	defer w.tx.Unlock()
 	r.mu.Lock()
 	if w.info.State.open() {
+		// Every open is a use, the no-op on an open root included: the stamp is what keeps
+		// the idle release from judging a root idle between this open and the admission of
+		// the call that asked for it (plan m3j, R2-B1).
+		w.lastUsed = r.now()
 		info := w.info
 		r.mu.Unlock()
+		if !explicit {
+			return info, nil
+		}
 		// Trust is read afresh: `droidyard trust` after the open must show here
 		// (ADR-0015 §6), and reading the configuration does I/O we keep out of the
 		// admission lock.
@@ -580,6 +654,7 @@ func (r *Registry) Open(target string) (Info, error) {
 	// A closed workspace opens with no Gradle root: what a call recorded while it was
 	// closing or closed is gone, and UseGradleRoot recorded nothing in the states between.
 	w.gradleRoots = nil
+	w.lastUsed = r.now()
 	w.state.Store(info.State)
 	r.mu.Unlock()
 	r.publish(id, info.State, info.DegradedBy, info.Name, info.Root)
@@ -806,8 +881,8 @@ func (r *Registry) releasableRoots(w *workspace, mine map[string]struct{}) []str
 }
 
 // Close closes the workspace target names for every session and returns once it is
-// closed (ADR-0027): it enters closing, which rejects every other workspace-scoped
-// call at Start; cancels the workspace's operations and waits for them up to the
+// closed (ADR-0027): it enters closing, during which a workspace-scoped call (Enter) or an
+// open waits for the close and then reopens the root (ADR-0137 §3); cancels the workspace's operations and waits for them up to the
 // drain bound, logging any still running, which end cancelled when their handlers
 // return; stops the workspace's sidecars; and marks it closed. It is not cancellable.
 // A close of a workspace that is not open, or a second close, completes as a no-op.
@@ -825,17 +900,34 @@ func (r *Registry) Close(target string) error {
 		r.mu.Unlock()
 		return nil
 	}
-	root, name := w.info.Root, w.info.Name
+	name, root, mine := r.enterClosingLocked(w)
+	r.mu.Unlock()
+	r.finishClose(w, name, root, mine)
+	return nil
+}
+
+// enterClosingLocked moves an open workspace to closing and takes the Gradle roots it
+// recorded. Called with w.tx and r.mu held.
+func (r *Registry) enterClosingLocked(w *workspace) (name, root string, gradleRoots map[string]struct{}) {
+	name, root = w.info.Name, w.info.Root
 	w.info.State = Closing
 	w.state.Store(Closing)
-	mine := w.gradleRoots
+	gradleRoots = w.gradleRoots
 	w.gradleRoots = nil
-	r.mu.Unlock()
+	return name, root, gradleRoots
+}
+
+// finishClose is a close from the publication of closing on, for the workspace Close or
+// the idle release has just moved to closing (enterClosingLocked). Called with w.tx held
+// and r.mu not: the transition lock stays held from the decision to closed.
+func (r *Registry) finishClose(w *workspace, name, root string, mine map[string]struct{}) {
+	id := w.info.ID
 	r.publish(id, Closing, nil, name, root)
 
 	if r.opts.Ops != nil {
 		ids := r.opts.Ops.CancelWorkspace(id)
-		deadline := r.now().Add(r.opts.Drain)
+		// The store's clock is the wall clock; r.now is the idle clock a test may move.
+		deadline := time.Now().Add(r.opts.Drain)
 		for _, op := range ids {
 			out, err := r.opts.Ops.Wait(context.Background(), op, deadline)
 			if err == nil && !out.State.Terminal() {
@@ -860,5 +952,4 @@ func (r *Registry) Close(target string) error {
 		r.opts.StopSidecars(id)
 	}
 	r.setState(w, Closed, name, root)
-	return nil
 }

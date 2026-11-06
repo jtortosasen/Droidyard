@@ -35,9 +35,10 @@ const (
 	// (ADR-0019).
 	ErrDaemonVersionMismatch ErrorCode = "DAEMON_VERSION_MISMATCH"
 
-	// ErrWorkspaceNotOpen: a workspace-scoped call named a root or id that is not open;
-	// the core never opens a workspace implicitly. nextStep: workspace.open (ADR-0020
-	// §Scope and workspace addressing).
+	// ErrWorkspaceNotOpen: a workspace was asked of that is not open (Describe, UseGradleRoot),
+	// or a call's admission found it still not open after one reopen. A workspace-scoped
+	// call opens its root itself at Start (ADR-0137 §3); step 6 of plan m3j retires this
+	// code. nextStep: workspace.open (ADR-0020 §Scope and workspace addressing).
 	ErrWorkspaceNotOpen ErrorCode = "WORKSPACE_NOT_OPEN"
 	// ErrWorkspaceNotAWorktree: workspace.enter's root is neither the calling session's
 	// project root nor a linked git worktree of it by ADR-0081 §2 (a worktree of another

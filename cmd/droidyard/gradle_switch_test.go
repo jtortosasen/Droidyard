@@ -11,16 +11,25 @@ import (
 	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
-// useGradleRoot writes the project file's gradleRoot choice, as the UI does: the next
-// call of the workspace resolves it, with no reopen.
+// useGradleRoot moves the project's Gradle root, as editing the project does: "." gives
+// the top a settings file of its own, so the Gradle root is the top (the nearest settings
+// file wins), and "dev" takes it away again, so the one build below, dev/, is the Gradle
+// root. The next call of the workspace resolves it, with no reopen. (The project file's
+// gradleRoot key, which these cases used before plan m3j, no longer chooses a project.)
 func useGradleRoot(t *testing.T, top, rel string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(top, ".droidyard"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	body := `{"schemaVersion":1,"gradleRoot":"` + rel + `"}`
-	if err := os.WriteFile(filepath.Join(top, ".droidyard", "project.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+	settings := filepath.Join(top, "settings.gradle.kts")
+	switch rel {
+	case ".":
+		if err := os.WriteFile(settings, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	case "dev":
+		if err := os.Remove(settings); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatalf("useGradleRoot: %q", rel)
 	}
 }
 
@@ -50,7 +59,7 @@ func waitLines(t *testing.T, events, prefix string, n int) {
 }
 
 // TestSwitchedGradleRootCloses is ADR-0092 §1, §2 on a real daemon over the fake sidecar:
-// a workspace whose gradleRoot is changed closes the connection to the root it switched
+// a workspace whose Gradle root changes (useGradleRoot) closes the connection to the root it switched
 // away from (the sidecar logs `closed`), unless another open workspace still uses that
 // root, and not before a build in flight on it ends, however long the build runs. A
 // switch back reopens the root and lists its tasks.
@@ -62,7 +71,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 	t.Parallel()
 
 	// setup starts a daemon over a fake sidecar scripted by cfg, with a trusted top holding
-	// dev/ and tools/x/. It returns what the cases drive.
+	// dev/. It returns what the cases drive.
 	setup := func(t *testing.T, cfg gradletest.Config) (state, top, events string, stop func()) {
 		t.Helper()
 		state = shortDir(t)
@@ -70,7 +79,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		cfg.Events = events
 		cfg.Model = gradletest.MustModel(gradleRootModel)
 		path := gradletest.WriteConfig(t, cfg)
-		top = topWith(t, "dev/settings.gradle.kts", "tools/x/settings.gradle.kts")
+		top = topWith(t, "dev/settings.gradle.kts")
 		srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + path, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
 		srv.expect(t, "listening")
 		for _, root := range []string{top, filepath.Join(top, "dev")} {
@@ -95,7 +104,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 	t.Run("a switch closes the root left behind and a switch back reopens it", func(t *testing.T) {
 		t.Parallel()
 		state, top, events, stop := setup(t, gradletest.Config{})
-		dev, tools := filepath.Join(top, "dev"), filepath.Join(top, "tools", "x")
+		dev, tools := filepath.Join(top, "dev"), top
 		call(t, state, top, "workspace.open")
 
 		useGradleRoot(t, top, "dev")
@@ -107,7 +116,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 			t.Fatalf("a first call closed %q; want nothing", got)
 		}
 
-		useGradleRoot(t, top, "tools/x")
+		useGradleRoot(t, top, ".")
 		call(t, state, top, "build.tasks")
 		waitLines(t, events, "closed ", 1)
 		if got := linesWithPrefix(t, events, "closed "); len(got) != 1 || got[0] != "closed "+dev {
@@ -138,7 +147,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		useGradleRoot(t, top, "dev")
 		call(t, state, top, "build.tasks")
 		call(t, state, dev, "build.tasks") // a call that has resolved dev/ itself
-		useGradleRoot(t, top, "tools/x")
+		useGradleRoot(t, top, ".")
 		call(t, state, top, "build.tasks")
 		waitLines(t, events, "opened ", 2)
 		time.Sleep(700 * time.Millisecond) // the close, were it to come, is a goroutine of its own
@@ -163,7 +172,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 
 		// The switch happens while the build is held at its gate; longer than the 5 s a
 		// workspace close allows a root's close.
-		useGradleRoot(t, top, "tools/x")
+		useGradleRoot(t, top, ".")
 		call(t, state, top, "build.tasks")
 		waitLines(t, events, "opened ", 2)
 		time.Sleep(6 * time.Second)
@@ -200,7 +209,7 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		// The top switches away while the build holds dev/; then the workspace at dev/
 		// makes a call, which waits for the build behind the root's lock. When the build
 		// ends the close of dev/ is due, but a workspace has it as its root again.
-		useGradleRoot(t, top, "tools/x")
+		useGradleRoot(t, top, ".")
 		call(t, state, top, "build.tasks")
 		tasks := droidyardIn(t, state, dev, "call", "--no-autostart", "build.tasks")
 		// The call has resolved dev/ once the daemon has run it: it is running beside the held

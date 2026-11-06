@@ -131,6 +131,15 @@ func (admitWS) Admit(target string, record func(id string)) bool {
 	return true
 }
 
+func (a admitWS) Enter(target string, record func(id string)) error {
+	if !a.Admit(target, record) {
+		return capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", target)
+	}
+	return nil
+}
+
+func (admitWS) Ended(string) {}
+
 // fixtureInUse is the fixtures' Options.InUse (m3e step 5): nil, as for a client with no
 // workspace registry, unless a test sets it before building its fixture.
 var fixtureInUse func(root string) bool

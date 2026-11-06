@@ -66,8 +66,8 @@ func lastOpenedAt(t *testing.T, state, id string) time.Time {
 
 // TestCLIAddressesWorkspaces: the CLI names a workspace with --workspace, else with the
 // root of its cwd (ADR-0020 §Scope and workspace addressing; plan m1c, R3), and a
-// restarted daemon treats every workspace as closed until reopened, restoring its
-// durable state (workspace-state.md §Cleanup and crash recovery). Real processes: a
+// restarted daemon holds every workspace closed until a call names it, restoring its
+// durable state (workspace-state.md §Cleanup and crash recovery; ADR-0137 §3). Real processes: a
 // re-executed serve and re-executed CLIs.
 func TestCLIAddressesWorkspaces(t *testing.T) {
 	t.Parallel()
@@ -108,8 +108,9 @@ func TestCLIAddressesWorkspaces(t *testing.T) {
 	if env, code := callIn(t, state, sub, "workspace.close"); code != 0 {
 		t.Fatalf("close exited %d: %+v", code, env.Error)
 	}
-	if env, code := callIn(t, state, sub, "workspace.describe"); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe after close exited %d: %+v; want WORKSPACE_NOT_OPEN", code, env)
+	// A call naming the closed root opens it again (ADR-0137 §3): nothing says "not open".
+	if env, code := callIn(t, state, sub, "workspace.describe"); code != 0 || env.Error != nil || !reflect.DeepEqual(workspaceOf(t, env), info) {
+		t.Errorf("describe after close exited %d: %+v; want the workspace, reopened by the call", code, env)
 	}
 	before := lastOpenedAt(t, state, id)
 
@@ -120,8 +121,8 @@ func TestCLIAddressesWorkspaces(t *testing.T) {
 	srv.wait(t)
 	srv = droidyard(t, state, "serve")
 	srv.expect(t, "listening")
-	if env, code := callIn(t, state, sub, "workspace.describe"); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
-		t.Errorf("describe after a restart exited %d: %+v; want WORKSPACE_NOT_OPEN", code, env)
+	if env, code := callIn(t, state, sub, "workspace.describe"); code != 0 || env.Error != nil || !reflect.DeepEqual(workspaceOf(t, env), info) {
+		t.Errorf("describe after a restart exited %d: %+v; want the workspace, opened by the call with its durable state", code, env)
 	}
 	reopened, code := callIn(t, state, sub, "workspace.open")
 	again := workspaceOf(t, reopened)

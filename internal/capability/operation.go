@@ -224,8 +224,25 @@ type Workspaces interface {
 	// id and returns true. The check and record run under the lock that a close
 	// takes to enter closing, so every admitted call is recorded before a close
 	// collects the workspace's operations to cancel them (ADR-0027). Otherwise it
-	// returns false and does not call record.
+	// returns false and does not call record. It opens nothing: it is the session's
+	// stamp (sessionRef) until step 6 of plan m3j removes the binding; a call is
+	// admitted by Enter.
 	Admit(target string, record func(id string)) bool
+
+	// Enter is the admission of a workspace-scoped call (ADR-0137 §3): it resolves target,
+	// a project path or a workspace id, opens that workspace if it is not open, and calls
+	// record with its canonical id under the lock that a release or a close takes to enter
+	// closing, so every admitted call is recorded before either collects the workspace's
+	// operations (ADR-0027). It returns the error that refuses the call, and then does not
+	// call record. It may read and write the files of the workspace's state; it starts no
+	// process.
+	Enter(target string, record func(id string)) error
+
+	// Ended tells the registry that an operation of workspace id has reached its terminal
+	// state, so the registry's idle clock for that workspace starts from there. It is called
+	// after o.mu is released and takes the registry's own locks (the lock order is in the
+	// workspace package doc: the transition lock, the admission lock, then the store's).
+	Ended(id string)
 }
 
 // Publisher puts an event on the daemon's bus (overview.md §Events). The event
@@ -275,6 +292,11 @@ type Operations struct {
 	traceLog func(format string, v ...any)
 	// flushing is whether a flushLoop (record.go) is running. Guarded by mu.
 	flushing bool
+
+	// ended holds the workspace ids of the operations that reached a terminal state since the
+	// last flush, in order: flush tells Workspaces.Ended about each after o.mu is released.
+	// Guarded by mu.
+	ended []string
 
 	// events holds the operation.state events not yet published, in transition order,
 	// appended under mu where the transition happens. flush publishes them after mu is
@@ -361,7 +383,12 @@ func (o *Operations) Disconnected(originID string) {
 
 // UseWorkspaces gives the store the registry that admits workspace-scoped calls.
 // Without one, no workspace is open.
-func (o *Operations) UseWorkspaces(ws Workspaces) { o.ws = ws }
+func (o *Operations) UseWorkspaces(ws Workspaces) {
+	// Under mu: flush reads it from the goroutine of an operation that ended.
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.ws = ws
+}
 
 // UsePublisher gives the store the bus its operations' progress is published on.
 // Without one, progress is only kept on the operation.
@@ -487,8 +514,9 @@ func (o *Operations) sessionRef(origin Origin) *SessionRef {
 }
 
 // start records the operation and runs its handler. A workspace-scoped call is
-// admitted first: its target must be an open workspace, and the call runs with the
-// workspace's canonical id (ADR-0020 §Scope and workspace addressing).
+// admitted first (Workspaces.Enter): its target is opened if it is not open, and the call
+// runs with the workspace's canonical id (ADR-0020 §Scope and workspace addressing;
+// ADR-0137 §3).
 func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session, client ClientKind, origin Origin) (string, error) {
 	id := newID()
 	// The handler's context carries the caller's values but not its cancellation:
@@ -527,10 +555,17 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 	}
 
 	if d.Scope == Workspace && !d.RawTarget {
-		if o.ws == nil || !o.ws.Admit(target, record) {
+		// The root is resolved and opened here, at Start, and the call admitted under the
+		// registry's admission lock (ADR-0137 §3; plan m3j Q1). A refusal records no
+		// operation.
+		if o.ws == nil {
 			cancel()
 			return "", Errorf(ErrWorkspaceNotOpen, "workspace %q is not open", target).
 				WithNextStep("call workspace.open on it, then retry")
+		}
+		if err := o.ws.Enter(target, record); err != nil {
+			cancel()
+			return "", err
 		}
 	} else {
 		record("")
@@ -689,6 +724,9 @@ func (o *Operations) endLocked(op *operation) {
 	op.finished = o.now()
 	op.cancel()
 	o.terminal = append(o.terminal, op.id)
+	if op.workspace != "" {
+		o.ended = append(o.ended, op.workspace)
+	}
 	o.traces = append(o.traces, traceLine(op))
 	o.queueStateLocked(op)
 	close(op.done)
@@ -783,7 +821,8 @@ func (o *Operations) flush() {
 	o.mu.Lock()
 	lines, logf := o.traces, o.traceLog
 	events, spub := o.events, o.spub
-	o.traces, o.events = nil, nil
+	ended, ws := o.ended, o.ws
+	o.traces, o.events, o.ended = nil, nil, nil
 	o.mu.Unlock()
 	if spub != nil {
 		for _, e := range events {
@@ -794,6 +833,13 @@ func (o *Operations) flush() {
 	// stalled log writer (a paused terminal on a foreground daemon's stderr) must not hold
 	// every later Start behind it.
 	o.flushMu.Unlock()
+	// The registry's idle clock, once o.mu and flushMu are released: Ended takes the
+	// registry's admission lock, and an admission holds that lock while it takes o.mu.
+	if ws != nil {
+		for _, id := range ended {
+			ws.Ended(id)
+		}
+	}
 	if len(lines) > 0 {
 		if logf == nil {
 			logf = log.Printf
@@ -974,6 +1020,22 @@ func (o *Operations) CancelWorkspace(id string) []string {
 		}
 	}
 	return ids
+}
+
+// ActiveIn counts the operations of workspace id not yet in a terminal state: running,
+// queued, or recorded and not yet announced. The registry's idle release asks it under its
+// admission lock, the lock an admission records an operation under, so an operation is
+// either counted here or admitted after the release has entered closing (ADR-0137 §3).
+func (o *Operations) ActiveIn(id string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	n := 0
+	for _, op := range o.ops {
+		if op.workspace == id && !op.state.Terminal() {
+			n++
+		}
+	}
+	return n
 }
 
 // Running counts the operations not yet in a terminal state.

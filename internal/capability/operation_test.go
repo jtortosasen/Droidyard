@@ -535,6 +535,13 @@ func (a admitAs) Admit(target string, record func(id string)) bool {
 	return true
 }
 
+func (a admitAs) Enter(target string, record func(id string)) error {
+	record(string(a))
+	return nil
+}
+
+func (admitAs) Ended(string) {}
+
 // TestProgressIsPublished: a report through Call.Progress is kept on the operation and
 // published, before Progress returns, on operation.progress with type progress, the
 // operation id, the operation's workspace id ("" for a global one) and the payload

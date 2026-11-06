@@ -193,7 +193,7 @@ var (
 // env is the daemon's environment: it decides where the state root and, with it, the
 // user configuration live, so an in-process test daemon reads its own configuration
 // and not this machine's (plan m1g step 3).
-func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *hosting.Host) {
+func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *hosting.Host, *workspace.Registry) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (overview.md §Events).
@@ -421,10 +421,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		return info.Root, true
 	})
 	// The Gradle capabilities run on the Gradle root, a directory inside the project root
-	// (ADR-0075 §3): trust is decided on the project root first, before anything is
-	// resolved or spawned, then the root is resolved again at every call, without a
-	// cache, so a choice written to the project file takes effect on the next call. A
-	// project with none fails PROJECT_NO_GRADLE_ROOT, the candidates in its details.
+	// (ADR-0075 §3): the project is resolved to its root at Start (Registry.Enter,
+	// workspace.ResolveProject), and trust is decided on that resolved root, before
+	// anything is spawned; the Gradle root is then resolved again at every call, without a
+	// cache. A project with none fails PROJECT_NO_GRADLE_ROOT, the candidates in its
+	// details.
 	authorizeGradle := func(ctx context.Context, call *capability.Call) (any, error) {
 		v, err := authorize(ctx, call)
 		if err != nil {
@@ -471,7 +472,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if testHosting != nil && host != nil {
 		testHosting(reg, host)
 	}
-	return reg, ops, bus, artifacts, adb, host
+	return reg, ops, bus, artifacts, adb, host, ws
 }
 
 // sdkToolStarter adapts the supervisor's recorded spawner to the avdmanager runner's
@@ -493,7 +494,7 @@ func sdkToolStarter(sup *proc.Supervisor) sdk.RecordedStarter {
 }
 
 func printCaps() error {
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -530,7 +531,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

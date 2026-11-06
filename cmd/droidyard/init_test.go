@@ -342,9 +342,9 @@ func TestInitOnTheCommandLine(t *testing.T) {
 			t.Errorf("init wrote into a folder of two: %v", left)
 		}
 		// Named with --root, the folder of two is a project with no Gradle root: init says
-		// so and how to choose one.
+		// so and how to name one (plan m3j step 5: a candidate's path, as the project).
 		out, code = initRun(t, state, two, "--client", "cursor", "--dry-run", "--root", two)
-		if code != 0 || !strings.Contains(out, "Gradle root: none (several") || !strings.Contains(out, "gradleRoot") {
+		if code != 0 || !strings.Contains(out, "Gradle root: none (several") || !strings.Contains(out, "one of the candidates") {
 			t.Errorf("--root at a folder of two: exit %d; want its Gradle root reported as none, with the choice\n%s", code, out)
 		}
 	})

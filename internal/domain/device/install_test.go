@@ -41,6 +41,15 @@ func (admitInstall) Admit(target string, record func(string)) bool {
 	return true
 }
 
+func (a admitInstall) Enter(target string, record func(string)) error {
+	if !a.Admit(target, record) {
+		return capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", target)
+	}
+	return nil
+}
+
+func (admitInstall) Ended(string) {}
+
 type installFixture struct {
 	dir string
 	ops *capability.Operations

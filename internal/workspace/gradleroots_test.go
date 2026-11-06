@@ -32,7 +32,7 @@ func rootsOf(r *Registry, id string) []string {
 // degraded by it (the growing-set case of a workspace that used both roots became this).
 func TestDegradeByGradleRoot(t *testing.T) {
 	h := newWatchHarness(t, nil)
-	a, b, shared, closed, none := project(t), project(t), project(t), project(t), project(t)
+	a, b, shared, closed, none := gradleProject(t), gradleProject(t), gradleProject(t), gradleProject(t), gradleProject(t)
 	crash := capability.Errorf(capability.ErrBuildSidecarCrashed, "the sidecar died")
 	const g1, g2 = "/gradle/one", "/gradle/two"
 
@@ -73,7 +73,7 @@ func TestDegradeByGradleRoot(t *testing.T) {
 // an open workspace, which every new tab and MCP session calls, leaves the set alone.
 func TestNoteRacingClose(t *testing.T) {
 	h := newWatchHarness(t, nil)
-	root := project(t)
+	root := gradleProject(t)
 	id := h.open(t, root).ID
 
 	var (
@@ -132,7 +132,7 @@ func TestNoteRacingClose(t *testing.T) {
 // own root and a shared one became a third workspace on the own root.)
 func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 	h := newWatchHarness(t, nil)
-	a, b, c := project(t), project(t), project(t)
+	a, b, c := gradleProject(t), gradleProject(t), gradleProject(t)
 	var mu sync.Mutex
 	var released []string
 	called := make(chan struct{}, 8)
@@ -197,7 +197,7 @@ func TestCloseKeepsARootResolvedDuringItsDrain(t *testing.T) {
 		released = append(released, g)
 		mu.Unlock()
 	}
-	a, b := project(t), project(t)
+	a, b := gradleProject(t), gradleProject(t)
 	idA, idB := h.open(t, a).ID, h.open(t, b).ID
 	if _, err := h.ws.UseGradleRoot(idA, "/gradle/shared"); err != nil {
 		t.Fatal(err)
