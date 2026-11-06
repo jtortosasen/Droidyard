@@ -14,7 +14,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `build_tasks` |  | read-only | Lists the tasks that exist in the project, filtered by module, group or a name substring, from the cached project model (it never runs Gradle). |
 | `device_forceStop` |  | changes state | Force-stops an application, which ends its processes and loses its unsaved in-memory state, and reports whether it was running. |
 | `device_inputText` | core | changes state | Types text into the focused field, or into target after tapping it once, and verifies the effect in the same call; clear empties the field first and ... |
-| `device_install` | core | changes state | Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. |
+| `device_install` | core | changes state | Installs an APK on the device with adb install -r, which keeps the app's data: a build's output (build, with project; buildId absent means the newest ... |
 | `device_launch` | core | changes state | Starts an application's launcher activity, or with url opens that link in the app, and returns launchedAt and the process id observed afterwards ... |
 | `device_list` | core | read-only | Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model ... |
 | `device_logs` | core | read-only | Reads the device's log once, or follows it for followMs: structured lines, crash blocks, how lines were selected, and a capture of the matches. |

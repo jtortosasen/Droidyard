@@ -157,7 +157,13 @@ func (ct *cmdTree) defaultProject(c *cli.Call) {
 	if ct == nil || ct.reg == nil {
 		return
 	}
-	if d, ok := ct.reg.Lookup(c.Capability); !ok || d.Scope != capability.Workspace {
+	d, ok := ct.reg.Lookup(c.Capability)
+	if !ok || d.Scope != capability.Workspace {
+		return
+	}
+	if c.Project == "" && d.ProjectOptional && !callNames(c.Params, "build") {
+		// device.install takes a project for a build only (ADR-0137 §4): an apk install is
+		// not given the current directory, which need not be a project.
 		return
 	}
 	if c.Project == "" {
@@ -314,4 +320,14 @@ a domain's verbs.`}}
 		{Title: "The raw door", Body: list("call", "caps", "schema", "help", "artifact cat")},
 	}
 	return before, after
+}
+
+// callNames reports whether the parameter object params carries a field called name.
+func callNames(params json.RawMessage, name string) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(params, &fields) != nil {
+		return false
+	}
+	_, ok := fields[name]
+	return ok
 }

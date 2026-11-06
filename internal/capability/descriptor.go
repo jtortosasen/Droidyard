@@ -195,6 +195,14 @@ type Descriptor struct {
 	Scope        Scope
 	Statefulness Statefulness
 
+	// ProjectOptional says a workspace-scoped capability takes `project` only for some of
+	// its calls (ADR-0137 §4: device.install, where `project` goes with `build` and an `apk`
+	// install names none). The schema does not require `project`, and the core resolves and
+	// enters a project only when the call names one; a call without it runs with no
+	// workspace on its Call, so the capability's own validation must refuse the calls that
+	// need one. It is for a workspace-scoped descriptor and for device.install alone.
+	ProjectOptional bool
+
 	// LongRunning says the call may outlive an adapter's wait budget (ADR-0020). It
 	// does not make the call stateful.
 	LongRunning bool

@@ -541,7 +541,7 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, projec
 		o.mu.Unlock()
 	}
 
-	if d.Scope == Workspace {
+	if d.Scope == Workspace && (project != "" || !d.ProjectOptional) {
 		// The project is resolved and its root opened here, at Start, and the call admitted
 		// under the registry's admission lock (ADR-0137 §3; plan m3j Q1). A refusal records
 		// no operation.
@@ -1147,6 +1147,10 @@ func (o *Operations) prepare(req Request) (Descriptor, any, string, error) {
 // operation; whether the path names a project is the registry's to judge at admission
 // (Workspaces.Enter). Parameters that are not an object are left for the strict decode to
 // reject, with the message it gives any caller.
+//
+// For a ProjectOptional capability a call that sends no `project` is not refused here: it
+// returns "" and the parameters untouched, and the call runs with no workspace. One that
+// sends a `project` which is empty or not a string is still refused.
 func takeProject(d Descriptor, raw json.RawMessage) (string, json.RawMessage, error) {
 	missing := func(why string) error {
 		return Errorf(ErrInvalidParams, "%s takes `%s`, %s", d.Name, ProjectParam, why).
@@ -1154,6 +1158,9 @@ func takeProject(d Descriptor, raw json.RawMessage) (string, json.RawMessage, er
 			WithDetails(map[string]any{"parameter": ProjectParam})
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
+		if d.ProjectOptional {
+			return "", raw, nil
+		}
 		return "", nil, missing("and the call sends none")
 	}
 	var fields map[string]json.RawMessage
@@ -1165,6 +1172,9 @@ func takeProject(d Descriptor, raw json.RawMessage) (string, json.RawMessage, er
 	}
 	value, ok := fields[ProjectParam]
 	if !ok {
+		if d.ProjectOptional {
+			return "", raw, nil
+		}
 		return "", nil, missing("and the call sends none")
 	}
 	var project string

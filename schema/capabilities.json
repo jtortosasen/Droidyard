@@ -3266,7 +3266,7 @@
       "longRunning": true,
       "audience": "all",
       "since": "0.6.0",
-      "description": "Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. buildId absent means the newest finished build with an output for module and variant.",
+      "description": "Installs an APK on the device with adb install -r, which keeps the app's data: a build's output (build, with project; buildId absent means the newest finished build with an output for module and variant), which returns its applicationId and versionCode, or an APK file (apk, an absolute path; no project), which returns its file name. Exactly one of apk and build.",
       "availability": [
         "adb"
       ],
@@ -3296,11 +3296,15 @@
         "properties": {
           "project": {
             "type": "string",
-            "description": "The absolute path of the folder or worktree of the project you work in, or of a folder inside it."
+            "description": "The absolute path of the folder or worktree of the project you work in, or of a folder inside it. Only with build."
           },
           "device": {
             "type": "string",
             "description": "The serial of the device, from device.list."
+          },
+          "apk": {
+            "type": "string",
+            "description": "The absolute path of an APK file to install, instead of a build; no project with it. Not split APKs or an .aab."
           },
           "build": {
             "properties": {
@@ -3326,15 +3330,13 @@
               "module",
               "variant"
             ],
-            "description": "The build reference to install: a module and variant, and optionally a buildId."
+            "description": "A build to install, instead of an apk: a module and variant, optionally a buildId. Needs project."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "project",
-          "device",
-          "build"
+          "device"
         ]
       },
       "output": {
@@ -3384,11 +3386,12 @@
           "result": {
             "properties": {
               "applicationId": {
-                "type": "string"
+                "type": "string",
+                "description": "The installed application's id; empty for an apk install, whose manifest is not read."
               },
               "versionCode": {
                 "type": "integer",
-                "description": "The output's versionCode, absent when the build's metadata named none."
+                "description": "The output's versionCode, absent when the build's metadata named none, and for an apk install."
               },
               "apk": {
                 "type": "string",

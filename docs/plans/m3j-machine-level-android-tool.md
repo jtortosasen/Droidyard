@@ -163,7 +163,7 @@
 - Needs: step 6.
 - Not here: split APKs and `.aab`.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: schema: `device.install` gains optional `apk`, `required` `[device]`, the rule in its descriptions, `applicationId` "empty for an apk install, whose manifest is not read" (still required; reading the manifest is a register row); version 1.0.0 kept. `TestInstallApkOrBuild` (17 cases, each on a local and a lent device: both, neither, `build` without `project`, `apk` with `project`, relative, missing, a directory, a FIFO, a non-`.apk` name, links to a non-APK, to a link, to a directory, empty, sparse over `PeerMaxUpload`, not a zip → `REQUEST_INVALID_PARAMS` naming the rule, no adb call, no build resolved, nothing uploaded), each rule seen failing with it removed; the FIFO case, added by the main session with a stat before the open, seen hanging to its timeout without it. `TestInstallApkLocalAndLent` (`install -r` on the link's target, no project entered; a physical device refused as for a build; the host gets the target's SHA-256, one `installUpload`, the call untrusted), seen failing with the given path installed instead of the resolved one. `TestProjectOptionalResolvesOnlyWhenNamed`, `TestDefaultProjectSkipsAnApkInstall`, each seen failing. Delegated: `apk` with `project` is refused ("takes no project"); `.APK` accepted; the size bound applies to local installs too.
 
 ### 9. Documents, skills and the register
 

@@ -440,8 +440,10 @@ func TestEveryProjectCapabilityTakesOneRequiredProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	scopeOf := map[string]capability.Scope{}
+	optionalOf := map[string]bool{}
 	for _, d := range reg.All() {
 		scopeOf[d.Name] = d.Scope
+		optionalOf[d.Name] = d.ProjectOptional
 	}
 	scoped := 0
 	for _, c := range doc.Capabilities {
@@ -463,10 +465,20 @@ func TestEveryProjectCapabilityTakesOneRequiredProject(t *testing.T) {
 			continue
 		}
 		scoped++
-		if !has || prop.Type != "string" || prop.Description != schema.ProjectDescription {
+		wantDesc := schema.ProjectDescription
+		if optionalOf[c.Name] {
+			wantDesc = schema.ProjectOptionalDescription
+		}
+		if !has || prop.Type != "string" || prop.Description != wantDesc {
 			t.Errorf("%s: project is %+v; want a string with the one description", c.Name, prop)
 		}
-		if len(in.Required) == 0 || in.Required[0] != capability.ProjectParam {
+		// Decision (ADR-0137 §4): project is required of every workspace-scoped input but
+		// one that is ProjectOptional (device.install, where only a build needs it).
+		if optionalOf[c.Name] {
+			if slices.Contains(in.Required, capability.ProjectParam) {
+				t.Errorf("%s: required is %v; project is optional here", c.Name, in.Required)
+			}
+		} else if len(in.Required) == 0 || in.Required[0] != capability.ProjectParam {
 			t.Errorf("%s: required is %v; want project first", c.Name, in.Required)
 		}
 		// Its place among the properties is first, in the published order.

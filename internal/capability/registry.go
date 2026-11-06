@@ -76,6 +76,9 @@ func (r *Registry) Register(d Descriptor) error {
 		// host's projects (ADR-0099 §2).
 		return fmt.Errorf("capability %q: Lendable is for a global capability", d.Name)
 	}
+	if d.ProjectOptional && d.Scope != Workspace {
+		return fmt.Errorf("capability %q: ProjectOptional is for a workspace-scoped capability", d.Name)
+	}
 	if d.Scope == Workspace {
 		// The schema package adds `project` to the input schema, so the parameters must be
 		// an object that has no property of that name: a descriptor that declared one would

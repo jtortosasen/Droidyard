@@ -250,11 +250,17 @@ func bareRepeats(t goreflect.Type, s *jsonschema.Schema, seen map[goreflect.Type
 // every workspace-scoped tool's input (ADR-0137 §3).
 const ProjectDescription = "The absolute path of the folder or worktree of the project you work in, or of a folder inside it."
 
+// ProjectOptionalDescription is the description of `project` where a capability takes it
+// for some calls only (Descriptor.ProjectOptional, device.install): the one description and
+// the rule, which the capability's own validation enforces.
+const ProjectOptionalDescription = ProjectDescription + " Only with build."
+
 // withProject puts the `project` property first in an object schema, with the description
-// above, and first among its required ones. A schema that is not an object, or that already
+// above, and first among its required ones, unless optional (Descriptor.ProjectOptional),
+// where the capability's own descriptions say when it is needed. A schema that is not an object, or that already
 // has the property, cannot take it: Register refuses both for a workspace-scoped descriptor,
 // so reaching either here is a bug, reported rather than published.
-func withProject(sch *jsonschema.Schema) error {
+func withProject(sch *jsonschema.Schema, optional bool) error {
 	if sch.Type != "object" {
 		return fmt.Errorf("a workspace-scoped capability's input must be an object, not %q", sch.Type)
 	}
@@ -264,14 +270,20 @@ func withProject(sch *jsonschema.Schema) error {
 		}
 	}
 	props := jsonschema.NewProperties()
-	props.Set(capability.ProjectParam, &jsonschema.Schema{Type: "string", Description: ProjectDescription})
+	desc := ProjectDescription
+	if optional {
+		desc = ProjectOptionalDescription
+	}
+	props.Set(capability.ProjectParam, &jsonschema.Schema{Type: "string", Description: desc})
 	if sch.Properties != nil {
 		for pair := sch.Properties.Oldest(); pair != nil; pair = pair.Next() {
 			props.Set(pair.Key, pair.Value)
 		}
 	}
 	sch.Properties = props
-	sch.Required = append([]string{capability.ProjectParam}, sch.Required...)
+	if !optional {
+		sch.Required = append([]string{capability.ProjectParam}, sch.Required...)
+	}
 	return nil
 }
 
@@ -286,7 +298,7 @@ func Input(d capability.Descriptor) (json.RawMessage, error) {
 	}
 	bareRepeats(goreflect.TypeOf(d.Params), sch, map[goreflect.Type]bool{}, false)
 	if d.Scope == capability.Workspace {
-		if err := withProject(sch); err != nil {
+		if err := withProject(sch, d.ProjectOptional); err != nil {
 			return nil, fmt.Errorf("capability %s: %w", d.Name, err)
 		}
 	}

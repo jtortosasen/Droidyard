@@ -28,14 +28,23 @@ var uploadTimeout = 10 * time.Minute
 // the bytes it receives and reports their SHA-256, which must be the digest of the bytes
 // sent; the installed file's digest, which it reports again, must be the same.
 func (a *ADB) installRemote(ctx context.Context, call *capability.Call, rt *remoteTarget, out build.ResolvedOutput) (InstallResult, error) {
-	// Whatever comes of this call involves another machine's answers.
-	yes := true
-	call.Untrusted = &yes
 	f, err := os.Open(out.Path)
 	if err != nil {
+		// Whatever comes of this call involves another machine's answers.
+		yes := true
+		call.Untrusted = &yes
 		return InstallResult{}, installFailed("the build's APK " + out.APK + " could not be opened to upload it")
 	}
 	defer f.Close()
+	return a.uploadInstall(ctx, call, rt, f, out)
+}
+
+// uploadInstall uploads the open APK f, whose facts out has, to the host and installs it
+// there. The bytes are read from f, so what is sent is the file that was checked, whatever
+// its path leads to now.
+func (a *ADB) uploadInstall(ctx context.Context, call *capability.Call, rt *remoteTarget, f *os.File, out build.ResolvedOutput) (InstallResult, error) {
+	yes := true
+	call.Untrusted = &yes
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() {
 		return InstallResult{}, installFailed("the build's APK " + out.APK + " could not be read to upload it")

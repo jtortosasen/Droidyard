@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,9 +108,11 @@ func TestMCPSessionBindsNothing(t *testing.T) {
 	}
 	json.Unmarshal(a.recv(), &list)
 	scoped := map[string]bool{}
+	optional := map[string]bool{}
 	for _, d := range p.reg.All() {
 		if d.Scope == capability.Workspace {
 			scoped[strings.Replace(d.Name, ".", "_", 1)] = true
+			optional[strings.Replace(d.Name, ".", "_", 1)] = d.ProjectOptional
 		}
 	}
 	withProject := 0
@@ -125,7 +128,13 @@ func TestMCPSessionBindsNothing(t *testing.T) {
 			t.Errorf("%s takes a project and is no project tool", tool.Name)
 		case has:
 			withProject++
-			if prop.Description != schema.ProjectDescription || len(tool.InputSchema.Required) == 0 || tool.InputSchema.Required[0] != "project" {
+			// device_install alone takes project for a build only (ADR-0137 §4): its own
+			// description, and not required.
+			if optional[tool.Name] {
+				if prop.Description != schema.ProjectOptionalDescription || slices.Contains(tool.InputSchema.Required, "project") {
+					t.Errorf("%s: project is %+v, required %v; want the optional description and not required", tool.Name, prop, tool.InputSchema.Required)
+				}
+			} else if prop.Description != schema.ProjectDescription || len(tool.InputSchema.Required) == 0 || tool.InputSchema.Required[0] != "project" {
 				t.Errorf("%s: project is %+v, required %v; want the one description and first among the required", tool.Name, prop, tool.InputSchema.Required)
 			}
 		}
