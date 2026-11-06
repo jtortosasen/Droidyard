@@ -1,11 +1,12 @@
 # Plan: Milestone 3j — A machine-level Android tool: the project per call, the workbench out
 
-- Status: Reviewed
+- Status: Approved
 - Date: 2026-10-29
 - Milestone: the owner, 2026-10-28: "this droidyard is covering too much"; Droidyard becomes purely an Android tool at machine level, a CLI/MCP on adb and SDK management; Build and Gradle stay; the web UI, Git, files, sessions and chats, the binding, the assistant hooks, `shell.exec` and the trash leave to a separate project. `docs/README.md` §Where the work stands: "next, the owner's choice".
 - Phase: none (Phase 3). The Scope table is the boundary.
 - Contract: ADR-0137 (Proposed; accepted with this plan); ADR-0015 §5, ADR-0020 §Core primitives, §Scope, ADR-0027, ADR-0037, ADR-0043 §2, ADR-0075 §2, §5, §6, ADR-0081, ADR-0092, ADR-0094, ADR-0101, ADR-0104, ADR-0122, ADR-0124; `workspace-state.md`; `capability-api.md` §Discovery and versioning; `mcp.md` §Server instructions; `http-websocket.md` §Security baseline.
 - Before approval (main session, ADR-0137 still Proposed): Q1, Q3 and Q6's answers folded into ADR-0137 §3 and §Consequences (Q3 reverses an alternative ADR-0020 rejected, a principle of the contract, so it belongs in the ADR, not a commit line); Decision 9 completed: ADR-0085 whole; in part ADR-0015 §7 (the shell), ADR-0020 §Core primitives (Q1), ADR-0032 (the `shell` keys), ADR-0037 (hooks), ADR-0075 §2 (a), §4, §7, ADR-0094 (worktrees).
+- Approved: the owner, 2026-11-06 ("continua por donde ibas", then "en local digo": the whole milestone runs locally, nothing pushed before the close); ADR-0137 accepted with it.
 - Track: Full. Opus verifier after step 5 (lifetime, admission) and step 6 (the contract switch), and at the close; implementer effort `high` for steps 5, 6, 8.
 - The plan's commit adds its row to `docs/plans/README.md` (until then `TestPlansIndexMatchesFiles` fails on this file).
 - API `0.41.0` on main; this milestone takes `1.0.0` (`capability-api.md` §Discovery and versioning: a breaking change is a major; ADR-0137 §8). No other lane on 2026-10-29; checked again at approval.
@@ -64,7 +65,7 @@
 - Needs: the owner's acceptance of ADR-0137 with this plan.
 - Not here: the separate repository (the owner clones the bundle and pushes; outward-facing); its build (it imports packages that stay, ADR-0137 §7); history from before a rename into a leaving path (filter-branch keeps paths, not renames).
 - Rests on: the bundle holds each leaving path's history and nothing else (L3, the counts and the path list).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `93985b4`; `TestADRsAreWellFormed`, `TestADRIndexMatchesFiles` pass, seen failing with one header line out. The export in `~/Library/Caches/droidyard-dev/3j/export/` (`verify.txt`): `droidyard-workbench.bundle` 1.9 MB; `list-heads` names `HEAD` and `refs/heads/main` only (the first run carried the `v0.*` tags and no `HEAD`, so its clone failed: every ref but `main` is now deleted and `HEAD` bundled); its clone has 309 commits; 101 of 101 paths `ok` (the same commit count as here), none `DIFF`; 563 paths in its history, 0 outside `paths.txt`. `register-rows.md`: 96 open rows of `web UI`, `git`, `files` and 49 of the other Areas, verbatim, with the rule; 9 `web UI` rows about what stays change Area at step 9 (lines 543, 544, 560, 562, 598 to `MCP/agents`; 552, 583, 586 to `device/UI`; 573 to `device`); 4 binding rows close at step 9 as resolved, not moved (344, 345, 346, 373).
 
 ### 2. Remove the web UI
 
