@@ -207,7 +207,7 @@ func TestInitUserWritesTheUserFiles(t *testing.T) {
 	// The files, where ADR-0124 §1's table puts them.
 	want := map[string][]string{
 		u.claude:                         {"settings.json", "skills/droidyard-android/SKILL.md"},
-		filepath.Join(u.home, ".cursor"): {"mcp.json", "hooks.json", "cli-config.json"},
+		filepath.Join(u.home, ".cursor"): {"mcp.json", "cli-config.json"},
 		filepath.Join(u.xdg, "opencode"): {"opencode.json"},
 		filepath.Join(u.home, ".agents"): {"skills/droidyard-android/SKILL.md"},
 	}
@@ -235,7 +235,7 @@ func TestInitUserWritesTheUserFiles(t *testing.T) {
 	// No file of the configuration names a root, or the project.
 	for _, f := range []string{
 		filepath.Join(u.claude, "settings.json"), filepath.Join(u.home, ".cursor", "mcp.json"),
-		filepath.Join(u.home, ".cursor", "hooks.json"), filepath.Join(u.xdg, "opencode", "opencode.json"),
+		filepath.Join(u.xdg, "opencode", "opencode.json"),
 	} {
 		raw, err := os.ReadFile(f)
 		if err != nil {

@@ -5,9 +5,8 @@
 // `trust` writes the user configuration directly, with no daemon involved, and so do
 // `host` and `remote` (the peer pairing and lending, ADR-0098 §7; `id` asks the daemon
 // for its fingerprint) and `init`, which writes the assistant integration into a project (ADR-0037). `hook`
-// answers an assistant's hook event and dials the daemon only if one is running
-// (ADR-0061). `trash` moves files to the trash through a running daemon and starts none
-// (ADR-0062).
+// passes an assistant's hook event and does nothing else: it stays one minor release for
+// the entries an earlier init wrote (ADR-0137, plan m3j Q4).
 package main
 
 import (
@@ -25,7 +24,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/agent"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
@@ -561,11 +559,6 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
-	// agent.recordCommand, agent.recordEdit and agent.checkWrite are the hook's channel
-	// (ADR-0063, ADR-0095 §3): audience human, stateless; a record is the operation's
-	// result. The check reads who holds a worktree from the session registry, and a
-	// recorded edit makes the file watches walk at once.
-	agent.Register(reg, agent.Options{Sessions: ops.Sessions(), Canonical: env.Canonical, Nudge: watchers.Nudge})
 	// session.chats lists the clients' chats of the projects the index knows, read from the
 	// clients' own stores (ADR-0127): audience human, stateless, joined to the live sessions
 	// by chat id. The stores are those `init --user` writes in, resolved from the daemon's

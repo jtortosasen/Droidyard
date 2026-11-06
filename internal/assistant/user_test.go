@@ -133,24 +133,9 @@ func TestUserRunWritesEachClientsFiles(t *testing.T) {
 		t.Fatalf("refused: %+v", res.Changes)
 	}
 
-	claudeHooks := func(cmd string) string {
-		bash := `{"matcher":"Bash","hooks":[{"type":"command","command":"` + cmd + `"}]}`
-		edit := `{"matcher":"Write|Edit|NotebookEdit","hooks":[{"type":"command","command":"` + cmd + `"}]}`
-		return `{"PreToolUse":[` + bash + `,` + edit + `],"PostToolUse":[` + bash + `,` + edit + `],"PostToolUseFailure":[` + bash + `]}`
-	}
-	cursorEntry := func(matcher string) string {
-		if matcher == "" {
-			return `{"command":"` + userCursorHook + `"}`
-		}
-		return `{"command":"` + userCursorHook + `","matcher":"` + matcher + `"}`
-	}
 	files := map[string]string{
-		".claude/settings.json": `{"permissions":{"allow":["mcp__droidyard__device_list","mcp__droidyard__device_uiTree"]},"hooks":` + claudeHooks(userClaudeHook) + `}`,
+		".claude/settings.json": `{"permissions":{"allow":["mcp__droidyard__device_list","mcp__droidyard__device_uiTree"]}}`,
 		".cursor/mcp.json":      `{"mcpServers":{"droidyard":{"command":"/opt/bin/droidyard","args":["mcp","--from","${workspaceFolder}"]}}}`,
-		".cursor/hooks.json": `{"version":1,"hooks":{"beforeShellExecution":[` + cursorEntry("") + `],` +
-			`"preToolUse":[` + cursorEntry("Delete") + `,` + cursorEntry("Write") + `],` +
-			`"postToolUse":[` + cursorEntry("Shell") + `,` + cursorEntry("Write") + `],` +
-			`"postToolUseFailure":[` + cursorEntry("Shell") + `]}}`,
 		// No deny array: step 1 saw no need of one in cli-config.json.
 		".cursor/cli-config.json":        `{"permissions":{"allow":["Mcp(droidyard:device_list)","Mcp(droidyard:device_uiTree)"]}}`,
 		".config/opencode/opencode.json": `{"mcp":{"servers":{"droidyard":{"type":"local","command":["/opt/bin/droidyard","mcp"],"codemode":false}}}}`,
@@ -181,8 +166,11 @@ func TestUserRunWritesEachClientsFiles(t *testing.T) {
 			t.Errorf("%s names a root:\n%s", rel, text)
 		}
 	}
-	if res.Hooks[Claude] != userClaudeHook || res.Hooks[Cursor] != userCursorHook || len(res.Hooks) != 2 {
-		t.Errorf("Hooks = %v", res.Hooks)
+	// No hook (ADR-0137): neither client's hook file is there to be written.
+	for rel, text := range snap {
+		if strings.Contains(text, "hook") {
+			t.Errorf("%s names a hook:\n%s", rel, text)
+		}
 	}
 	if len(res.Allowed[Claude]) != 2 || len(res.Allowed[Cursor]) != 2 {
 		t.Errorf("Allowed = %v", res.Allowed)
@@ -193,7 +181,7 @@ func TestUserRunWritesEachClientsFiles(t *testing.T) {
 		".claude.json", ".claude/settings.json",
 		".claude/skills/droidyard-android/SKILL.md", ".claude/skills/droidyard-android/references/tools.md",
 		".config/opencode/opencode.json",
-		".cursor/cli-config.json", ".cursor/hooks.json", ".cursor/mcp.json",
+		".cursor/cli-config.json", ".cursor/mcp.json",
 	}
 	if got := fileSet(snap); !reflect.DeepEqual(got, want) {
 		t.Errorf("files written = %v\nwant %v", got, want)
@@ -276,14 +264,14 @@ func TestUserUninstallRestoresTheFiles(t *testing.T) {
 	if res.Refused() {
 		t.Fatalf("install refused: %+v", res.Changes)
 	}
-	// The user's rooted entries are still there, beside init's rootless ones.
+	// The user's rooted entries are still there, and init added no rootless one beside them.
 	for rel, root := range map[string]string{".claude/settings.json": "claude --root /p", ".cursor/hooks.json": "cursor --root /p"} {
 		got := read(t, e.base, rel)
 		if !strings.Contains(got, "droidyard hook --client "+root) {
 			t.Errorf("%s lost the user's `--root /p` entry:\n%s", rel, got)
 		}
-		if !strings.Contains(got, testCommand+" hook --client "+strings.Fields(root)[0]+`"`) {
-			t.Errorf("%s lacks init's rootless entry:\n%s", rel, got)
+		if strings.Contains(got, testCommand+" hook") {
+			t.Errorf("%s holds an entry of init's:\n%s", rel, got)
 		}
 	}
 
@@ -297,10 +285,12 @@ func TestUserUninstallRestoresTheFiles(t *testing.T) {
 	}
 }
 
-// ADR-0090 §1 at user level: a rootless entry of init's for another binary path or state
-// root is stale and is replaced, not doubled, and an uninstall removes it too. An entry of
-// the other client, one with a wrapper and one with an extra word stay the user's.
-func TestUserStaleHookIsReplaced(t *testing.T) {
+// ADR-0137, ADR-0090 §1 at user level: a rootless entry of init's, for any binary path or
+// state root, is removed by an install (and by an uninstall), reported as stale entries,
+// and written nowhere. An entry of the other client, one with a wrapper and one with an
+// extra word stay the user's. Seen failing: with the cleanup left out of the install path,
+// the entries stayed and the notes were empty.
+func TestUserRunRemovesItsHooks(t *testing.T) {
 	e := newUserEnv(t)
 	bash := func(cmd string) string {
 		return `{"matcher":"Bash","hooks":[{"type":"command","command":"` + cmd + `"}]}`
@@ -325,43 +315,39 @@ func TestUserStaleHookIsReplaced(t *testing.T) {
 
 	o := e.opts(e.claude(t), Cursor, Claude)
 	res := mustRun(t, o)
-	if c := statusOf(t, res, filepath.ToSlash(filepath.Join(e.dirs.Claude, "settings.json"))); !strings.Contains(notesOf(c), "replaced 2 stale entries") {
-		t.Errorf("settings.json notes = %q; want 2 stale entries replaced", notesOf(c))
+	settings := filepath.ToSlash(filepath.Join(e.dirs.Claude, "settings.json"))
+	if c := statusOf(t, res, settings); !strings.Contains(notesOf(c), "removed 2 stale entries") {
+		t.Errorf("settings.json notes = %q; want 2 stale entries removed", notesOf(c))
 	}
 	got := read(t, e.base, ".claude/settings.json")
 	if strings.Contains(got, "/old/bin/droidyard hook --client claude\"") || strings.Contains(got, "/older/") || strings.Contains(got, "/old/state") {
-		t.Errorf("a stale rootless entry is left:\n%s", got)
+		t.Errorf("a rootless entry of init's is left:\n%s", got)
 	}
-	if n := strings.Count(got, `"`+userClaudeHook+`"`); n != 5 {
-		t.Errorf("init's current entry appears %d times; want 5 (Pre x2, Post x2, Failure x1)\n%s", n, got)
+	if strings.Contains(got, `"`+userClaudeHook+`"`) {
+		t.Errorf("init wrote a hook entry:\n%s", got)
 	}
 	for _, cmd := range otherCmds {
 		if !strings.Contains(got, `"command": "`+cmd+`"`) {
 			t.Errorf("the user's entry %q is gone:\n%s", cmd, got)
 		}
 	}
-	hooks := read(t, e.base, ".cursor/hooks.json")
-	if strings.Contains(hooks, "/old/bin") || strings.Count(hooks, userCursorHook) != 6 {
-		t.Errorf("cursor hooks.json after the run:\n%s", hooks)
-	}
-
-	// Uninstall: init's entries go, the stale-shaped ones with them, the user's stay.
-	mustRun(t, uninstall(o))
-	left := read(t, e.base, ".claude/settings.json")
-	if strings.Contains(left, userClaudeHook) {
-		t.Errorf("uninstall left init's entry:\n%s", left)
-	}
 	var parsed struct {
 		Hooks map[string][]json.RawMessage `json:"hooks"`
 	}
-	if err := json.Unmarshal([]byte(left), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(parsed.Hooks["PreToolUse"]); n != len(others) {
-		t.Errorf("PreToolUse holds %d entries after uninstall; want the user's %d:\n%s", n, len(others), left)
+		t.Errorf("PreToolUse holds %d entries; want the user's %d:\n%s", n, len(others), got)
 	}
-	if exists(e.base, ".cursor/hooks.json") {
-		t.Errorf("cursor hooks.json held only init's entries and was not deleted:\n%s", read(t, e.base, ".cursor/hooks.json"))
+	if ch := statusOf(t, res, filepath.ToSlash(filepath.Join(e.dirs.Cursor, "hooks.json"))); ch.Status != Deleted || exists(e.base, ".cursor/hooks.json") {
+		t.Errorf("cursor hooks.json held only init's entries: %s, exists %v; want deleted", ch.Status, exists(e.base, ".cursor/hooks.json"))
+	}
+
+	// Uninstall leaves the user's entries as the install did.
+	mustRun(t, uninstall(o))
+	if left := read(t, e.base, ".claude/settings.json"); strings.Contains(left, userClaudeHook) {
+		t.Errorf("uninstall left init's entry:\n%s", left)
 	}
 }
 
@@ -567,16 +553,15 @@ func TestUserOpenCodeJSONCIsRefused(t *testing.T) {
 	}
 }
 
-// A custom state root travels in Cursor's server entry and in the hook commands, as in a
-// project (ADR-0061 §3), and Claude's own MCP entry carries none (not observed to lose it).
+// A custom state root travels in Cursor's server entry, as in a project, and Claude's own
+// MCP entry carries none (not observed to lose it).
 func TestUserRunCarriesACustomStateRoot(t *testing.T) {
 	e := newUserEnv(t)
 	o := e.opts(e.claude(t), Cursor, Claude)
 	o.StateDir = "/var/state dir"
 	res := mustRun(t, o)
-	hook := "DROIDYARD_STATE_DIR='/var/state dir' " + userClaudeHook
-	if res.Hooks[Claude] != hook {
-		t.Errorf("claude hook = %q; want %q", res.Hooks[Claude], hook)
+	if len(res.Allowed[Claude]) == 0 {
+		t.Errorf("Allowed = %v", res.Allowed)
 	}
 	if got := read(t, e.base, ".cursor/mcp.json"); !strings.Contains(got, `"DROIDYARD_STATE_DIR": "/var/state dir"`) || !strings.Contains(got, `${workspaceFolder}`) {
 		t.Errorf("cursor mcp.json:\n%s", got)

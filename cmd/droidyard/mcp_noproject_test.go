@@ -222,6 +222,41 @@ func TestMCPFrom(t *testing.T) {
 	})
 }
 
+// worktreeRepo is a git repository with one commit holding a.txt and a Gradle settings
+// file (at the top, or only in dev/ for the ADR-0075 layout), under a fresh canonical
+// directory; it returns that directory and the main tree.
+func worktreeRepo(t *testing.T, settingsInDev bool) (base, main string) {
+	t.Helper()
+	base = platform.Current().Canonical(t.TempDir())
+	main = filepath.Join(base, "M")
+	settings := filepath.Join(main, "settings.gradle.kts")
+	if settingsInDev {
+		settings = filepath.Join(main, "dev", "settings.gradle.kts")
+	}
+	for _, f := range []string{settings, filepath.Join(main, "a.txt")} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, main, "init", "-q", "-b", "main")
+	gitIn(t, main, "add", ".")
+	gitIn(t, main, "commit", "-q", "-m", "one")
+	return base, main
+}
+
+// addWT adds a linked worktree of main at path and returns it canonical.
+func addWT(t *testing.T, main, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, main, "worktree", "add", "-q", "-b", filepath.Base(path), path)
+	return platform.Current().Canonical(path)
+}
+
 // TestMCPInALinkedWorktreeBindsTheWorktree holds that with no --root a session started
 // in a `git worktree add` worktree is bound to that worktree, whose mainRoot is the main
 // tree (ADR-0082 §6): the project of the cwd, not the main tree.

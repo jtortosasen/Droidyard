@@ -408,11 +408,11 @@ func TestInitOnTheCommandLine(t *testing.T) {
 	})
 }
 
-// TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot: the hook entry runs this
-// binary with --root, and writes the state root inline when init's own came from
-// DROIDYARD_STATE_DIR (set here by droidyardIn), since a client's hook environment lacks
-// it and the hook would otherwise dial another daemon (ADR-0061 §3, §5). init prints it.
-func TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot(t *testing.T) {
+// TestInitWritesNoHook: init (ADR-0137) writes no hook entry and prints none, for a project
+// run with a custom state root as for any; Cursor's server entry still carries the state
+// root. Seen failing before the step: .cursor/hooks.json was written and init printed
+// "The claude hook".
+func TestInitWritesNoHook(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
 	proj := projectDir(t)
@@ -420,36 +420,19 @@ func TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("init exited %d:\n%s", code, out)
 	}
-	exe, _ := filepath.Abs(os.Args[0])
-	for _, c := range []struct{ client, file string }{{"claude", ".claude/settings.json"}, {"cursor", ".cursor/hooks.json"}} {
-		raw, err := os.ReadFile(filepath.Join(proj, c.file))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var found string
-		for _, line := range strings.Split(string(raw), "\n") {
-			if strings.Contains(line, "hook --client "+c.client) {
-				found = line
-				break
-			}
-		}
-		prefix := "DROIDYARD_STATE_DIR=" + filepath.Clean(state) + " "
-		i := strings.Index(found, prefix)
-		if i < 0 || !strings.HasSuffix(strings.TrimRight(found, `",`), " hook --client "+c.client+" --root "+proj) {
-			t.Fatalf("%s: %q; want %s<binary> hook --client %s --root %s", c.file, found, prefix, c.client, proj)
-		}
-		bin := strings.TrimPrefix(strings.TrimRight(found, `",`)[i+len(prefix):], "")
-		bin = strings.Fields(bin)[0]
-		if !sameFile(bin, exe) {
-			t.Errorf("%s: the hook runs %s; want this binary %s", c.file, bin, exe)
-		}
-		if !strings.Contains(out, "The "+c.client+" hook") {
-			t.Errorf("init does not print the %s hook it wrote:\n%s", c.client, out)
-		}
+	if _, err := os.Stat(filepath.Join(proj, ".cursor/hooks.json")); err == nil {
+		t.Error("init wrote .cursor/hooks.json")
+	}
+	raw, err := os.ReadFile(filepath.Join(proj, ".claude/settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "hook") || strings.Contains(out, " hook") {
+		t.Errorf("init names a hook:\n%s\n%s", raw, out)
 	}
 	// Cursor rebuilds its MCP servers' environment too, so the server entry carries the
 	// state root as env (plan m2r step 5, row 199).
-	raw, err := os.ReadFile(filepath.Join(proj, ".cursor/mcp.json"))
+	raw, err = os.ReadFile(filepath.Join(proj, ".cursor/mcp.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,5 +446,61 @@ func TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot(t *testing.T) {
 	}
 	if got := mcp.Servers["droidyard"].Env["DROIDYARD_STATE_DIR"]; got != filepath.Clean(state) {
 		t.Errorf(".cursor/mcp.json: the droidyard entry's env names state root %q; want %q:\n%s", got, filepath.Clean(state), raw)
+	}
+}
+
+// TestInitRemovesItsHooks holds plan m3j Q4 on the real binary: a project whose settings.json
+// and hooks.json hold the entries an earlier init wrote (one of this binary, one of an old
+// path with the state root inline) beside a user's own hook is, after init, without init's and
+// with the user's, and init says which files lost entries; init --uninstall and a second init
+// leave it as it is. Seen failing without the cleanup: the entries stayed and the output said
+// nothing.
+func TestInitRemovesItsHooks(t *testing.T) {
+	t.Parallel()
+	state := shortDir(t)
+	proj := projectDir(t)
+	// An absolute path whose base name is droidyard, as init's shape needs (the test binary
+	// is called droidyard.test).
+	exe := "/opt/bin/droidyard"
+	claudeCmd := func(c string) string {
+		return `{"matcher":"Bash","hooks":[{"type":"command","command":` + quoteJSON(c) + `}]}`
+	}
+	mine := `{"matcher":"Bash","hooks":[{"type":"command","command":"my-own-hook"}]}`
+	write := func(rel, content string) {
+		p := filepath.Join(proj, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".claude/settings.json", `{"model":"x","hooks":{"PreToolUse":[`+
+		claudeCmd(exe+" hook --client claude --root "+proj)+`,`+mine+`,`+
+		claudeCmd("DROIDYARD_STATE_DIR=/old/state /old/bin/droidyard hook --client claude --root "+proj)+`]}}`)
+	write(".cursor/hooks.json", `{"version":1,"hooks":{"beforeShellExecution":[{"command":`+quoteJSON(exe+" hook --client cursor --root "+proj)+`},{"command":"my-own-hook"}]}}`)
+
+	out, code := initRun(t, state, proj, "--client", "claude,cursor", "--root", proj)
+	if code != 0 {
+		t.Fatalf("init exited %d:\n%s", code, out)
+	}
+	for _, rel := range []string{".claude/settings.json", ".cursor/hooks.json"} {
+		raw, err := os.ReadFile(filepath.Join(proj, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "droidyard hook") || strings.Contains(string(raw), "hook --client") {
+			t.Errorf("%s still holds init's hook:\n%s", rel, raw)
+		}
+		if !strings.Contains(string(raw), "my-own-hook") {
+			t.Errorf("%s lost the user's own hook:\n%s", rel, raw)
+		}
+		if !strings.Contains(out, "removed") || !strings.Contains(out, rel) {
+			t.Errorf("init does not report the removal in %s:\n%s", rel, out)
+		}
+	}
+	if raw, _ := os.ReadFile(filepath.Join(proj, ".claude/settings.json")); !strings.Contains(string(raw), `"model"`) {
+		t.Errorf("a key of the user's is gone:\n%s", raw)
+	}
+	if again, code := initRun(t, state, proj, "--client", "claude,cursor", "--root", proj); code != 0 || strings.Contains(again, "removed ") && strings.Contains(again, "stale") {
+		t.Errorf("a second init (exit %d) removes more:\n%s", code, again)
 	}
 }

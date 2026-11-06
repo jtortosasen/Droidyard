@@ -231,10 +231,8 @@ func handCommands(ct *cmdTree) []handCommand {
 			run: stdio(joinCmd)},
 		{name: "init", summary: "Set a project up for coding assistants (optional).", help: initHelp,
 			run: stdio(initCmd)},
-		{name: "hook", summary: "Answer one coding assistant's hook event (run by an assistant's hook entry).", help: hookHelp, ownHelp: true,
+		{name: "hook", summary: "Pass one coding assistant's hook event (kept one minor for old init entries).", help: hookHelp, ownHelp: true,
 			run: func(args []string) int { return hook(args, os.Stdin, os.Stdout, os.Stderr) }},
-		{name: "trash", summary: "Move files to the project's trash, where they can be restored.", help: trashHelp, ownHelp: true,
-			run: stdio(trashCmd)},
 		{name: "artifact cat", summary: "Write a text artifact's bytes to standard output, unchanged.", help: artifactCatHelp,
 			run: func(args []string) int {
 				return artifactCmd(append([]string{"cat"}, args...), os.Stdout, os.Stderr)
@@ -278,7 +276,7 @@ With no command, droidyard prints this help.
 droidyard help <command> shows a command's own help; droidyard <domain> --help lists
 a domain's verbs.`}}
 	after = []cli.Section{
-		{Title: "Project", Body: list("trust", "init", "trash")},
+		{Title: "Project", Body: list("trust", "init")},
 		{Title: "The daemon", Body: list("serve", "status", "stop", "id", "version")},
 		{Title: "Assistants", Body: list("mcp", "hook")},
 		{Title: "Sharing devices", Body: list("share", "unshare", "join", "host", "remote", "device allow", "device disallow")},

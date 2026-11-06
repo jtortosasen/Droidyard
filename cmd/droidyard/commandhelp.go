@@ -147,8 +147,8 @@ const initHelp = `droidyard init --client cursor|claude|opencode|all [--user | [
 
 Set a project up for coding assistants (optional; every tool works without it).
 Writes the droidyard-android skill and, per client, the MCP server entry and an allowlist
-of the read-only tools, naming this binary by its absolute path; for claude and cursor
-also the entries that run droidyard hook, before a shell command and after one.
+of the read-only tools, naming this binary by its absolute path. It writes no hook, and
+removes the hook entries an earlier init wrote (its own only; yours stay), saying so per file.
 It merges into existing files, keeps an existing droidyard entry, and refuses a file it
 cannot parse. --uninstall removes what init would write; --dry-run prints the changes and
 writes none.
@@ -170,26 +170,10 @@ No daemon is involved or started.
 
 const hookHelp = `droidyard hook --client claude|cursor [--root <absolute project root>]
 
-Answer one coding assistant's hook event (run by an assistant's hook entry).
-Before a shell command, a simple rm inside the root is denied with the command that moves
-the files to droidyard's trash instead; anything else passes.
-After one, a gradlew, gradle, adb, emulator, sdkmanager or avdmanager command gets a hint
-naming the droidyard tool that does the same, when there is one, and is recorded in
-Activity if a daemon is running; nothing else is read or kept. It reads the event on
-stdin, answers within 2 s, never starts a daemon, deletes nothing, denies nothing after a
-command, and lets the command through whenever it cannot decide.
-Without --root (an entry init --user wrote) the project is the folder the assistant names
-as its own; outside a project, or where that folder has init's own hook, every event passes.
-`
-
-const trashHelp = `droidyard trash [--state-dir <dir>] [--root <abs>] [-r|-R|-f ...] [--] <path>...
-
-Move files to the project's trash, where they can be restored (what a denied rm is handed;
-usable by hand).
-Paths resolve against the current directory; the root is --root, else the project root of
-the current directory. Every path is checked before any moves.
-It needs a running daemon and never starts one. Exits 0 only when every path is trashed; a
-refusal prints the rm command that deletes without the trash.
+Pass one coding assistant's hook event: exit 0 and the client's pass-through, with no
+daemon dialled and nothing read or written. Droidyard no longer uses hooks; the command
+stays for one minor release so the entries an earlier init wrote do not fail. Run
+droidyard init (or init --user) once to remove them.
 `
 
 const artifactCatHelp = `droidyard artifact cat <ref> > dump.xml

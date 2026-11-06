@@ -1,7 +1,8 @@
 // Package assistant writes droidyard's integration with the coding assistants into a
 // user's project (ADR-0037, ADR-0038): the droidyard-android skill, and per client the
-// MCP server entry, an allowlist of the read-only tools and, for Claude Code and Cursor,
-// the entry that runs `droidyard hook` (ADR-0061). It writes no AGENTS.md or CLAUDE.md. `droidyard init` is its only caller.
+// MCP server entry and an allowlist of the read-only tools. It writes no hook (ADR-0137)
+// and removes the hook entries an earlier init wrote (hookcleanup.go). It writes no
+// AGENTS.md or CLAUDE.md. `droidyard init` is its only caller.
 // With Options.User the same integration goes once into the user's own configuration
 // instead, with no root in any entry (ADR-0124; user.go).
 //
@@ -11,10 +12,10 @@
 // that does not parse is refused and left as it is. --uninstall removes only what is
 // equal, after parsing, to what the same run would write now. Every write goes through
 // a temporary file and a rename, and no path may leave the project root. Two kinds of
-// stale entry of init's own are recognised by shape and replaced or removed (ADR-0090):
-// a hook entry whose command is `[DROIDYARD_STATE_DIR=<abs> ]<abs>/droidyard hook
-// --client <this client> --root <this root>` with any binary path, in the matcher shape
-// init writes; and an allow rule for a retired tool. Anything else, a wrapper around the
+// stale entry of init's own are recognised by shape and removed (ADR-0090): a hook entry
+// whose command is `[DROIDYARD_STATE_DIR=<abs> ]<abs>/droidyard hook --client <this
+// client> --root <this root>` with any binary path, in the matcher shape init once wrote;
+// and an allow rule for a retired tool. Anything else, a wrapper around the
 // hook, another root or client, an extra word or key, is the user's and stays. The skill's
 // files are init's own and refreshed when they differ: a user's edits there are
 // replaced (reported "updated"), while --uninstall keeps a differing one.
@@ -87,8 +88,7 @@ type Options struct {
 	// launched from a GUI has no shell PATH (ADR-0019 §Processes 8).
 	Command string
 	// StateDir is the state root, an absolute path, when init's own came from
-	// DROIDYARD_STATE_DIR: the hook entries carry it inline (ADR-0061 §3). "" for the
-	// default root.
+	// DROIDYARD_STATE_DIR: Cursor's server entry carries it. "" for the default root.
 	StateDir string
 	Clients  []Client
 	// Tools are the MCP names of the read-only tools to allowlist, chosen by the caller
@@ -125,8 +125,6 @@ type Result struct {
 	Changes []Change
 	// Allowed are the permission strings written for each client that has an allowlist.
 	Allowed map[Client][]string
-	// Hooks are the hook command lines written for each client that has one.
-	Hooks map[Client]string
 }
 
 // Refused reports whether any file was refused: the run did everything else it could.
@@ -217,12 +215,7 @@ func Run(o Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Allowed: allowed, Hooks: map[Client]string{}}
-	for _, c := range o.Clients {
-		if hasHook(c) {
-			res.Hooks[c] = HookCommand(o, c)
-		}
-	}
+	res := Result{Allowed: allowed}
 	for _, j := range jobs {
 		res.Changes = append(res.Changes, run(o, root, j))
 	}
@@ -282,7 +275,9 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		// when it is all that is left of permissions (plan m1o step 9, close review B1).
 		spec.keys = append(spec.keys, keyEntry{path: []string{"permissions"}, key: "deny", value: rawJSON([]string{}), sole: true})
 		jobs = append(jobs, jsonJob(".cursor/cli.json", spec))
-		jobs = append(jobs, jsonJob(".cursor/hooks.json", cursorHookSpec(o)))
+		if !root.absent(".cursor/hooks.json") {
+			jobs = append(jobs, cursorHooksFile(".cursor/hooks.json", o.Root))
+		}
 	}
 	if has(o.Clients, Claude) {
 		jobs = append(jobs, jsonJob(".mcp.json", serverSpec))
@@ -290,8 +285,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		spec.arrays = append(spec.arrays, claudeHookArrays(o)...)
-		jobs = append(jobs, jsonJob(".claude/settings.json", spec))
+		jobs = append(jobs, withHookCleanup(jsonJob(".claude/settings.json", spec), claudeHookCleanup(o.Root)))
 	}
 	if has(o.Clients, OpenCode) {
 		entry := rawJSON(openCodeServer{

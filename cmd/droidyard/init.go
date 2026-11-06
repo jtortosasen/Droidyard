@@ -229,8 +229,8 @@ func flagClash(user, root, exclude, gitignore bool) string {
 	return ""
 }
 
-// initInputs are what every run of init writes: the binary entries run, the state root a
-// client's hook environment lacks, and the read-only tools. A non-zero code is the exit.
+// initInputs are what every run of init writes: the binary entries run, the state root
+// Cursor's server entry carries, and the read-only tools. A non-zero code is the exit.
 func initInputs(errw io.Writer) (command, stateDir string, tools []string, code int) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -242,8 +242,8 @@ func initInputs(errw io.Writer) (command, stateDir string, tools []string, code 
 		fmt.Fprintln(errw, "droidyard init:", err)
 		return "", "", nil, 1
 	}
-	// A client's hook environment lacks DROIDYARD_STATE_DIR, so a custom state root is
-	// written into the hook command (ADR-0061 §3).
+	// Cursor rebuilds the server's environment, so a custom state root is written into its
+	// entry.
 	if env := platform.Current(); env.Getenv("DROIDYARD_STATE_DIR") != "" {
 		if stateDir, err = env.StateDir(); err != nil {
 			fmt.Fprintln(errw, "droidyard init:", err)
@@ -423,11 +423,6 @@ func printInit(w io.Writer, target, command string, res assistant.Result, tools 
 	}
 	if uninstall {
 		return
-	}
-	for _, c := range assistant.Clients() {
-		if cmd, ok := res.Hooks[c]; ok {
-			fmt.Fprintf(w, "The %s hook, which, when a daemon runs, sends an agent's simple rm inside the project to droidyard's trash and records the agent's Android commands in Activity, and hints at the droidyard tool for them, runs: %s\n", c, cmd)
-		}
 	}
 	if len(res.Allowed) == 0 {
 		return

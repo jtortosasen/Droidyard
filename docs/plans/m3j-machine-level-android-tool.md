@@ -87,7 +87,7 @@
 - Needs: step 2.
 - Not here: a replacement for the edits guard and the `rm` redirect (ADR-0137 §Consequences); files already in the state directory's trash stay where they are, unread (a register row and a release-note line, step 9).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: schema 339 lines out, none in: the three `agent.*` (audience `human`, so `Instructions`, `CoreTools`, the skill, the tool count 48 and `maxToolListBytes` unchanged; no error code retired). `TestInstalledHookPasses` (46 event shapes of both clients → exit 0, the pass output, no stderr, 0 dials of a live fake daemon, the project and state root unchanged; a stdin that never ends holds it at most `hookDrainLimit`), seen failing with the hook made to dial (46 of 46) and to read stdin to the end (killed at 10 s); the main session added the bounded drain (1 s, 4 MiB), so a client's write of the event never meets a closed pipe. `TestInitRemovesItsHooks` (the real binary on fixture `settings.json` and `hooks.json`: init's entries, two binary paths, one with the state root inline, go; the user's own stay; the removal reported), and `assistant`'s `TestInitRemovesItsHooksFromTheProject`, `TestUserRunRemovesItsHooks`, seen failing with the cleanup stubbed; `TestInitWritesNoHook` not seen failing (the old writers are gone); `TestTrashIsNotACommand` (exit 2, unknown), seen failing with a stub `trash`; `TestOldSpellings` 20 names. The four commands clean; `go test ./...` 41 packages ok.
 
 ### 4. Remove Git, files, `shell.exec`, sessions and chats
 
