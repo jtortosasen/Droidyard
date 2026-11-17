@@ -126,6 +126,15 @@ type gradleSeam struct {
 // registry and puts them back, all under the lock.
 var adbSeamMu sync.Mutex
 
+// seamedRegistry is registry() for a test that reads the shipped seams as they are: under
+// adbSeamMu, so a parallel daemon setting its own cannot race the read (CI's race job,
+// 2026-11-17: TestOldSpellings against TestArtifactCatSaysNothingOfATrustedArtifact).
+func seamedRegistry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *hosting.Host, *workspace.Registry) {
+	adbSeamMu.Lock()
+	defer adbSeamMu.Unlock()
+	return registry(env, st, sup, log)
+}
+
 // startInProcessADB is startInProcessAt with the adb the daemon is given; nil leaves the
 // seal TestMain put on the package (no adb to find). extra sees the daemon's
 // environment, so a test can build what the daemon itself derives from it.
