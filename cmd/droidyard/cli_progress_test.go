@@ -90,14 +90,18 @@ func (f *progressFixture) reportedAfterHook(t *testing.T, report int) {
 }
 
 var (
+	requestIDRE   = regexp.MustCompile(`^\{"id":"cli-[^"]*"`)
 	operationIDRE = regexp.MustCompile(`"operation":\{"id":"[^"]*"`)
 	durationRE    = regexp.MustCompile(`"durationMs":\d+`)
 )
 
 // withoutRunIdentity is an envelope line without what differs between two runs of the same
-// call: the operation's id and its duration.
+// call: the request's id, the operation's id and its duration. The request's id is the
+// start's (cli-1) when the operation had ended by the start's answer, else the wait's
+// (cli-2): which one depends on how fast the fixture ran, not on the CLI.
 func withoutRunIdentity(line []byte) string {
-	s := operationIDRE.ReplaceAllString(string(line), `"operation":{"id":"-"`)
+	s := requestIDRE.ReplaceAllString(string(line), `{"id":"-"`)
+	s = operationIDRE.ReplaceAllString(s, `"operation":{"id":"-"`)
 	return durationRE.ReplaceAllString(s, `"durationMs":0`)
 }
 
