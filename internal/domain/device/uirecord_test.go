@@ -323,6 +323,30 @@ func TestRecordDumpsAfterTheLastEventOfABurst(t *testing.T) {
 	}
 }
 
+// Decision (ADR-0113 §1: due when an event came after the previous dump's request): the device
+// clock is known to the millisecond and the recorder's reading of it is a lower bound, so an
+// event stamped in the millisecond of the request may have come after it and makes a dump due.
+// The event here is stamped exactly at the start dump's `time`. Seen failing with the strict
+// comparison (no second dump came: the cmd/droidyard tests' "timed out waiting for the host's
+// dump 3", whose click followed the dump within its millisecond).
+func TestRecordDumpsForAnEventInTheRequestsMillisecond(t *testing.T) {
+	f := newRecFix(t, recDoc("A"), recDoc("B"))
+	rec := f.start(t, recParams)
+	dumps := ofKind(f.timeline(t, rec.ID), "dump")
+	if len(dumps) != 1 {
+		t.Fatalf("the timeline holds %d dumps after the start, want 1", len(dumps))
+	}
+	at, err := time.Parse("2006-01-02T15:04:05.000Z", dumps[0].str("time"))
+	if err != nil {
+		t.Fatalf("the start dump's time %q: %v", dumps[0].str("time"), err)
+	}
+	ev := recEvent(1)
+	ev.TimeMs = at.UnixMilli()
+	f.r.AddEvents(ev)
+	f.until(t, "a dump for the event in the request's millisecond", func(r UIRecording) bool { return r.Dumps == 2 })
+	f.stop(t)
+}
+
 // Decision (ADR-0113 §1: the gap since the previous dump ended is 100 ms, doubled after each
 // dump identical to the one before up to 2 s, reset by a stored dump): with events arriving
 // all the time, the requests are at least 40, 80, 160, 320 and 640 ms apart while the dumps

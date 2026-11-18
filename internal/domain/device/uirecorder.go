@@ -541,7 +541,9 @@ func (r *uiRecorder) pollEvents(ctx context.Context, reach *eventsReach, pages i
 			r.bump(func(rec *UIRecord) { rec.Events++ })
 			r.base = ev.Seq
 			last = ev.Seq
-			if ev.TimeMs > r.lastReqDev {
+			// The clock is to the millisecond and lastReqDev a lower bound of it (clockNow): an
+			// event in the request's millisecond may have come after the request, so it counts.
+			if ev.TimeMs >= r.lastReqDev {
 				r.markChanged()
 			}
 		}
